@@ -34,5 +34,5 @@ app.MapPost("/webhook/gitlab", async (HttpContext context, IReviewQueue queue, I
 
 app.Run();
 
-// Sichtbar machen für WebApplicationFactory<Program> im Testprojekt.
-public partial class Program { }
+// Hinweis: In .NET 10 ist die generierte Program-Klasse automatisch public,
+// daher von WebApplicationFactory<Program> im Testprojekt direkt nutzbar.
