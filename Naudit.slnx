@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Naudit.Core/Naudit.Core.csproj" />
+    <Project Path="src/Naudit.Infrastructure/Naudit.Infrastructure.csproj" />
+    <Project Path="src/Naudit.Web/Naudit.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Naudit.Tests/Naudit.Tests.csproj" />
+  </Folder>
+</Solution>
