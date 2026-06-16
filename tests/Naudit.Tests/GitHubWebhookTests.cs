@@ -41,4 +41,20 @@ public class GitHubWebhookTests
         var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
         Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
     }
+
+    [Fact]
+    public void ToReviewRequest_returnsNull_whenRepositoryMissing()
+    {
+        var json = """{ "action": "opened", "pull_request": { "number": 1, "title": "x" } }""";
+        var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
+        Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
+    }
+
+    [Fact]
+    public void ToReviewRequest_returnsNull_whenPullRequestMissing()
+    {
+        var json = """{ "action": "opened", "repository": { "full_name": "o/r" } }""";
+        var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
+        Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
+    }
 }
