@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Naudit is a self-hosted .NET code-review bot (POC/MVP). It receives GitLab merge-request
-webhooks, has an LLM review the MR diff via Microsoft.Extensions.AI (MEAI), and posts a single
-summary Markdown comment back to the MR. The AI provider is swappable by configuration alone.
+Naudit is a self-hosted .NET code-review bot (POC/MVP). It receives GitLab or GitHub webhooks,
+has an LLM review the diff via Microsoft.Extensions.AI (MEAI), and posts a single summary
+Markdown comment back to the MR/PR. Both the AI provider and the git platform are swappable
+by configuration alone (`Naudit:Ai:Provider` and `Naudit:Git:Platform`).
 
 ## Commands
 
@@ -45,17 +46,19 @@ Three projects with a strict, deliberate dependency direction:
   expressed as two interfaces: `IChatClient` (from MEAI) and `IGitPlatform`. Keep provider/platform
   SDKs out of this project.
 - **`Naudit.Infrastructure`** — all SDK/HTTP implementations: the AI provider factory
-  (`Ai/AiClientFactory.cs`) and the GitLab client (`Git/GitLab/`). Composition lives in
-  `DependencyInjection.cs` (`AddNauditInfrastructure`), which reads config and registers
-  `IChatClient`, the typed GitLab `HttpClient`, `ReviewOptions`, and `ReviewService`.
-- **`Naudit.Web`** — ASP.NET Minimal API host. The webhook endpoint validates the secret,
-  maps the payload, **enqueues and returns `200` immediately**, then a `ReviewBackgroundService`
-  drains a `Channel`-based `ReviewQueue` and runs each review in its own DI scope. This avoids
-  GitLab's webhook timeout.
+  (`Ai/AiClientFactory.cs`), the GitLab client (`Git/GitLab/`), and the GitHub client
+  (`Git/GitHub/`). Composition lives in `DependencyInjection.cs` (`AddNauditInfrastructure`),
+  which reads `Naudit:Git:Platform` and registers the matching `IGitPlatform` implementation,
+  `IChatClient`, `ReviewOptions`, and `ReviewService`.
+- **`Naudit.Web`** — ASP.NET Minimal API host. Only the webhook endpoint for the configured
+  platform is mapped (`/webhook/gitlab` or `/webhook/github`). The endpoint validates the
+  secret/signature, maps the payload, **enqueues and returns `200` immediately**, then a
+  `ReviewBackgroundService` drains a `Channel`-based `ReviewQueue` and runs each review in
+  its own DI scope. This avoids webhook timeouts.
 
 ### Request flow
 
-`GitLab webhook → /webhook/gitlab (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
+`GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
 → ReviewService` which: `IGitPlatform.GetChangesAsync` → `PromptBuilder.Build` → `IChatClient.GetResponseAsync`
 → `IGitPlatform.PostSummaryAsync`. If there are no changes, nothing is posted.
 
@@ -64,8 +67,13 @@ Three projects with a strict, deliberate dependency direction:
 - **New AI provider:** add a case to the `switch` in `AiClientFactory.Create` returning an
   `IChatClient`. NVIDIA/other OpenAI-compatible endpoints reuse the OpenAI client with a custom
   `Endpoint` — no dedicated adapter. Selection is config-only via `Naudit:Ai:Provider`.
-- **New git platform (e.g. GitHub):** add a second `IGitPlatform` implementation in Infrastructure
-  and wire it in `AddNauditInfrastructure`. No change to Core.
+- **GitHub platform (implemented):** `src/Naudit.Infrastructure/Git/GitHub/` contains
+  `GitHubPlatform` (`IGitPlatform` impl), `GitHubWebhook` (payload mapping + action filter),
+  `GitHubDtos` (JSON DTOs), and `GitHubOptions` (`BaseUrl`, `Token`, `WebhookSecret`).
+  Selection is config-only via `Naudit:Git:Platform` (`GitLab` | `GitHub`; default `GitLab`) —
+  one platform is active per deployment; only its webhook endpoint is mapped. The GitHub endpoint
+  (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over the raw
+  body (fail-closed). No change to Core.
 
 ## Conventions & gotchas
 
@@ -84,7 +92,9 @@ Three projects with a strict, deliberate dependency direction:
 
 ## Testing approach
 
-Core is tested with no network via `Fakes/FakeChatClient` and `Fakes/FakeGitPlatform`. The GitLab
-HTTP client is tested with `Fakes/StubHttpMessageHandler` (asserts URL + body). The webhook endpoint
-is tested with `WebApplicationFactory<Program>` on paths that never reach the LLM or GitLab
-(401 path, non-MR-event path). The real end-to-end path is verified manually (Task 11 in the plan).
+Core is tested with no network via `Fakes/FakeChatClient` and `Fakes/FakeGitPlatform`. Both the
+GitLab and GitHub HTTP clients are tested with `Fakes/StubHttpMessageHandler` (asserts URL + body).
+Webhook mapping and HMAC signature verification are covered by unit tests for both platforms.
+The webhook endpoint is tested with `WebApplicationFactory<Program>` on paths that never reach the
+LLM or a real git platform (401 path, non-MR/PR-event path). The real end-to-end path is verified
+manually (Task 11 in the plan).
