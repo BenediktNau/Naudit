@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Naudit.Infrastructure.Git.GitHub;
 using Xunit;
@@ -56,5 +58,45 @@ public class GitHubWebhookTests
         var json = """{ "action": "opened", "repository": { "full_name": "o/r" } }""";
         var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
         Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
+    }
+
+    private static string Sign(string secret, byte[] body)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return "sha256=" + Convert.ToHexStringLower(hmac.ComputeHash(body));
+    }
+
+    [Fact]
+    public void IsValidSignature_acceptsCorrectSignature()
+    {
+        var body = Encoding.UTF8.GetBytes("""{"hello":"world"}""");
+        var header = Sign("topsecret", body);
+
+        Assert.True(GitHubWebhook.IsValidSignature(body, "topsecret", header));
+    }
+
+    [Fact]
+    public void IsValidSignature_rejectsWrongSecret()
+    {
+        var body = Encoding.UTF8.GetBytes("""{"hello":"world"}""");
+        var header = Sign("topsecret", body);
+
+        Assert.False(GitHubWebhook.IsValidSignature(body, "other-secret", header));
+    }
+
+    [Fact]
+    public void IsValidSignature_rejectsMissingOrMalformedHeader()
+    {
+        var body = Encoding.UTF8.GetBytes("x");
+        Assert.False(GitHubWebhook.IsValidSignature(body, "topsecret", null));
+        Assert.False(GitHubWebhook.IsValidSignature(body, "topsecret", "not-a-signature"));
+        Assert.False(GitHubWebhook.IsValidSignature(body, "topsecret", "sha256=zzzz"));
+    }
+
+    [Fact]
+    public void IsValidSignature_rejectsEmptySecret_failClosed()
+    {
+        var body = Encoding.UTF8.GetBytes("x");
+        Assert.False(GitHubWebhook.IsValidSignature(body, "", Sign("", body)));
     }
 }
