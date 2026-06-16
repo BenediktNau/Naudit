@@ -41,6 +41,7 @@ public static class GitHubWebhook
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
         var computed = hmac.ComputeHash(body);
 
+        // Längen-Check zuerst: FixedTimeEquals wirft bei ungleicher Länge; computed ist immer 32 Byte und nicht geheim.
         return expected.Length == computed.Length && CryptographicOperations.FixedTimeEquals(computed, expected);
     }
 }

@@ -63,7 +63,7 @@ public class GitHubWebhookTests
     private static string Sign(string secret, byte[] body)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        return "sha256=" + Convert.ToHexStringLower(hmac.ComputeHash(body));
+        return "sha256=" + Convert.ToHexStringLower(hmac.ComputeHash(body)); // Kleinbuchstaben wie GitHub im X-Hub-Signature-256-Header liefert.
     }
 
     [Fact]
@@ -85,12 +85,34 @@ public class GitHubWebhookTests
     }
 
     [Fact]
-    public void IsValidSignature_rejectsMissingOrMalformedHeader()
+    public void IsValidSignature_rejectsNullHeader()
     {
         var body = Encoding.UTF8.GetBytes("x");
         Assert.False(GitHubWebhook.IsValidSignature(body, "topsecret", null));
+    }
+
+    [Fact]
+    public void IsValidSignature_rejectsMissingPrefix()
+    {
+        var body = Encoding.UTF8.GetBytes("x");
         Assert.False(GitHubWebhook.IsValidSignature(body, "topsecret", "not-a-signature"));
+    }
+
+    [Fact]
+    public void IsValidSignature_rejectsMalformedHex()
+    {
+        var body = Encoding.UTF8.GetBytes("x");
         Assert.False(GitHubWebhook.IsValidSignature(body, "topsecret", "sha256=zzzz"));
+    }
+
+    [Fact]
+    public void IsValidSignature_rejectsTamperedBody()
+    {
+        var original = Encoding.UTF8.GetBytes("""{"ref":"main"}""");
+        var tampered = Encoding.UTF8.GetBytes("""{"ref":"evil"}""");
+        var header = Sign("topsecret", original);
+
+        Assert.False(GitHubWebhook.IsValidSignature(tampered, "topsecret", header));
     }
 
     [Fact]
