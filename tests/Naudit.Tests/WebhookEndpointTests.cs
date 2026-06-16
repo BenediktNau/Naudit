@@ -86,4 +86,28 @@ public class WebhookEndpointTests : IClassFixture<WebApplicationFactory<Program>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GitHubWebhook_withWrongSignature_returnsUnauthorized()
+    {
+        var client = _factory
+            .WithWebHostBuilder(b =>
+            {
+                b.UseSetting("Naudit:Git:Platform", "GitHub");
+                b.UseSetting("Naudit:GitHub:WebhookSecret", "gh-secret");
+            })
+            .CreateClient();
+
+        const string body = """{ "action": "opened" }""";
+        var message = new HttpRequestMessage(HttpMethod.Post, "/webhook/github")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        message.Headers.Add("X-GitHub-Event", "pull_request");
+        message.Headers.Add("X-Hub-Signature-256", SignGitHub("wrong-secret", body));
+
+        var response = await client.SendAsync(message);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 }

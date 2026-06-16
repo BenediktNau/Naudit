@@ -18,7 +18,7 @@ The solution file is `Naudit.slnx` (the XML solution format) — **not** `Naudit
 dotnet build Naudit.slnx
 dotnet test  Naudit.slnx                 # full suite
 
-# Run the host (webhook on /webhook/gitlab, liveness on /health)
+# Run the host (webhook on /webhook/gitlab|github depending on Naudit:Git:Platform, liveness on /health)
 dotnet run --project src/Naudit.Web
 
 # Single test class
