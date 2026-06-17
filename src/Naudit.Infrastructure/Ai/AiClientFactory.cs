@@ -13,7 +13,14 @@ public static class AiClientFactory
         {
             case AiProvider.Ollama:
                 var baseUrl = string.IsNullOrWhiteSpace(options.Endpoint) ? "http://localhost:11434" : options.Endpoint;
-                return new OllamaApiClient(new Uri(baseUrl), options.Model);
+                // Eigener HttpClient: der OllamaApiClient-Default-HttpClient hat 100 s Timeout — zu kurz
+                // für große Diffs / Thinking-Modelle. BaseAddress ist beim HttpClient-Ctor Pflicht.
+                var ollamaHttp = new HttpClient
+                {
+                    BaseAddress = new Uri(baseUrl),
+                    Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds),
+                };
+                return new OllamaApiClient(ollamaHttp, options.Model);
 
             case AiProvider.Anthropic:
                 RequireApiKey(options, "Anthropic");
