@@ -43,7 +43,8 @@ erst rot wird.
   Build-Artefakte aus — hält den Build-Context klein und deterministisch.
 
 ### 3. `.github/workflows/release.yml`
-- **Trigger:** `push` auf `main`; zusätzlich `workflow_dispatch` (manueller Trockenlauf).
+- **Trigger:** `push` auf `main`; zusätzlich `workflow_dispatch` (manuelles Auslösen — **kein**
+  Trockenlauf, erzeugt ein echtes Release).
 - **Permissions:** `contents: write` (Tag + Release), `packages: write` (ghcr-Push).
 - **Ein Job `release` (Ubuntu, fail-fast, sequenziell):**
   1. `actions/checkout` mit `fetch-depth: 0` (Tags verfügbar).
@@ -78,8 +79,9 @@ PR-Merge auf main ──▶ release.yml:
 ## Tests / Verifikation
 - **Dockerfile lokal:** `docker build -t naudit:dev .` baut durch; `docker run -p 8080:8080 naudit:dev`
   startet, `GET /health` → `healthy`.
-- **release.yml trocken:** via `workflow_dispatch` auf einem Branch laufen lassen, bevor der erste
-  echte Merge passiert (prüft Versionslogik + Push-Permissions, ohne auf einen Merge zu warten).
+- **release.yml:** wird beim ersten Merge auf `main` real ausgeführt (Versionslogik + ghcr-Push +
+  Tag/Release). `workflow_dispatch` ist **kein** Trockenlauf — ein Dispatch erzeugt ebenfalls ein
+  echtes Release; daher nicht vor dem gewünschten ersten Release auslösen.
 - **ci.yml:** wird durch den PR dieses Features selbst das erste Mal ausgeführt.
 
 ## Bewusste Grenzen / Non-Goals
