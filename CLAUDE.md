@@ -56,6 +56,12 @@ Three projects with a strict, deliberate dependency direction:
   `ReviewBackgroundService` drains a `Channel`-based `ReviewQueue` and runs each review in
   its own DI scope. This avoids webhook timeouts.
 
+  Additionally, a synchronous `POST /review` endpoint (always mapped) lets a CI/CD pipeline trigger
+  a review directly instead of via webhook: it authenticates an `X-Naudit-Token` header (constant-time)
+  against the active platform's `WebhookSecret`, runs the review **inline** (bypassing the queue),
+  and returns `{ "verdict": "approve" | "request_changes" }` so the job can gate the merge. See
+  `docs/ci-integration.md`.
+
 ### Request flow
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
