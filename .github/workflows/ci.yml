@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Naudit.slnx
+
+      - name: Build
+        run: dotnet build Naudit.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Naudit.slnx -c Release --no-build
