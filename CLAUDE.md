@@ -91,6 +91,13 @@ test gate → `.github/scripts/next-version.sh` computes the next SemVer patch v
 release). `workflow_dispatch` is **not** a dry run — it performs a real release like a merge.
 Deployment is done by Coolify itself; no deploy step in CI. No app-code change.
 
+Hardening on top of that: actions pinned to commit SHAs and base images pinned by digest;
+the image is Trivy-scanned (fail on CRITICAL/HIGH, `ignore-unfixed`) **before** the push;
+`release.yml` has `paths-ignore` (`**.md`, `docs/**`) so docs-only merges cut no release; the
+release also attaches self-contained `linux-x64`/`win-x64` single-file binaries. `.github/dependabot.yml`
+tracks `github-actions`, `nuget`, and `docker` with a cooldown grace period. Deployment details and the
+full Coolify env template live in `docs/deployment.md`.
+
 ## Conventions & gotchas
 
 - **TDD workflow.** Work follows `docs/superpowers/plans/2026-06-16-naudit-codereview-bot.md`
