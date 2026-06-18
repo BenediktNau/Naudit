@@ -1,15 +1,16 @@
-# CI/CD-Integration über `POST /review`
+# CI/CD integration via `POST /review`
 
-Alternativ (oder ergänzend) zum Webhook kann eine Pipeline Naudit aktiv triggern. Der Endpoint
-läuft **synchron**: er reviewt den MR/PR inline, postet den Kommentar und antwortet mit dem Verdict.
+As an alternative (or complement) to the webhook, a pipeline can trigger Naudit actively. The
+endpoint runs **synchronously**: it reviews the MR/PR inline, posts the comment, and responds
+with the verdict.
 
-- **Auth:** Header `X-Naudit-Token`, verglichen gegen das `WebhookSecret` der aktiven Plattform
-  (`Naudit:GitLab:WebhookSecret` bzw. `Naudit:GitHub:WebhookSecret`). In der CI als maskierte
-  Variable hinterlegen.
+- **Auth:** header `X-Naudit-Token`, compared against the active platform's `WebhookSecret`
+  (`Naudit:GitLab:WebhookSecret` or `Naudit:GitHub:WebhookSecret`). Store it as a masked
+  variable in CI.
 - **Body:** `{ "projectId": "<id|owner/repo>", "mergeRequestIid": <int>, "title": "<text>" }`.
-- **Antwort:** `200` mit `{ "verdict": "approve" | "request_changes" }`. Auth-Fehler ⇒ `401`,
-  Naudit-/LLM-/Git-Fehler ⇒ `5xx`. Der Job failt bei `request_changes` **und** bei non-2xx
-  (`curl -f` deckt Letzteres ab).
+- **Response:** `200` with `{ "verdict": "approve" | "request_changes" }`. Auth failure ⇒ `401`,
+  Naudit/LLM/Git error ⇒ `5xx`. The job fails on `request_changes` **and** on non-2xx
+  (`curl -f` covers the latter).
 
 ## GitLab CI (`.gitlab-ci.yml`)
 
@@ -31,7 +32,7 @@ naudit-review:
       [ "$VERDICT" = "approve" ]
 ```
 
-`NAUDIT_URL` und `NAUDIT_TOKEN` als CI/CD-Variablen setzen (Token maskiert).
+Set `NAUDIT_URL` and `NAUDIT_TOKEN` as CI/CD variables (token masked).
 
 ## GitHub Actions
 
