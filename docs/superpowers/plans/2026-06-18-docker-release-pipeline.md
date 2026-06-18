@@ -25,7 +25,7 @@
 **Image-Koordinaten (fix, überall identisch verwenden):** `ghcr.io/benediktnau/naudit`
 (GitHub-Owner ist `BenediktNau`; ghcr verlangt **lowercase** → `benediktnau`).
 
-**Verifikations-Tooling lokal verfügbar:** `docker` 29.x, `dotnet` 10.0.x, `python3`. `actionlint`/`yamllint` sind **nicht** installiert — Workflow-YAML wird lokal nur grob (PyYAML-Parse, best effort) geprüft; die echte Validierung ist der erste PR-Run (`ci.yml`) bzw. ein `workflow_dispatch`-Trockenlauf (`release.yml`).
+**Verifikations-Tooling lokal verfügbar:** `docker` 29.x, `dotnet` 10.0.x, `python3`. `actionlint`/`yamllint` sind **nicht** installiert — Workflow-YAML wird lokal nur grob (PyYAML-Parse, best effort) geprüft; die echte Validierung ist der erste PR-Run (`ci.yml`) bzw. der erste `release.yml`-Lauf (Merge auf `main`).
 
 ---
 
@@ -258,7 +258,7 @@ git commit -m "ci: add PR build+test gate (ci.yml)"
 **Files:**
 - Create: `.github/workflows/release.yml`
 
-Hintergrund: Bei push auf `main` (PR-Merge): Tests als Gate, dann Version via `next-version.sh`, dann Image bauen+pushen nach `ghcr.io/benediktnau/naudit`, dann git-Tag + GitHub-Release. Auth über das eingebaute `GITHUB_TOKEN`. `workflow_dispatch` erlaubt einen Trockenlauf auf einem Branch vor dem ersten echten Merge.
+Hintergrund: Bei push auf `main` (PR-Merge): Tests als Gate, dann Version via `next-version.sh`, dann Image bauen+pushen nach `ghcr.io/benediktnau/naudit`, dann git-Tag + GitHub-Release. Auth über das eingebaute `GITHUB_TOKEN`. `workflow_dispatch` erlaubt manuelles Auslösen — das ist **kein** Trockenlauf, sondern ein echter Release (Image-Push + Tag + Release).
 
 - [ ] **Step 1: Workflow schreiben**
 
@@ -340,7 +340,7 @@ jobs:
 
 Run:
 ```bash
-python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml')); print('release.yml: YAML ok')" 2>&1 || echo "PyYAML fehlt — Validierung erfolgt beim workflow_dispatch-Trockenlauf"
+python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml')); print('release.yml: YAML ok')" 2>&1 || echo "PyYAML fehlt — Validierung erfolgt beim ersten release.yml-Lauf"
 ```
 Expected: `release.yml: YAML ok` (oder der Fallback-Hinweis).
 
@@ -436,9 +436,10 @@ Diese Schritte laufen erst **auf GitHub** und gehören nicht in die TDD-Schleife
 echte End-to-End-Bestätigung (vgl. Spec „Tests / Verifikation"):
 
 1. **PR öffnen** (Feature-Branch → `main`): `ci.yml` muss grün durchlaufen (build + test).
-2. **`release.yml` Trockenlauf** vor dem ersten echten Merge: über die Actions-UI
-   `workflow_dispatch` auf dem Feature-Branch starten — prüft Versionslogik, ghcr-Login
-   und Push-Permissions, ohne auf einen Merge zu warten.
+2. **Hinweis `workflow_dispatch`:** Der Workflow ist auch manuell über die Actions-UI
+   auslösbar. Das ist **kein** Trockenlauf — ein Dispatch pusht ein Image und legt Tag +
+   Release real an (keine `if`-Guards). Daher nicht vor dem gewünschten ersten Release auf
+   `main` dispatchen; das erste Release wird `v0.1.0`.
 3. **Nach Merge auf `main`:** `release.yml` läuft automatisch; danach prüfen:
    - Package `naudit` erscheint unter `ghcr.io/benediktnau/naudit` mit Tags `v0.1.0`, `latest`, `sha-…`.
    - Git-Tag `v0.1.0` und ein GitHub-Release mit Auto-Notes existieren.
