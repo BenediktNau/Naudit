@@ -3,6 +3,10 @@ name: Release
 on:
   push:
     branches: [main]
+    # Reine Doku-Aenderungen schneiden kein Release/Image (kein App-Inhalt geaendert).
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
@@ -53,15 +57,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Image bauen und lokal laden — Push erst nach bestandenem Sicherheits-Scan.
       - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          load: true
+          push: false
           tags: |
             ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
             ghcr.io/benediktnau/naudit:latest
             ghcr.io/benediktnau/naudit:sha-${{ steps.version.outputs.short_sha }}
+
+      # Sicherheits-Gate: CRITICAL/HIGH mit verfuegbarem Fix blockieren den Push (ignore-unfixed).
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: os,library
+
+      # Erst nach bestandenem Scan pushen (Images wurden oben bereits gebaut/geladen).
+      - name: Push image
+        run: |
+          docker push ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
+          docker push ghcr.io/benediktnau/naudit:latest
+          docker push ghcr.io/benediktnau/naudit:sha-${{ steps.version.outputs.short_sha }}
 
       # --- Git-Tag + GitHub-Release (nur nach erfolgreichem Push) ---
       - name: Tag and release
