@@ -1,0 +1,12 @@
+# Build-Artefakte und IDE-/VCS-Kram aus dem Build-Context fernhalten.
+**/bin/
+**/obj/
+.git/
+.github/
+docs/
+tests/
+**/*.user
+ngrok-*.tgz
+.gitignore
+LICENSE
+README.md

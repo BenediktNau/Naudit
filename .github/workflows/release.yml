@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # git-Tag pushen + GitHub-Release anlegen
+  packages: write   # Image nach ghcr.io pushen
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Releases serialisieren: parallele main-Pushes wuerden dieselbe Version berechnen und kollidieren.
+    concurrency:
+      group: release-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0   # alle Tags fuer next-version.sh
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # --- Gate: Tests muessen gruen sein, sonst kein Release/Image ---
+      - name: Restore
+        run: dotnet restore Naudit.slnx
+
+      - name: Build
+        run: dotnet build Naudit.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Naudit.slnx -c Release --no-build
+
+      # --- Naechste Version bestimmen ---
+      - name: Determine version
+        id: version
+        run: |
+          version="$(bash .github/scripts/next-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Next version: $version"
+
+      # --- Image bauen und nach ghcr pushen ---
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
+            ghcr.io/benediktnau/naudit:latest
+            ghcr.io/benediktnau/naudit:sha-${{ steps.version.outputs.short_sha }}
+
+      # --- Git-Tag + GitHub-Release (nur nach erfolgreichem Push) ---
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Idempotenz: existiert das Tag schon (z. B. Re-Run auf gleichem Commit), sauber abbrechen.
+          if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag existiert bereits: ${{ steps.version.outputs.version }}" >&2
+            exit 1
+          fi
+          git tag "${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
+          gh release create "${{ steps.version.outputs.version }}" --generate-notes

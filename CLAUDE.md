@@ -81,6 +81,16 @@ Three projects with a strict, deliberate dependency direction:
   (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over the raw
   body (fail-closed). No change to Core.
 
+### CI/CD & container
+
+`Dockerfile` (repo root, multi-stage: SDK builds → ASP.NET runtime, non-root, port 8080)
+containerizes the Web project. Two GitHub Actions workflows: `ci.yml` (PR gate: build + test on
+`pull_request` to `main`) and `release.yml` (on push to `main` **and** `workflow_dispatch`:
+test gate → `.github/scripts/next-version.sh` computes the next SemVer patch version (seed `v0.1.0`)
+→ image build/push to `ghcr.io/benediktnau/naudit` (`vX.Y.Z`/`latest`/`sha-…`) → git tag + GitHub
+release). `workflow_dispatch` is **not** a dry run — it performs a real release like a merge.
+Deployment is done by Coolify itself; no deploy step in CI. No app-code change.
+
 ## Conventions & gotchas
 
 - **TDD workflow.** Work follows `docs/superpowers/plans/2026-06-16-naudit-codereview-bot.md`

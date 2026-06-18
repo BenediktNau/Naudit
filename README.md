@@ -280,6 +280,41 @@ Bewusst (noch) nicht im MVP enthalten:
 - Ein Webhook-Request mit gültiger Signatur aber fehlerhaftem JSON-Body gibt HTTP 500 zurück (kein gesondertes Fehlerhandling — Parität mit dem GitLab-Endpoint).
 - Der Review-Prompt enthält „Merge Request" auch bei GitHub-PRs (kosmetisch; intentional nicht generalisiert).
 
+## Deployment / Container
+
+Naudit wird als Container ausgeliefert. Bei jedem Merge auf `main` baut die
+GitHub-Actions-Pipeline (`.github/workflows/release.yml`) — **nur wenn die Tests grün sind** —
+ein Image und published es in die GitHub Container Registry:
+
+```text
+ghcr.io/benediktnau/naudit:vX.Y.Z   # die Release-Version
+ghcr.io/benediktnau/naudit:latest   # immer der letzte main-Stand
+ghcr.io/benediktnau/naudit:sha-XXXX # exakter Commit (Rückverfolgbarkeit)
+```
+
+**Versionierung:** Auto-increment SemVer-Patch aus dem letzten `vX.Y.Z`-Tag
+(Seed `v0.1.0`). Major/Minor bumpt man manuell durch ein eigenes Tag, z. B.
+`git tag v0.2.0 && git push origin v0.2.0`; der Auto-Bump zählt darauf weiter.
+
+**Manuelles Auslösen:** Der Workflow lässt sich zusätzlich über `workflow_dispatch`
+(Actions-UI) starten. Das ist **kein** Trockenlauf — ein Dispatch erzeugt ein echtes
+Release (Image-Push + Git-Tag + GitHub-Release) wie ein regulärer Merge. Das erste
+Release entsteht also schlicht beim ersten Merge auf `main` (bzw. einem bewussten
+Dispatch) und ist dann `v0.1.0`.
+
+**Lokal bauen/starten:**
+
+```bash
+docker build -t naudit:dev .
+docker run --rm -p 8080:8080 naudit:dev
+curl http://localhost:8080/health   # -> healthy
+```
+
+Das Deployment selbst übernimmt Coolify (zieht `:latest` bzw. die dort
+eingestellte Tag-Policy). Die CI deployt nicht aktiv.
+
+**PR-Gate:** `.github/workflows/ci.yml` baut und testet jeden PR gegen `main`.
+
 ## Lizenz
 
 [MIT](LICENSE) © 2026 Benedikt Nau

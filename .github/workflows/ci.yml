@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false   # PR-Gate baut/testet nur — keine Git-Credentials noetig
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Naudit.slnx
+
+      - name: Build
+        run: dotnet build Naudit.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Naudit.slnx -c Release --no-build
