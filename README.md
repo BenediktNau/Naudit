@@ -60,6 +60,19 @@ ghcr.io/benediktnau/naudit:sha-XXXX # exact commit (traceability)
 Deployment itself is handled by **Coolify** (which pulls `:latest`); CI does not deploy.
 `.github/workflows/ci.yml` builds and tests every PR against `main`.
 
+### Run without Docker (self-contained binary)
+
+Every [release](../../releases) attaches a self-contained build that bundles the .NET
+runtime — no .NET installation required. Download the archive for your platform
+(`naudit-vX.Y.Z-linux-x64.tar.gz` or `naudit-vX.Y.Z-win-x64.zip`), extract it, and run
+the executable; configure it with the same environment variables as the container:
+
+```bash
+tar -xzf naudit-vX.Y.Z-linux-x64.tar.gz
+Naudit__Git__Platform=GitHub Naudit__GitHub__Token=... ./Naudit.Web --urls http://localhost:8080
+curl http://localhost:8080/health   # -> healthy
+```
+
 ### Build from source
 
 ```bash
