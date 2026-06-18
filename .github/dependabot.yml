@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Haelt die SHA-gepinnten GitHub-Actions in ci.yml/release.yml aktuell
+  # (sonst friert SHA-Pinning auf evtl. CVE-behafteten Versionen ein).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

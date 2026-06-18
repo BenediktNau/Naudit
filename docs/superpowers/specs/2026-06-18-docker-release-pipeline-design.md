@@ -64,7 +64,7 @@ erst rot wird.
 
 ## Datenfluss
 
-```
+```text
 PR geöffnet ──▶ ci.yml: dotnet build + test            (grün = mergebar)
                      │
 PR-Merge auf main ──▶ release.yml:

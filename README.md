@@ -286,7 +286,7 @@ Naudit wird als Container ausgeliefert. Bei jedem Merge auf `main` baut die
 GitHub-Actions-Pipeline (`.github/workflows/release.yml`) — **nur wenn die Tests grün sind** —
 ein Image und published es in die GitHub Container Registry:
 
-```
+```text
 ghcr.io/benediktnau/naudit:vX.Y.Z   # die Release-Version
 ghcr.io/benediktnau/naudit:latest   # immer der letzte main-Stand
 ghcr.io/benediktnau/naudit:sha-XXXX # exakter Commit (Rückverfolgbarkeit)
