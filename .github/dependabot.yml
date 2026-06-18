@@ -6,3 +6,17 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Grace Period: nach einem Action-Release erst nach X Tagen einen Update-PR oeffnen.
+    # Daempft Churn und gibt Zeit, zurueckgezogene/kompromittierte Releases zu erkennen
+    # (Supply-Chain-Schutz, ergaenzt das SHA-Pinning). Major laenger als der Rest.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    # Alle Action-Updates in EINEN gesammelten PR buendeln statt vieler einzelner.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
