@@ -86,7 +86,28 @@ jobs:
           docker push ghcr.io/benediktnau/naudit:latest
           docker push ghcr.io/benediktnau/naudit:sha-${{ steps.version.outputs.short_sha }}
 
-      # --- Git-Tag + GitHub-Release (nur nach erfolgreichem Push) ---
+      # --- Self-contained Binaries (ohne Docker/.NET nutzbar) ---
+      # Single-File, self-contained (enthaelt die .NET-Runtime), kein Trimming
+      # (Trimming bricht bei ASP.NET via Reflection/JSON). Werden ans Release gehaengt.
+      - name: Publish self-contained binaries
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p artifacts
+          for rid in linux-x64 win-x64; do
+            out="publish/$rid"
+            dotnet publish src/Naudit.Web/Naudit.Web.csproj \
+              -c Release -r "$rid" --self-contained true \
+              -p:PublishSingleFile=true -p:DebugType=none -p:DebugSymbols=false \
+              -o "$out"
+            if [ "$rid" = "win-x64" ]; then
+              (cd "$out" && zip -qr "$GITHUB_WORKSPACE/artifacts/naudit-$version-$rid.zip" .)
+            else
+              tar -czf "artifacts/naudit-$version-$rid.tar.gz" -C "$out" .
+            fi
+          done
+          ls -la artifacts
+
+      # --- Git-Tag + GitHub-Release (nur nach erfolgreichem Push + Publish) ---
       - name: Tag and release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,4 +119,4 @@ jobs:
           fi
           git tag "${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.version }}"
-          gh release create "${{ steps.version.outputs.version }}" --generate-notes
+          gh release create "${{ steps.version.outputs.version }}" --generate-notes artifacts/*
