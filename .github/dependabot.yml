@@ -36,3 +36,15 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+
+  # Docker-Base-Images im Dockerfile (per Digest gepinnt -> Dependabot haelt sie aktuell).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
