@@ -25,9 +25,14 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
         var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(response.Text, JsonOpts)
             ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
 
-        var verdict = string.Equals(parsed.Verdict, "request_changes", StringComparison.OrdinalIgnoreCase)
-            ? ReviewVerdict.RequestChanges
-            : ReviewVerdict.Approve;
+        // Fail-closed: nur explizite Verdicts akzeptieren; alles andere (unbekannt, leer, null)
+        // ist ein Fehler — sonst würde unklare/kaputte LLM-Ausgabe das Gate still auf approve fallen lassen.
+        var verdict = parsed.Verdict?.ToLowerInvariant() switch
+        {
+            "request_changes" => ReviewVerdict.RequestChanges,
+            "approve" => ReviewVerdict.Approve,
+            _ => throw new InvalidOperationException($"Unerwartetes Verdict vom LLM: '{parsed.Verdict}'."),
+        };
 
         await gitPlatform.PostSummaryAsync(request, parsed.Summary, ct);
         return new ReviewResult(parsed.Summary, verdict);

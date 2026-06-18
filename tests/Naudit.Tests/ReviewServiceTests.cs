@@ -48,4 +48,15 @@ public class ReviewServiceTests
         Assert.Equal(0, git.PostCallCount);
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
     }
+
+    [Fact]
+    public async Task ReviewAsync_withUnknownVerdict_throws()
+    {
+        // Fail-closed: ein unbekanntes/kaputtes Verdict darf das Gate nicht still auf approve fallen lassen.
+        var chat = new FakeChatClient("""{"summary":"## Review\n- ?","verdict":"maybe"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReviewAsync(Request));
+    }
 }
