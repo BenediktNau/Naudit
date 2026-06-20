@@ -88,6 +88,7 @@ dotnet run --project src/Naudit.Web --urls http://localhost:5080
 ## Documentation
 
 - [Configuration](docs/configuration.md) — all `Naudit:*` keys, secrets, choosing an AI provider
+- [Deployment](docs/deployment.md) — Coolify env template, auto-deploy, release pipeline & supply-chain hardening
 - [Platform setup](docs/platform-setup.md) — wiring up the GitLab/GitHub webhook + simulating a review locally
 - [CI integration](docs/ci-integration.md) — synchronous `POST /review` as a merge gate
 - [Architecture & status](docs/architecture.md) — how it works, project layout, tests, roadmap, known limitations
