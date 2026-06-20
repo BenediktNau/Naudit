@@ -16,7 +16,9 @@ public class WebhookEndpointTests : IClassFixture<WebApplicationFactory<Program>
     [Fact]
     public async Task Webhook_withWrongToken_returnsUnauthorized()
     {
-        var client = _factory.CreateClient();
+        var client = _factory
+            .WithWebHostBuilder(b => b.UseSetting("Naudit:Git:Platform", "GitLab"))
+            .CreateClient();
 
         var response = await client.PostAsJsonAsync("/webhook/gitlab", new { object_kind = "merge_request" });
 
@@ -27,7 +29,11 @@ public class WebhookEndpointTests : IClassFixture<WebApplicationFactory<Program>
     public async Task Webhook_withValidToken_andNonMergeRequestEvent_returnsOk()
     {
         var client = _factory
-            .WithWebHostBuilder(b => b.UseSetting("Naudit:GitLab:WebhookSecret", "test-secret"))
+            .WithWebHostBuilder(b =>
+            {
+                b.UseSetting("Naudit:Git:Platform", "GitLab");
+                b.UseSetting("Naudit:GitLab:WebhookSecret", "test-secret");
+            })
             .CreateClient();
 
         var message = new HttpRequestMessage(HttpMethod.Post, "/webhook/gitlab")

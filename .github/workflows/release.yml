@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    # Reine Doku-Aenderungen schneiden kein Release/Image (kein App-Inhalt geaendert).
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # git-Tag pushen + GitHub-Release anlegen
+  packages: write   # Image nach ghcr.io pushen
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Releases serialisieren: parallele main-Pushes wuerden dieselbe Version berechnen und kollidieren.
+    concurrency:
+      group: release-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0   # alle Tags fuer next-version.sh
+
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # --- Gate: Tests muessen gruen sein, sonst kein Release/Image ---
+      - name: Restore
+        run: dotnet restore Naudit.slnx
+
+      - name: Build
+        run: dotnet build Naudit.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Naudit.slnx -c Release --no-build
+
+      # --- Naechste Version bestimmen ---
+      - name: Determine version
+        id: version
+        run: |
+          version="$(bash .github/scripts/next-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Next version: $version"
+
+      # --- Image bauen und nach ghcr pushen ---
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Image bauen und lokal laden — Push erst nach bestandenem Sicherheits-Scan.
+      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          push: false
+          tags: |
+            ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
+            ghcr.io/benediktnau/naudit:latest
+            ghcr.io/benediktnau/naudit:sha-${{ steps.version.outputs.short_sha }}
+
+      # Sicherheits-Gate: CRITICAL/HIGH mit verfuegbarem Fix blockieren den Push (ignore-unfixed).
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: os,library
+
+      # Erst nach bestandenem Scan pushen (Images wurden oben bereits gebaut/geladen).
+      - name: Push image
+        run: |
+          docker push ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
+          docker push ghcr.io/benediktnau/naudit:latest
+          docker push ghcr.io/benediktnau/naudit:sha-${{ steps.version.outputs.short_sha }}
+
+      # --- Self-contained Binaries (ohne Docker/.NET nutzbar) ---
+      # Single-File, self-contained (enthaelt die .NET-Runtime), kein Trimming
+      # (Trimming bricht bei ASP.NET via Reflection/JSON). Werden ans Release gehaengt.
+      - name: Publish self-contained binaries
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p artifacts
+          for rid in linux-x64 win-x64; do
+            out="publish/$rid"
+            dotnet publish src/Naudit.Web/Naudit.Web.csproj \
+              -c Release -r "$rid" --self-contained true \
+              -p:PublishSingleFile=true -p:DebugType=none -p:DebugSymbols=false \
+              -o "$out"
+            if [ "$rid" = "win-x64" ]; then
+              (cd "$out" && zip -qr "$GITHUB_WORKSPACE/artifacts/naudit-$version-$rid.zip" .)
+            else
+              tar -czf "artifacts/naudit-$version-$rid.tar.gz" -C "$out" .
+            fi
+          done
+          ls -la artifacts
+
+      # --- Git-Tag + GitHub-Release (nur nach erfolgreichem Push + Publish) ---
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Idempotenz: existiert das Tag schon (z. B. Re-Run auf gleichem Commit), sauber abbrechen.
+          if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag existiert bereits: ${{ steps.version.outputs.version }}" >&2
+            exit 1
+          fi
+          git tag "${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
+          gh release create "${{ steps.version.outputs.version }}" --generate-notes artifacts/*

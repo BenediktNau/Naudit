@@ -1,5 +1,9 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Naudit.Core.Models;
+using Naudit.Core.Review;
 using Naudit.Infrastructure;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
@@ -67,7 +71,47 @@ else // GitPlatformKind.GitLab
     });
 }
 
+// CI/CD-Trigger: synchroner Review mit strukturiertem Verdict (Merge-Gate).
+// Immer gemappt, unabhängig von der aktiven Plattform. Auth = Webhook-Secret als Header-Token.
+app.MapPost("/review", async (
+    HttpContext context,
+    ReviewTriggerRequest body,
+    GitOptions gitOptions,
+    IOptions<GitLabOptions> gitLabOptions,
+    IOptions<GitHubOptions> gitHubOptions,
+    CancellationToken ct) =>
+{
+    var secret = gitOptions.Platform == GitPlatformKind.GitHub
+        ? gitHubOptions.Value.WebhookSecret
+        : gitLabOptions.Value.WebhookSecret;
+
+    var token = context.Request.Headers["X-Naudit-Token"].ToString();
+    if (!IsValidNauditToken(secret, token))
+        return Results.Unauthorized();
+
+    // ReviewService erst nach bestandener Auth auflösen (Scope-Service, inline statt Queue).
+    var reviewService = context.RequestServices.GetRequiredService<ReviewService>();
+    var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty);
+    var result = await reviewService.ReviewAsync(request, ct);
+
+    var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";
+    return Results.Ok(new { verdict });
+});
+
+// Konstant-zeitlicher Vergleich; leeres Secret oder leerer Token ⇒ false (fail-closed).
+static bool IsValidNauditToken(string? secret, string? provided)
+{
+    if (string.IsNullOrEmpty(secret) || string.IsNullOrEmpty(provided))
+        return false;
+    return CryptographicOperations.FixedTimeEquals(
+        Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(provided));
+}
+
 app.Run();
 
 // Hinweis: In .NET 10 ist die generierte Program-Klasse automatisch public,
 // daher von WebApplicationFactory<Program> im Testprojekt direkt nutzbar.
+
+/// <summary>Request-Body des CI-Triggers; wird direkt auf ReviewRequest gemappt
+/// (bei GitHub ist ProjectId = "owner/repo" und MergeRequestIid = PR-Nummer).</summary>
+public sealed record ReviewTriggerRequest(string ProjectId, int MergeRequestIid, string? Title);

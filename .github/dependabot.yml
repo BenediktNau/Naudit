@@ -1,0 +1,50 @@
+version: 2
+updates:
+  # Haelt die SHA-gepinnten GitHub-Actions in ci.yml/release.yml aktuell
+  # (sonst friert SHA-Pinning auf evtl. CVE-behafteten Versionen ein).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Grace Period: nach einem Action-Release erst nach X Tagen einen Update-PR oeffnen.
+    # Daempft Churn und gibt Zeit, zurueckgezogene/kompromittierte Releases zu erkennen
+    # (Supply-Chain-Schutz, ergaenzt das SHA-Pinning). Major laenger als der Rest.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    # Alle Action-Updates in EINEN gesammelten PR buendeln statt vieler einzelner.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  # NuGet-Pakete der .NET-Projekte (MEAI, OpenAI/Anthropic/Ollama-SDKs, Test-Pakete).
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      nuget:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Docker-Base-Images im Dockerfile (per Digest gepinnt -> Dependabot haelt sie aktuell).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"

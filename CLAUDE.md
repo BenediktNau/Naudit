@@ -56,6 +56,12 @@ Three projects with a strict, deliberate dependency direction:
   `ReviewBackgroundService` drains a `Channel`-based `ReviewQueue` and runs each review in
   its own DI scope. This avoids webhook timeouts.
 
+  Additionally, a synchronous `POST /review` endpoint (always mapped) lets a CI/CD pipeline trigger
+  a review directly instead of via webhook: it authenticates an `X-Naudit-Token` header (constant-time)
+  against the active platform's `WebhookSecret`, runs the review **inline** (bypassing the queue),
+  and returns `{ "verdict": "approve" | "request_changes" }` so the job can gate the merge. See
+  `docs/ci-integration.md`.
+
 ### Request flow
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
@@ -74,6 +80,16 @@ Three projects with a strict, deliberate dependency direction:
   one platform is active per deployment; only its webhook endpoint is mapped. The GitHub endpoint
   (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over the raw
   body (fail-closed). No change to Core.
+
+### CI/CD & container
+
+`Dockerfile` (repo root, multi-stage: SDK builds → ASP.NET runtime, non-root, port 8080)
+containerizes the Web project. Two GitHub Actions workflows: `ci.yml` (PR gate: build + test on
+`pull_request` to `main`) and `release.yml` (on push to `main` **and** `workflow_dispatch`:
+test gate → `.github/scripts/next-version.sh` computes the next SemVer patch version (seed `v0.1.0`)
+→ image build/push to `ghcr.io/benediktnau/naudit` (`vX.Y.Z`/`latest`/`sha-…`) → git tag + GitHub
+release). `workflow_dispatch` is **not** a dry run — it performs a real release like a merge.
+Deployment is done by Coolify itself; no deploy step in CI. No app-code change.
 
 ## Conventions & gotchas
 
