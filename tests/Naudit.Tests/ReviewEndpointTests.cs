@@ -71,7 +71,7 @@ public class ReviewEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<VerdictBody>();
         Assert.Equal("request_changes", body!.Verdict);
-        Assert.Equal("## Review\n- bug", fakeGit.PostedMarkdown);
+        Assert.Contains("## Review\n- bug", fakeGit.PostedMarkdown!);
     }
 
     private sealed record VerdictBody(string Verdict);

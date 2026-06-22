@@ -10,15 +10,17 @@ public class ReviewServiceTests
     private static readonly ReviewRequest Request = new("1", 42, "Title");
 
     [Fact]
-    public async Task ReviewAsync_postsSummary_andReturnsApprove()
+    public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
     {
-        var chat = new FakeChatClient("""{"summary":"## Review\n- looks fine","verdict":"approve"}""");
-        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var chat = new FakeChatClient("""{"summary":"## Review\n- looks fine","verdict":"approve","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
         var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         var result = await service.ReviewAsync(Request);
 
-        Assert.Equal("## Review\n- looks fine", git.PostedMarkdown);
+        Assert.Contains("looks fine", git.PostedMarkdown!);
+        Assert.Contains("approve", git.PostedMarkdown!);
+        Assert.Empty(git.PostedComments);
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
         Assert.Equal("SYS", chat.LastMessages![0].Text);
     }
@@ -26,14 +28,45 @@ public class ReviewServiceTests
     [Fact]
     public async Task ReviewAsync_returnsRequestChanges_whenModelSaysSo()
     {
-        var chat = new FakeChatClient("""{"summary":"## Review\n- bug here","verdict":"request_changes"}""");
-        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var chat = new FakeChatClient("""{"summary":"## Review\n- bug here","verdict":"request_changes","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
         var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         var result = await service.ReviewAsync(Request);
 
         Assert.Equal(ReviewVerdict.RequestChanges, result.Verdict);
-        Assert.Equal("## Review\n- bug here", git.PostedMarkdown);
+        Assert.Contains("bug here", git.PostedMarkdown!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_validLine_isPostedInline()
+    {
+        var chat = new FakeChatClient(
+            """{"summary":"## Review","verdict":"request_changes","comments":[{"file":"src/Foo.cs","line":1,"comment":"null deref"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
+        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        var inline = Assert.Single(git.PostedComments);
+        Assert.Equal("src/Foo.cs", inline.FilePath);
+        Assert.Equal(1, inline.NewLine);
+        Assert.Equal("null deref", inline.Body);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_invalidLine_goesToSummary_notInline()
+    {
+        var chat = new FakeChatClient(
+            """{"summary":"## Review","verdict":"request_changes","comments":[{"file":"src/Foo.cs","line":99,"comment":"orphan finding"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+only one line")]);
+        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedComments);
+        Assert.Contains("orphan finding", git.PostedMarkdown!);
+        Assert.Contains("ohne Position", git.PostedMarkdown!);
     }
 
     [Fact]
