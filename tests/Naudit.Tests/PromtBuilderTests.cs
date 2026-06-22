@@ -28,4 +28,17 @@ public class PromptBuilderTests
         Assert.Contains("+new", messages[1].Text);
         Assert.Contains("src/Bar.cs", messages[1].Text);
     }
+
+    [Fact]
+    public void Build_annotatesDiffLines_withNewFileLineNumbers()
+    {
+        var request = new ReviewRequest("1", 42, "Add feature X");
+        var changes = new[] { new CodeChange("src/Bar.cs", "@@ -2,1 +2,2 @@\n ctx\n+added") };
+
+        var messages = PromptBuilder.Build("SYS", request, changes);
+
+        // Kontextzeile ist New-File-Zeile 2, hinzugefügte Zeile ist New-File-Zeile 3.
+        Assert.Contains("2  ctx", messages[1].Text);
+        Assert.Contains("3 +added", messages[1].Text);
+    }
 }
