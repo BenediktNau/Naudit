@@ -19,10 +19,11 @@ public sealed class GitLabPlatform(HttpClient http) : IGitPlatform
             .ToList();
     }
 
-    public async Task PostSummaryAsync(ReviewRequest request, string markdown, CancellationToken ct = default)
+    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, CancellationToken ct = default)
     {
         var url = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}/notes";
-        var response = await http.PostAsJsonAsync(url, new { body = markdown }, ct);
+        var response = await http.PostAsJsonAsync(url, new { body = summaryMarkdown }, ct);
         response.EnsureSuccessStatusCode();
+        // Inline-Kommentare folgen in Task 4.
     }
 }

@@ -55,12 +55,12 @@ public class GitHubPlatformTests
     }
 
     [Fact]
-    public async Task PostSummaryAsync_postsIssueCommentWithBody()
+    public async Task PostReviewAsync_postsIssueCommentWithBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
         var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
 
-        await platform.PostSummaryAsync(Request, "## Naudit Review");
+        await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
         Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
         Assert.Contains("repos/octo/hello-world/issues/42/comments", capture.LastRequest.RequestUri!.ToString());

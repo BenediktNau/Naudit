@@ -34,12 +34,12 @@ public class GitLabPlatformTests
     }
 
     [Fact]
-    public async Task PostSummaryAsync_postsNoteWithBody()
+    public async Task PostReviewAsync_postsNoteWithBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
         var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
 
-        await platform.PostSummaryAsync(Request, "## Naudit Review");
+        await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
         Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
         Assert.Contains("/merge_requests/42/notes", capture.LastRequest.RequestUri!.ToString());

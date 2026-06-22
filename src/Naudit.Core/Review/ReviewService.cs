@@ -34,7 +34,7 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
             _ => throw new InvalidOperationException($"Unerwartetes Verdict vom LLM: '{parsed.Verdict}'."),
         };
 
-        await gitPlatform.PostSummaryAsync(request, parsed.Summary, ct);
+        await gitPlatform.PostReviewAsync(request, parsed.Summary, [], ct);
         return new ReviewResult(parsed.Summary, verdict);
     }
 

@@ -22,11 +22,11 @@ public sealed class GitHubPlatform(HttpClient http) : IGitPlatform
             .ToList();
     }
 
-    public async Task PostSummaryAsync(ReviewRequest request, string markdown, CancellationToken ct = default)
+    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, CancellationToken ct = default)
     {
-        // PR-Kommentar = Issue-Kommentar (gleiche Nummer).
+        // PR-Kommentar = Issue-Kommentar (gleiche Nummer). Inline-Kommentare folgen in Task 5.
         var url = $"repos/{request.ProjectId}/issues/{request.MergeRequestIid}/comments";
-        var response = await http.PostAsJsonAsync(url, new { body = markdown }, ct);
+        var response = await http.PostAsJsonAsync(url, new { body = summaryMarkdown }, ct);
         response.EnsureSuccessStatusCode();
     }
 }
