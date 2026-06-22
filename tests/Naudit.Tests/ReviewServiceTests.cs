@@ -83,6 +83,36 @@ public class ReviewServiceTests
     }
 
     [Fact]
+    public async Task ReviewAsync_withNullSummary_doesNotThrow_andStillPosts()
+    {
+        // Robustheit: fehlender summary-Key darf den Review nicht mit NRE abbrechen.
+        var chat = new FakeChatClient("""{"verdict":"approve","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.Equal(1, git.PostCallCount);
+        Assert.Contains("approve", git.PostedMarkdown!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_findingWithNullFile_goesToSummary_notInline()
+    {
+        // Robustheit: Finding ohne file-Key darf nicht mit ArgumentNullException abbrechen.
+        var chat = new FakeChatClient(
+            """{"verdict":"request_changes","summary":"## R","comments":[{"line":1,"comment":"no-file finding"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+only one line")]);
+        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedComments);
+        Assert.Contains("no-file finding", git.PostedMarkdown!);
+        Assert.Contains("ohne Position", git.PostedMarkdown!);
+    }
+
+    [Fact]
     public async Task ReviewAsync_withUnknownVerdict_throws()
     {
         // Fail-closed: ein unbekanntes/kaputtes Verdict darf das Gate nicht still auf approve fallen lassen.

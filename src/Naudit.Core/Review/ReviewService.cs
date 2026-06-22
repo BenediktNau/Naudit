@@ -39,7 +39,7 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
         var orphans = new List<LlmComment>();
         foreach (var c in parsed.Comments ?? [])
         {
-            if (commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(c.Line, out var oldLine))
+            if (!string.IsNullOrEmpty(c.File) && commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(c.Line, out var oldLine))
                 inline.Add(new InlineComment(c.File, c.Line, oldLine, c.Comment));
             else
                 orphans.Add(c);
@@ -51,10 +51,10 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
     }
 
     // Schlanker Hybrid: LLM-Überblick + Verdict-Zeile + Count + nicht-verortbare Findings.
-    private static string ComposeSummary(string llmSummary, ReviewVerdict verdict, int inlineCount, IReadOnlyList<LlmComment> orphans)
+    private static string ComposeSummary(string? llmSummary, ReviewVerdict verdict, int inlineCount, IReadOnlyList<LlmComment> orphans)
     {
         var sb = new StringBuilder();
-        sb.AppendLine(llmSummary.TrimEnd());
+        sb.AppendLine((llmSummary ?? string.Empty).TrimEnd());
         sb.AppendLine();
         var verdictText = verdict == ReviewVerdict.RequestChanges ? "⚠️ request_changes" : "✅ approve";
         sb.AppendLine($"**Verdict:** {verdictText} · {inlineCount} inline, {orphans.Count} ohne Position");
@@ -72,7 +72,7 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
     }
 
     // Wire-DTO für die LLM-Antwort. Verdict bewusst als string (Mapping oben).
-    private sealed record LlmReviewResponse(string Summary, string Verdict, List<LlmComment>? Comments);
+    private sealed record LlmReviewResponse(string? Summary, string Verdict, List<LlmComment>? Comments);
 
-    private sealed record LlmComment(string File, int Line, string Comment);
+    private sealed record LlmComment(string? File, int Line, string Comment);
 }
