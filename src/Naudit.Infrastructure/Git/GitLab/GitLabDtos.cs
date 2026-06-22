@@ -31,3 +31,15 @@ public sealed class GitLabChange
     [JsonPropertyName("new_path")] public string NewPath { get; set; } = "";
     [JsonPropertyName("diff")] public string Diff { get; set; } = "";
 }
+
+public sealed class GitLabMergeRequestDetail
+{
+    [JsonPropertyName("diff_refs")] public GitLabDiffRefs? DiffRefs { get; set; }
+}
+
+public sealed class GitLabDiffRefs
+{
+    [JsonPropertyName("base_sha")] public string BaseSha { get; set; } = "";
+    [JsonPropertyName("head_sha")] public string HeadSha { get; set; } = "";
+    [JsonPropertyName("start_sha")] public string StartSha { get; set; } = "";
+}
