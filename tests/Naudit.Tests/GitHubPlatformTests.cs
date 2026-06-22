@@ -55,7 +55,7 @@ public class GitHubPlatformTests
     }
 
     [Fact]
-    public async Task PostReviewAsync_postsIssueCommentWithBody()
+    public async Task PostReviewAsync_withoutComments_postsReviewBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
         var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
@@ -63,7 +63,25 @@ public class GitHubPlatformTests
         await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
         Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
-        Assert.Contains("repos/octo/hello-world/issues/42/comments", capture.LastRequest.RequestUri!.ToString());
+        Assert.Contains("repos/octo/hello-world/pulls/42/reviews", capture.LastRequest.RequestUri!.ToString());
         Assert.Contains("Naudit Review", capture.LastRequestBody!);
+        Assert.Contains("\"event\":\"COMMENT\"", capture.LastRequestBody!);
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_withComments_includesPathLineSide()
+    {
+        var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
+
+        await platform.PostReviewAsync(Request, "## Naudit Review",
+            [new InlineComment("src/Foo.cs", 5, null, "finding here")]);
+
+        var body = capture.LastRequestBody!;
+        Assert.Contains("repos/octo/hello-world/pulls/42/reviews", capture.LastRequest!.RequestUri!.ToString());
+        Assert.Contains("\"path\":\"src/Foo.cs\"", body);
+        Assert.Contains("\"line\":5", body);
+        Assert.Contains("\"side\":\"RIGHT\"", body);
+        Assert.Contains("finding here", body);
     }
 }

@@ -24,9 +24,22 @@ public sealed class GitHubPlatform(HttpClient http) : IGitPlatform
 
     public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, CancellationToken ct = default)
     {
-        // PR-Kommentar = Issue-Kommentar (gleiche Nummer). Inline-Kommentare folgen in Task 5.
-        var url = $"repos/{request.ProjectId}/issues/{request.MergeRequestIid}/comments";
-        var response = await http.PostAsJsonAsync(url, new { body = summaryMarkdown }, ct);
+        // Ein Review-Call trägt Summary (body) UND alle Inline-Kommentare. event=COMMENT:
+        // Naudit gatet nicht über GitHubs eigenen Review-Status (Verdict läuft über ReviewResult).
+        var url = $"repos/{request.ProjectId}/pulls/{request.MergeRequestIid}/reviews";
+        var payload = new
+        {
+            body = summaryMarkdown,
+            @event = "COMMENT",
+            comments = comments.Select(c => new
+            {
+                path = c.FilePath,
+                line = c.NewLine,
+                side = "RIGHT",
+                body = c.Body,
+            }).ToArray(),
+        };
+        var response = await http.PostAsJsonAsync(url, payload, ct);
         response.EnsureSuccessStatusCode();
     }
 }
