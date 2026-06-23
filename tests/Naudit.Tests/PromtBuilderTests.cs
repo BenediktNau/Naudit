@@ -41,4 +41,16 @@ public class PromptBuilderTests
         Assert.Contains("2  ctx", messages[1].Text);
         Assert.Contains("3 +added", messages[1].Text);
     }
+
+    [Fact]
+    public void Build_contentLineLookingLikeFileHeader_isStillNumbered()
+    {
+        // "+++ added" innerhalb des Hunks ist eine hinzugefügte Inhaltszeile, kein Datei-Header.
+        var request = new ReviewRequest("1", 42, "x");
+        var changes = new[] { new CodeChange("q.sql", "@@ -1,1 +1,2 @@\n ctx\n+++ added") };
+
+        var messages = PromptBuilder.Build("SYS", request, changes);
+
+        Assert.Contains("2 +++ added", messages[1].Text);
+    }
 }

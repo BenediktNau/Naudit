@@ -79,6 +79,8 @@ public class GitLabPlatformTests
         Assert.Equal(2, discussions.Count);
         // diff_refs in der Position
         Assert.All(discussions, d => Assert.Contains("\"head_sha\":\"h1\"", d.Body!));
+        // old_path ist bei GitLab immer erforderlich – auch für hinzugefügte Zeilen.
+        Assert.All(discussions, d => Assert.Contains("\"old_path\":\"src/", d.Body!));
         // hinzugefügte Zeile: new_line ohne old_line
         Assert.Contains(discussions, d => d.Body!.Contains("\"new_line\":5") && !d.Body.Contains("old_line"));
         // Kontextzeile: new_line UND old_line

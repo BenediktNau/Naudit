@@ -39,10 +39,15 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
         var orphans = new List<LlmComment>();
         foreach (var c in parsed.Comments ?? [])
         {
+            // Leerer/fehlender Body würde beim Plattform-POST scheitern -> solche Findings verwerfen.
+            var body = c.Comment?.Trim();
+            if (string.IsNullOrEmpty(body))
+                continue;
+
             if (!string.IsNullOrEmpty(c.File) && commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(c.Line, out var oldLine))
-                inline.Add(new InlineComment(c.File, c.Line, oldLine, c.Comment));
+                inline.Add(new InlineComment(c.File, c.Line, oldLine, body));
             else
-                orphans.Add(c);
+                orphans.Add(c with { Comment = body });
         }
 
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
@@ -74,5 +79,5 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
     // Wire-DTO für die LLM-Antwort. Verdict bewusst als string (Mapping oben).
     private sealed record LlmReviewResponse(string? Summary, string Verdict, List<LlmComment>? Comments);
 
-    private sealed record LlmComment(string? File, int Line, string Comment);
+    private sealed record LlmComment(string? File, int Line, string? Comment);
 }

@@ -16,6 +16,7 @@ public static class DiffParser
         {
             var map = new Dictionary<int, int?>();
             int oldLine = 0, newLine = 0;
+            var inHunk = false;
             foreach (var raw in change.Diff.Split('\n'))
             {
                 var line = raw.TrimEnd('\r');
@@ -24,10 +25,12 @@ public static class DiffParser
                     var (oldStart, newStart) = ParseHunkHeader(line);
                     oldLine = oldStart - 1;
                     newLine = newStart - 1;
+                    inHunk = true;
                     continue;
                 }
-                // Datei-Header (+++/---) sind kein Inhalt.
-                if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
+                // Datei-Header (+++/---) stehen nur vor dem ersten Hunk; innerhalb eines Hunks
+                // sind +/- echte Inhaltszeilen (z. B. entfernter SQL-Kommentar "-- x" -> "--- x").
+                if (!inHunk && (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal)))
                     continue;
                 if (line.Length == 0)
                     continue;

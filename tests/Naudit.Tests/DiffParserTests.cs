@@ -55,6 +55,20 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void Parse_contentLinesLookingLikeFileHeaders_areTreatedAsContent()
+    {
+        // Entfernter SQL-Kommentar "-- x" wird im Diff zu "--- x", hinzugefügter zu "+++ x" –
+        // beides ist Inhalt innerhalb des Hunks, kein Datei-Header.
+        var changes = new[] { new CodeChange("q.sql", "@@ -1,2 +1,2 @@\n ctx\n--- old comment\n+++ new comment") };
+
+        var map = DiffParser.Parse(changes)["q.sql"];
+
+        Assert.Equal(1, map[1]);   // Kontextzeile
+        Assert.Null(map[2]);       // "+++ new comment" ist hinzugefügt
+        Assert.Equal(2, map.Count);
+    }
+
+    [Fact]
     public void Parse_multipleFiles_areKeyedByPath()
     {
         var changes = new[]

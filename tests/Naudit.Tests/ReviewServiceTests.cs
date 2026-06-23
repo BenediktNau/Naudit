@@ -70,6 +70,21 @@ public class ReviewServiceTests
     }
 
     [Fact]
+    public async Task ReviewAsync_findingWithBlankBody_isNotPosted()
+    {
+        // Robustheit: ein leerer comment-Body würde beim Plattform-POST scheitern -> verwerfen.
+        var chat = new FakeChatClient(
+            """{"verdict":"request_changes","summary":"## R","comments":[{"file":"src/Foo.cs","line":1,"comment":"   "}]}""");
+        var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
+        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedComments);
+        Assert.Contains("0 inline, 0 ohne Position", git.PostedMarkdown!);
+    }
+
+    [Fact]
     public async Task ReviewAsync_withNoChanges_postsNothing_andApproves()
     {
         var chat = new FakeChatClient("unused");

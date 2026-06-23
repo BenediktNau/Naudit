@@ -37,21 +37,21 @@ public sealed class GitLabPlatform(HttpClient http) : IGitPlatform
         // 3) Je Inline-Kommentar eine Discussion mit text-Position posten.
         foreach (var c in comments)
         {
+            // GitLab verlangt old_path UND new_path im text-Position-Payload – auch für
+            // hinzugefügte Zeilen. old_line wird nur bei vorhandener alter Position gesetzt.
             var position = new Dictionary<string, object?>
             {
                 ["position_type"] = "text",
                 ["base_sha"] = refs.BaseSha,
                 ["head_sha"] = refs.HeadSha,
                 ["start_sha"] = refs.StartSha,
+                ["old_path"] = c.FilePath,
                 ["new_path"] = c.FilePath,
                 ["new_line"] = c.NewLine,
             };
-            // Kontextzeile: GitLab braucht zusätzlich die alte Position.
+            // Kontextzeile: zusätzlich die alte Zeilennummer angeben.
             if (c.OldLine is int oldLine)
-            {
-                position["old_path"] = c.FilePath;
                 position["old_line"] = oldLine;
-            }
 
             var payload = new { body = c.Body, position };
             (await http.PostAsJsonAsync($"{basePath}/discussions", payload, ct)).EnsureSuccessStatusCode();

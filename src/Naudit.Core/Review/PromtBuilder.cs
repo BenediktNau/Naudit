@@ -44,16 +44,20 @@ public static class PromptBuilder
     private static void AppendAnnotatedDiff(StringBuilder sb, string diff)
     {
         int newLine = 0;
+        var inHunk = false;
         foreach (var raw in diff.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
             if (line.StartsWith("@@", StringComparison.Ordinal))
             {
                 newLine = DiffParser.ParseHunkHeader(line).NewStart - 1;
+                inHunk = true;
                 sb.AppendLine($"     {line}");
                 continue;
             }
-            if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
+            // Datei-Header (+++/---) stehen nur vor dem ersten Hunk; innerhalb eines Hunks
+            // sind +/- echte Inhaltszeilen und müssen ihre New-File-Nummer behalten.
+            if (!inHunk && (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal)))
             {
                 sb.AppendLine($"     {line}");
                 continue;
