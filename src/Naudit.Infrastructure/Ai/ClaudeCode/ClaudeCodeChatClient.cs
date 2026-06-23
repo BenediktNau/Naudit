@@ -61,10 +61,12 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             throw new InvalidOperationException(
                 $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
 
-        if (string.IsNullOrWhiteSpace(envelope.Result))
+        // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
+        var text = StripJsonFences(envelope.Result ?? "");
+        if (string.IsNullOrWhiteSpace(text))
             throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
 
-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, StripJsonFences(envelope.Result)));
+        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text));
     }
 
     // ReviewService nutzt nur die non-streaming Variante; hier ein dünner Wrapper übers Einzelergebnis.

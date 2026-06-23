@@ -9,7 +9,7 @@ public interface IProcessRunner
 /// <param name="Environment">Additiv zur geerbten Prozess-Umgebung.</param>
 public sealed record ProcessSpec(
     string FileName,
-    IList<string> Arguments,
+    IReadOnlyList<string> Arguments,
     string? StdIn,
     IReadOnlyDictionary<string, string?>? Environment,
     string? WorkingDirectory,

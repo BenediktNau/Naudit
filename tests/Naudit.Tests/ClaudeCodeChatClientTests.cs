@@ -32,11 +32,12 @@ public class ClaudeCodeChatClientTests
 
         await client.GetResponseAsync(Messages());
 
-        var args = stub.LastSpec!.Arguments;
+        var args = stub.LastSpec!.Arguments.ToList();
         Assert.Contains("-p", args);
         Assert.Contains("--output-format", args);
         Assert.Contains("json", args);
         Assert.Contains("--max-turns", args);
+        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);  // genau ein Turn
         Assert.Contains("--tools", args);                 // gefolgt von "" → Tools aus
         Assert.Equal("", args[args.IndexOf("--tools") + 1]);
         Assert.Equal("sonnet", args[args.IndexOf("--model") + 1]);
@@ -72,7 +73,8 @@ public class ClaudeCodeChatClientTests
 
         await client.GetResponseAsync(Messages());
 
-        Assert.Equal("sonnet", stub.LastSpec!.Arguments[stub.LastSpec.Arguments.IndexOf("--model") + 1]);
+        var args = stub.LastSpec!.Arguments.ToList();
+        Assert.Equal("sonnet", args[args.IndexOf("--model") + 1]);
     }
 
     [Fact]
@@ -114,6 +116,14 @@ public class ClaudeCodeChatClientTests
     public async Task GetResponseAsync_emptyResult_throws()
     {
         var client = Client(_ => new ProcessResult(0, Envelope(""), ""));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_fencedEmptyResult_throws()
+    {
+        // Ein Fence-Block ohne Inhalt muss ebenfalls als leer erkannt werden (fail-closed).
+        var client = Client(_ => new ProcessResult(0, Envelope("```json\n```"), ""));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
     }
 }
