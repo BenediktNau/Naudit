@@ -29,7 +29,7 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:GitHub:BaseUrl` | Base URL of the GitHub API (default: `https://api.github.com`) |
 | `Naudit:GitHub:Token` | Fine-grained PAT (see [Platform setup](platform-setup.md)) |
 | `Naudit:GitHub:WebhookSecret` | Secret for HMAC-SHA256 verification (`X-Hub-Signature-256`) |
-| `Naudit:Ai:Provider` | `Ollama` \| `Anthropic` \| `OpenAICompatible` |
+| `Naudit:Ai:Provider` | `Ollama` \| `Anthropic` \| `OpenAICompatible` \| `ClaudeCode` |
 | `Naudit:Ai:Model` | Model name for the chosen provider |
 | `Naudit:Ai:Endpoint` | Ollama URL or base URL of an OpenAI-compatible service |
 | `Naudit:Ai:ApiKey` | API key (required for Anthropic / OpenAI-compatible) |
@@ -55,4 +55,9 @@ dotnet user-secrets set "Naudit:Ai:Provider" "OpenAICompatible"                 
 dotnet user-secrets set "Naudit:Ai:Endpoint" "https://integrate.api.nvidia.com/v1"    --project src/Naudit.Web
 dotnet user-secrets set "Naudit:Ai:Model"    "nvidia/llama-3.1-nemotron-ultra-253b-v1" --project src/Naudit.Web
 dotnet user-secrets set "Naudit:Ai:ApiKey"   "YOUR_NVIDIA_KEY"                         --project src/Naudit.Web
+
+# ClaudeCode (local `claude` CLI, subscription instead of API key — see docs/claudecode-provider.md)
+dotnet user-secrets set "Naudit:Ai:Provider" "ClaudeCode" --project src/Naudit.Web
+dotnet user-secrets set "Naudit:Ai:Model"    "sonnet"     --project src/Naudit.Web
+# Auth: set CLAUDE_CODE_OAUTH_TOKEN in the environment (from `claude setup-token`); no Naudit:Ai:ApiKey needed.
 ```

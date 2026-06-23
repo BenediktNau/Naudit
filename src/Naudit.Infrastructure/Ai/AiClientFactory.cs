@@ -1,5 +1,6 @@
 using System.ClientModel;
 using Microsoft.Extensions.AI;
+using Naudit.Infrastructure.Ai.ClaudeCode;
 using OllamaSharp;
 using OpenAI;
 
@@ -29,6 +30,10 @@ public static class AiClientFactory
             case AiProvider.OpenAICompatible:
                 RequireApiKey(options, "OpenAICompatible");
                 return CreateOpenAICompatible(options);
+
+            case AiProvider.ClaudeCode:
+                // Kein RequireApiKey: die CLI authentifiziert über die Umgebung (Abo statt Key).
+                return new ClaudeCodeChatClient(options, new SystemProcessRunner());
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(options), options.Provider, "Unknown AI provider.");
