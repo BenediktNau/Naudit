@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Naudit is a self-hosted .NET code-review bot (POC/MVP). It receives GitLab or GitHub webhooks,
-has an LLM review the diff via Microsoft.Extensions.AI (MEAI), and posts a single summary
-Markdown comment back to the MR/PR. Both the AI provider and the git platform are swappable
-by configuration alone (`Naudit:Ai:Provider` and `Naudit:Git:Platform`).
+has an LLM review the diff via Microsoft.Extensions.AI (MEAI), and posts inline comments on the
+changed lines plus one summary comment back to the MR/PR. Both the AI provider and the git
+platform are swappable by configuration alone (`Naudit:Ai:Provider` and `Naudit:Git:Platform`).
 
 ## Commands
 
@@ -66,7 +66,7 @@ Three projects with a strict, deliberate dependency direction:
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
 → ReviewService` which: `IGitPlatform.GetChangesAsync` → `PromptBuilder.Build` → `IChatClient.GetResponseAsync`
-→ `IGitPlatform.PostSummaryAsync`. If there are no changes, nothing is posted.
+→ `IGitPlatform.PostReviewAsync`. If there are no changes, nothing is posted.
 
 ### Extension points (do not break the Core rule)
 

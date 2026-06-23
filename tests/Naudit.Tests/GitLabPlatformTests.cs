@@ -34,15 +34,58 @@ public class GitLabPlatformTests
     }
 
     [Fact]
-    public async Task PostSummaryAsync_postsNoteWithBody()
+    public async Task PostReviewAsync_postsNoteWithBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
         var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
 
-        await platform.PostSummaryAsync(Request, "## Naudit Review");
+        await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
         Assert.Equal(HttpMethod.Post, capture.LastRequest!.Method);
         Assert.Contains("/merge_requests/42/notes", capture.LastRequest.RequestUri!.ToString());
         Assert.Contains("Naudit Review", capture.LastRequestBody!);
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_postsDiscussionWithPosition_perInlineComment()
+    {
+        var capture = new StubHttpMessageHandler(req =>
+        {
+            // GET der MR-Details liefert die diff_refs; alle POSTs sind 201.
+            if (req.Method == HttpMethod.Get && req.RequestUri!.ToString().EndsWith("/merge_requests/42"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{ "diff_refs": { "base_sha": "b1", "head_sha": "h1", "start_sha": "s1" } }""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.Created);
+        });
+        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
+
+        var comments = new[]
+        {
+            new InlineComment("src/Foo.cs", 5, null, "added-line finding"),
+            new InlineComment("src/Bar.cs", 7, 3, "context finding"),
+        };
+
+        await platform.PostReviewAsync(Request, "## Naudit Review", comments);
+
+        var discussions = capture.Calls
+            .Where(c => c.Method == HttpMethod.Post && c.Uri!.ToString().Contains("/discussions"))
+            .ToList();
+        Assert.Equal(2, discussions.Count);
+        // diff_refs in der Position
+        Assert.All(discussions, d => Assert.Contains("\"head_sha\":\"h1\"", d.Body!));
+        // old_path ist bei GitLab immer erforderlich – auch für hinzugefügte Zeilen.
+        Assert.All(discussions, d => Assert.Contains("\"old_path\":\"src/", d.Body!));
+        // hinzugefügte Zeile: new_line ohne old_line
+        Assert.Contains(discussions, d => d.Body!.Contains("\"new_line\":5") && !d.Body.Contains("old_line"));
+        // Kontextzeile: new_line UND old_line
+        Assert.Contains(discussions, d => d.Body!.Contains("\"new_line\":7") && d.Body.Contains("\"old_line\":3"));
+        // Summary-Note wurde ebenfalls gepostet
+        Assert.Contains(capture.Calls, c => c.Uri!.ToString().Contains("/notes"));
     }
 }
