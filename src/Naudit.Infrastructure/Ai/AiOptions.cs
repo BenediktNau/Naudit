@@ -1,6 +1,6 @@
 namespace Naudit.Infrastructure.Ai;
 
-public enum AiProvider { Anthropic, Ollama, OpenAICompatible }
+public enum AiProvider { Anthropic, Ollama, OpenAICompatible, ClaudeCode }
 
 public sealed class AiOptions
 {
