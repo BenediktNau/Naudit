@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Naudit.Infrastructure.Ai;
+using Naudit.Infrastructure.Ai.ClaudeCode;
 using OllamaSharp;
 using Xunit;
 
@@ -33,5 +34,18 @@ public class AiClientFactoryTests
     {
         Assert.Throws<ArgumentException>(() =>
             AiClientFactory.Create(new AiOptions { Provider = AiProvider.OpenAICompatible, Model = "gpt-4o" }));
+    }
+
+    [Fact]
+    public void Create_claudeCode_returnsClaudeCodeChatClient()
+    {
+        // Kein ApiKey nötig — Auth läuft über die Umgebung (CLAUDE_CODE_OAUTH_TOKEN).
+        var client = AiClientFactory.Create(new AiOptions
+        {
+            Provider = AiProvider.ClaudeCode,
+            Model = "sonnet",
+        });
+
+        Assert.IsType<ClaudeCodeChatClient>(client);
     }
 }
