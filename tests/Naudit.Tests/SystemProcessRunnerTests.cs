@@ -34,6 +34,19 @@ public class SystemProcessRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_externalCancellation_killsProcess_andThrowsOperationCanceled()
+    {
+        if (!Posix) return;
+        var runner = new SystemProcessRunner();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // bereits abgebrochen → der Cancel erreicht den Kill-Pfad, kein verwaister Prozess
+        var spec = new ProcessSpec("sleep", new[] { "5" }, StdIn: null,
+            Environment: null, WorkingDirectory: null, Timeout: TimeSpan.FromSeconds(10));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runner.RunAsync(spec, cts.Token));
+    }
+
+    [Fact]
     public async Task RunAsync_missingBinary_throwsInvalidOperation()
     {
         var runner = new SystemProcessRunner();
