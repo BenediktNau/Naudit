@@ -35,7 +35,7 @@ dotnet user-secrets set "Naudit:Ai:Model"    "sonnet"     --project src/Naudit.W
 ```
 
 `Naudit:Ai:Model` accepts an alias (`sonnet`, `opus`, `haiku`, `fable`) or a full model id;
-empty defaults to `sonnet`. `Naudit:Ai:TimeoutSeconds` bounds the subprocess (default 600).
+empty defaults to `sonnet`. `Naudit:Ai:TimeoutSeconds` bounds the subprocess (default 600) — more precisely, the window from when the diff has been written to the CLI's stdin until the process exits.
 
 ## How it works
 

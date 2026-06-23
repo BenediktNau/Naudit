@@ -24,11 +24,15 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
 
         var model = string.IsNullOrWhiteSpace(aiOptions.Model) ? "sonnet" : aiOptions.Model;
 
+        // ChatOptions (z. B. ResponseFormat=Json) hat in der CLI kein Äquivalent: JSON wird allein über
+        // den System-Prompt erzwungen; --output-format json betrifft nur das Envelope, nicht den Modelltext.
         // Tools aus, ein Turn, JSON-Envelope; Reihenfolge egal, aber --tools muss ein Folge-Argument "" haben.
         var args = new List<string>
         {
             "-p", "--output-format", "json", "--max-turns", "1", "--tools", "", "--model", model,
         };
+        // ReviewService liefert immer einen nicht-leeren System-Prompt (DefaultSystemPrompt). Fehlte er,
+        // fiele claude auf seine Default-Coding-Agent-Persona zurück (lieferte kein Review-JSON).
         if (!string.IsNullOrEmpty(system))
         {
             args.Add("--system-prompt"); // ersetzt den GESAMTEN System-Prompt (kein Coding-Agent, kein CLAUDE.md)
