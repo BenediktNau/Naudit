@@ -78,6 +78,9 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           vuln-type: os,library
+          # VEX-Ausnahmen: nur die nicht-ausnutzbaren containerd-CVEs im mitgelieferten
+          # trivy-Binary (Naudit nutzt nur `trivy fs`, keine Runtime). Siehe .trivyignore.
+          trivyignores: .trivyignore
 
       # Erst nach bestandenem Scan pushen (Images wurden oben bereits gebaut/geladen).
       - name: Push image
