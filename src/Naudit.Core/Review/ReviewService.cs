@@ -6,10 +6,17 @@ using Naudit.Core.Models;
 
 namespace Naudit.Core.Review;
 
-public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatform, ReviewOptions options)
+public sealed class ReviewService(
+    IChatClient chatClient,
+    IGitPlatform gitPlatform,
+    ReviewOptions options,
+    IWorkspaceProvider workspaceProvider,
+    IEnumerable<ISastAnalyzer> analyzers,
+    IFindingReducer findingReducer)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/verdict/comments.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+    private readonly IReadOnlyList<ISastAnalyzer> _analyzers = analyzers.ToList();
 
     public async Task<ReviewResult> ReviewAsync(ReviewRequest request, CancellationToken ct = default)
     {
@@ -17,7 +24,10 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
         if (changes.Count == 0)
             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
 
-        var messages = PromptBuilder.Build(options.SystemPrompt, request, changes);
+        // SAST/SCA-Grounding vor dem Prompt-Aufbau einsammeln (leer, wenn Feature aus).
+        var findings = await CollectFindingsAsync(request, changes, ct);
+
+        var messages = PromptBuilder.Build(options.SystemPrompt, request, changes, findings);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
@@ -53,6 +63,45 @@ public sealed class ReviewService(IChatClient chatClient, IGitPlatform gitPlatfo
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
         await gitPlatform.PostReviewAsync(request, summary, inline, ct);
         return new ReviewResult(summary, verdict);
+    }
+
+    // SAST/SCA-Grounding. Ohne Analyzer (Feature aus) sofort leer → exakt diff-only wie früher.
+    // Checkout-Fehler degradiert auf diff-only; ein einzelner Analyzer-Fehler kippt den Review nicht.
+    private async Task<IReadOnlyList<ScanFinding>> CollectFindingsAsync(
+        ReviewRequest request, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+    {
+        if (_analyzers.Count == 0)
+            return [];
+
+        IReviewWorkspace workspace;
+        try
+        {
+            workspace = await workspaceProvider.CheckoutAsync(request, ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return []; // Checkout fehlgeschlagen → diff-only (Infrastructure hat geloggt)
+        }
+
+        await using (workspace)
+        {
+            var results = await Task.WhenAll(_analyzers.Select(a => SafeAnalyzeAsync(a, workspace, changes, ct)));
+
+            var changed = new HashSet<string>(changes.Select(c => c.FilePath));
+            var annotated = results
+                .SelectMany(r => r)
+                .Select(f => f.FilePath is not null && changed.Contains(f.FilePath) ? f with { InDiff = true } : f)
+                .ToList();
+
+            return await findingReducer.ReduceAsync(annotated, changes, ct);
+        }
+    }
+
+    private static async Task<IReadOnlyList<ScanFinding>> SafeAnalyzeAsync(
+        ISastAnalyzer analyzer, IReviewWorkspace ws, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+    {
+        try { return await analyzer.AnalyzeAsync(ws, changes, ct); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return []; }
     }
 
     // Schlanker Hybrid: LLM-Überblick + Verdict-Zeile + Count + nicht-verortbare Findings.

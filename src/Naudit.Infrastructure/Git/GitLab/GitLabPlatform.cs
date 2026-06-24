@@ -1,11 +1,12 @@
 using System.Net.Http.Json;
+using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 
 namespace Naudit.Infrastructure.Git.GitLab;
 
 /// <summary>IGitPlatform-Implementierung für GitLab. BaseAddress + PRIVATE-TOKEN kommen vom typed HttpClient.</summary>
-public sealed class GitLabPlatform(HttpClient http) : IGitPlatform
+public sealed class GitLabPlatform(HttpClient http, IOptions<GitLabOptions> options) : IGitPlatform
 {
     public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
     {
@@ -56,5 +57,17 @@ public sealed class GitLabPlatform(HttpClient http) : IGitPlatform
             var payload = new { body = c.Body, position };
             (await http.PostAsJsonAsync($"{basePath}/discussions", payload, ct)).EnsureSuccessStatusCode();
         }
+    }
+
+    public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
+    {
+        var project = await http.GetFromJsonAsync<GitLabProject>($"api/v4/projects/{request.ProjectId}", ct)
+            ?? throw new InvalidOperationException("GitLab lieferte keine Projekt-Infos.");
+        if (string.IsNullOrEmpty(project.HttpUrlToRepo))
+            throw new InvalidOperationException("GitLab lieferte keine http_url_to_repo.");
+
+        // Token in die Klon-URL einbetten (oauth2:<token>@host).
+        var cloneUrl = project.HttpUrlToRepo.Replace("://", $"://oauth2:{options.Value.Token}@");
+        return new RepoCheckoutInfo(cloneUrl, $"refs/merge-requests/{request.MergeRequestIid}/head");
     }
 }

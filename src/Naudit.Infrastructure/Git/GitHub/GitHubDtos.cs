@@ -12,6 +12,7 @@ public sealed class GitHubWebhookPayload
 public sealed class GitHubRepository
 {
     [JsonPropertyName("full_name")] public string? FullName { get; set; }
+    [JsonPropertyName("clone_url")] public string? CloneUrl { get; set; }
 }
 
 public sealed class GitHubPullRequest

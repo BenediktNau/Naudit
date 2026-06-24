@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
@@ -9,6 +10,8 @@ using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
+using Naudit.Infrastructure.Process;
+using Naudit.Infrastructure.Sast;
 
 namespace Naudit.Infrastructure;
 
@@ -54,6 +57,45 @@ public static class DependencyInjection
                     http.DefaultRequestHeaders.Add("PRIVATE-TOKEN", opt.Token);
                 });
                 break;
+        }
+
+        // SAST/SCA-Grounding: immer die Infrastruktur-Naht registrieren (harmlos wenn ungenutzt),
+        // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.
+        var sastOptions = configuration.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
+        if (sastOptions.Analyzers.Count == 0)
+            sastOptions.Analyzers = new() { "semgrep", "trivy" };
+        services.AddSingleton<IProcessRunner, SystemProcessRunner>();
+        services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(sastOptions.MaxFindingsPerGroup));
+        services.AddScoped<IWorkspaceProvider, GitWorkspaceProvider>();
+
+        if (sastOptions.Enabled)
+        {
+            foreach (var name in sastOptions.Analyzers)
+            {
+                switch (name.ToLowerInvariant())
+                {
+                    case "semgrep":
+                        services.AddScoped<ISastAnalyzer>(sp => new SemgrepAnalyzer(
+                            sp.GetRequiredService<IProcessRunner>(),
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SemgrepAnalyzer>(),
+                            sastOptions.AnalyzerTimeout));
+                        break;
+                    case "trivy":
+                        services.AddScoped<ISastAnalyzer>(sp => new TrivyAnalyzer(
+                            sp.GetRequiredService<IProcessRunner>(),
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<TrivyAnalyzer>(),
+                            sastOptions.AnalyzerTimeout));
+                        break;
+                    case "dotnet-sca":
+                        services.AddScoped<ISastAnalyzer>(sp => new DotnetScaAnalyzer(
+                            sp.GetRequiredService<IProcessRunner>(),
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<DotnetScaAnalyzer>(),
+                            sastOptions.AnalyzerTimeout));
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unbekannter SAST-Analyzer in Naudit:Sast:Analyzers: '{name}'.");
+                }
+            }
         }
 
         services.AddScoped<ReviewService>();

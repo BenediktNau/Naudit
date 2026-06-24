@@ -12,6 +12,7 @@ public sealed class GitLabWebhookPayload
 public sealed class GitLabProject
 {
     [JsonPropertyName("id")] public long Id { get; set; }
+    [JsonPropertyName("http_url_to_repo")] public string? HttpUrlToRepo { get; set; }
 }
 
 public sealed class GitLabMergeRequestAttributes

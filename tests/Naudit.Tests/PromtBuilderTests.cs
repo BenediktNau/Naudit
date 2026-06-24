@@ -53,4 +53,62 @@ public class PromptBuilderTests
 
         Assert.Contains("2 +++ added", messages[1].Text);
     }
+
+    [Fact]
+    public void Build_rendersFindings_withScopeLabels()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("src/Foo.cs", "@@ +1 @@") };
+        var findings = new[]
+        {
+            new ScanFinding("semgrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "src/Foo.cs", 42) { InDiff = true },
+            new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.Critical, "Newtonsoft.Json 9.0.1", "CVE-2024-1", "packages.lock.json") { InDiff = false },
+        };
+
+        var text = PromptBuilder.Build("SYS", request, changes, findings)[1].Text!;
+
+        Assert.Contains("## SAST", text);
+        Assert.Contains("[HIGH][in diff] semgrep", text);
+        Assert.Contains("src/Foo.cs:42", text);
+        Assert.Contains("## Dependency / SCA", text);
+        Assert.Contains("[CRITICAL][pre-existing] trivy", text);
+        Assert.DoesNotContain("No tool findings.", text);
+        // Category order is mandated: Dependency / SCA BEFORE SAST
+        Assert.True(text.IndexOf("## Dependency / SCA") < text.IndexOf("## SAST"));
+    }
+
+    [Fact]
+    public void Build_withoutFindings_saysNoToolFindings()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+
+        var text = PromptBuilder.Build("SYS", request, changes)[1].Text!;
+
+        Assert.Contains("No tool findings.", text);
+    }
+
+    [Fact]
+    public void Build_withNullLocationAndRule_rendersCleanLine()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        var findings = new[]
+        {
+            new ScanFinding("sometool", FindingCategory.Sast, FindingSeverity.Info, "a message"),
+        };
+
+        var text = PromptBuilder.Build("SYS", request, changes, findings)[1].Text!;
+
+        // Null RuleId and FilePath should produce a clean line with no dangling separators
+        Assert.Contains("[INFO][pre-existing] sometool → a message", text);
+        Assert.DoesNotContain("sometool · ", text);
+    }
+
+    [Fact]
+    public void DefaultSystemPrompt_groundsToolchain()
+    {
+        Assert.Contains("do NOT flag", PromptBuilder.DefaultSystemPrompt);
+        Assert.Contains("grounding", PromptBuilder.DefaultSystemPrompt);
+    }
 }

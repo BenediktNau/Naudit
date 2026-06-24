@@ -1,3 +1,4 @@
+using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Core.Review;
 using Naudit.Tests.Fakes;
@@ -9,12 +10,23 @@ public class ReviewServiceTests
 {
     private static readonly ReviewRequest Request = new("1", 42, "Title");
 
+    private static ReviewService CreateService(
+        Microsoft.Extensions.AI.IChatClient chat,
+        Naudit.Core.Abstractions.IGitPlatform git,
+        ReviewOptions options,
+        IEnumerable<ISastAnalyzer>? analyzers = null,
+        FakeWorkspaceProvider? workspace = null)
+        => new(chat, git, options,
+            workspace ?? new FakeWorkspaceProvider(),
+            analyzers ?? Array.Empty<ISastAnalyzer>(),
+            new FakeFindingReducer());
+
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
     {
         var chat = new FakeChatClient("""{"summary":"## Review\n- looks fine","verdict":"approve","comments":[]}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         var result = await service.ReviewAsync(Request);
 
@@ -30,7 +42,7 @@ public class ReviewServiceTests
     {
         var chat = new FakeChatClient("""{"summary":"## Review\n- bug here","verdict":"request_changes","comments":[]}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         var result = await service.ReviewAsync(Request);
 
@@ -44,7 +56,7 @@ public class ReviewServiceTests
         var chat = new FakeChatClient(
             """{"summary":"## Review","verdict":"request_changes","comments":[{"file":"src/Foo.cs","line":1,"comment":"null deref"}]}""");
         var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await service.ReviewAsync(Request);
 
@@ -60,7 +72,7 @@ public class ReviewServiceTests
         var chat = new FakeChatClient(
             """{"summary":"## Review","verdict":"request_changes","comments":[{"file":"src/Foo.cs","line":99,"comment":"orphan finding"}]}""");
         var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+only one line")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await service.ReviewAsync(Request);
 
@@ -76,7 +88,7 @@ public class ReviewServiceTests
         var chat = new FakeChatClient(
             """{"verdict":"request_changes","summary":"## R","comments":[{"file":"src/Foo.cs","line":1,"comment":"   "}]}""");
         var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await service.ReviewAsync(Request);
 
@@ -89,7 +101,7 @@ public class ReviewServiceTests
     {
         var chat = new FakeChatClient("unused");
         var git = new FakeGitPlatform([]);
-        var service = new ReviewService(chat, git, new ReviewOptions());
+        var service = CreateService(chat, git, new ReviewOptions());
 
         var result = await service.ReviewAsync(Request);
 
@@ -103,7 +115,7 @@ public class ReviewServiceTests
         // Robustheit: fehlender summary-Key darf den Review nicht mit NRE abbrechen.
         var chat = new FakeChatClient("""{"verdict":"approve","comments":[]}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await service.ReviewAsync(Request);
 
@@ -118,7 +130,7 @@ public class ReviewServiceTests
         var chat = new FakeChatClient(
             """{"verdict":"request_changes","summary":"## R","comments":[{"line":1,"comment":"no-file finding"}]}""");
         var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+only one line")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await service.ReviewAsync(Request);
 
@@ -133,8 +145,86 @@ public class ReviewServiceTests
         // Fail-closed: ein unbekanntes/kaputtes Verdict darf das Gate nicht still auf approve fallen lassen.
         var chat = new FakeChatClient("""{"summary":"## Review\n- ?","verdict":"maybe"}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
-        var service = new ReviewService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReviewAsync(Request));
+    }
+
+    [Fact]
+    public async Task ReviewAsync_groundsFindings_inPrompt_andAnnotatesInDiff()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var finding = new ScanFinding("semgrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "a.cs", 5);
+        var analyzers = new[] { new FakeSastAnalyzer("semgrep", new[] { finding }) };
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
+
+        await service.ReviewAsync(Request);
+
+        var userText = chat.LastMessages![1].Text!;
+        Assert.Contains("[HIGH][in diff] semgrep", userText);
+        Assert.Contains("a.cs:5", userText);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_marksFindingPreExisting_whenFileNotInDiff()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var finding = new ScanFinding("semgrep", FindingCategory.Sast, FindingSeverity.Low, "x", "r", "other.cs", 1);
+        var analyzers = new[] { new FakeSastAnalyzer("semgrep", new[] { finding }) };
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Contains("[LOW][pre-existing] semgrep", chat.LastMessages![1].Text!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_oneAnalyzerThrows_stillReviewsWithOthers()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var good = new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.Critical, "CVE", "CVE-1", "lock");
+        var analyzers = new ISastAnalyzer[]
+        {
+            new FakeSastAnalyzer("boom", Array.Empty<ScanFinding>(), throws: true),
+            new FakeSastAnalyzer("trivy", new[] { good }),
+        };
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+        Assert.Contains("CVE-1", chat.LastMessages![1].Text!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_checkoutFails_degradesToDiffOnly()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var analyzers = new[] { new FakeSastAnalyzer("semgrep", Array.Empty<ScanFinding>()) };
+        var ws = new FakeWorkspaceProvider { ThrowOnCheckout = true };
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers, ws);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+        Assert.Contains("No tool findings.", chat.LastMessages![1].Text!);
+        Assert.Equal(1, git.PostCallCount);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_noAnalyzers_doesNotCheckout()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var ws = new FakeWorkspaceProvider();
+        var service = CreateService(chat, git, new ReviewOptions(), analyzers: null, workspace: ws);
+
+        await service.ReviewAsync(Request);
+
+        Assert.False(ws.CheckoutCalled);
     }
 }

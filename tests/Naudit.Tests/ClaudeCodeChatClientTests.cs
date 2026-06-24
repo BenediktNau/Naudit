@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Process;
 using Naudit.Tests.Fakes;
 using Xunit;
 

@@ -80,6 +80,12 @@ Three projects with a strict, deliberate dependency direction:
   one platform is active per deployment; only its webhook endpoint is mapped. The GitHub endpoint
   (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over the raw
   body (fail-closed). No change to Core.
+- **New SAST/SCA analyzer:** implement `ISastAnalyzer` in
+  `src/Naudit.Infrastructure/Sast/`, map the tool's output to `ScanFinding`, and
+  add a `case` in the analyzer-selection `switch` in `DependencyInjection.cs`.
+  Selection is config-only via `Naudit:Sast:Analyzers`. No change to Core. The
+  findings are fed to the LLM as grounding (`PromptBuilder`); the verdict stays
+  LLM-only.
 
 ### CI/CD & container
 

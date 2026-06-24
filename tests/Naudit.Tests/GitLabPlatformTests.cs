@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Git.GitLab;
 using Naudit.Tests.Fakes;
@@ -24,7 +25,7 @@ public class GitLabPlatformTests
     public async Task GetChangesAsync_mapsChangesFromApi()
     {
         const string json = """{ "changes": [ { "new_path": "src/Foo.cs", "diff": "@@ +1 @@\n+x" } ] }""";
-        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.OK, json));
+        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.OK, json), Options.Create(new GitLabOptions { Token = "tok" }));
 
         var changes = await platform.GetChangesAsync(Request);
 
@@ -37,7 +38,7 @@ public class GitLabPlatformTests
     public async Task PostReviewAsync_postsNoteWithBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
-        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
+        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Options.Create(new GitLabOptions { Token = "tok" }));
 
         await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
@@ -63,7 +64,7 @@ public class GitLabPlatformTests
             }
             return new HttpResponseMessage(HttpStatusCode.Created);
         });
-        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
+        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Options.Create(new GitLabOptions { Token = "tok" }));
 
         var comments = new[]
         {
@@ -87,5 +88,19 @@ public class GitLabPlatformTests
         Assert.Contains(discussions, d => d.Body!.Contains("\"new_line\":7") && d.Body.Contains("\"old_line\":3"));
         // Summary-Note wurde ebenfalls gepostet
         Assert.Contains(capture.Calls, c => c.Uri!.ToString().Contains("/notes"));
+    }
+
+    [Fact]
+    public async Task GetCheckoutAsync_buildsCloneUrlWithToken_andMrRef()
+    {
+        const string json = """{ "http_url_to_repo": "https://gitlab.example.com/group/proj.git" }""";
+        var platform = new GitLabPlatform(
+            ClientReturning(HttpStatusCode.OK, json),
+            Options.Create(new GitLabOptions { Token = "tok" }));
+
+        var info = await platform.GetCheckoutAsync(Request);
+
+        Assert.Equal("https://oauth2:tok@gitlab.example.com/group/proj.git", info.CloneUrl);
+        Assert.Equal("refs/merge-requests/42/head", info.HeadRef);
     }
 }

@@ -1,6 +1,7 @@
 using System.ClientModel;
 using Microsoft.Extensions.AI;
 using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Process;
 using OllamaSharp;
 using OpenAI;
 

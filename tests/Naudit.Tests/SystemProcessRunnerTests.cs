@@ -1,4 +1,4 @@
-using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Process;
 using Xunit;
 
 namespace Naudit.Tests;
