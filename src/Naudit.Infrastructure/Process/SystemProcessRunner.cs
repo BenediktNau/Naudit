@@ -1,7 +1,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using OsProcess = System.Diagnostics.Process;
 
-namespace Naudit.Infrastructure.Ai.ClaudeCode;
+namespace Naudit.Infrastructure.Process;
 
 /// <summary>Führt einen Subprozess aus: schreibt stdin, liest stdout/stderr, killt bei Timeout/Cancel.</summary>
 public sealed class SystemProcessRunner : IProcessRunner
@@ -24,7 +25,7 @@ public sealed class SystemProcessRunner : IProcessRunner
             foreach (var kv in spec.Environment)
                 psi.Environment[kv.Key] = kv.Value; // psi.Environment ist bereits mit der Eltern-Env vorbefüllt
 
-        using var process = new Process { StartInfo = psi };
+        using var process = new OsProcess { StartInfo = psi };
         try
         {
             process.Start();

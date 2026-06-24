@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Tests.Fakes;
@@ -29,7 +30,7 @@ public class GitHubPlatformTests
           { "filename": "assets/logo.png" }
         ]
         """;
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, json));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, json), Options.Create(new GitHubOptions { Token = "tok" }));
 
         var changes = await platform.GetChangesAsync(Request);
 
@@ -45,7 +46,7 @@ public class GitHubPlatformTests
         {
             Content = new StringContent("[]", Encoding.UTF8, "application/json"),
         });
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "[]", capture));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "[]", capture), Options.Create(new GitHubOptions { Token = "tok" }));
 
         await platform.GetChangesAsync(Request);
 
@@ -58,7 +59,7 @@ public class GitHubPlatformTests
     public async Task PostReviewAsync_withoutComments_postsReviewBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Options.Create(new GitHubOptions { Token = "tok" }));
 
         await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
@@ -72,7 +73,7 @@ public class GitHubPlatformTests
     public async Task PostReviewAsync_withComments_includesPathLineSide()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Options.Create(new GitHubOptions { Token = "tok" }));
 
         await platform.PostReviewAsync(Request, "## Naudit Review",
             [new InlineComment("src/Foo.cs", 5, null, "finding here")]);
@@ -83,5 +84,19 @@ public class GitHubPlatformTests
         Assert.Contains("\"line\":5", body);
         Assert.Contains("\"side\":\"RIGHT\"", body);
         Assert.Contains("finding here", body);
+    }
+
+    [Fact]
+    public async Task GetCheckoutAsync_buildsCloneUrlWithToken_andPrRef()
+    {
+        const string json = """{ "clone_url": "https://github.com/owner/repo.git" }""";
+        var platform = new GitHubPlatform(
+            ClientReturning(HttpStatusCode.OK, json),
+            Options.Create(new GitHubOptions { Token = "tok" }));
+
+        var info = await platform.GetCheckoutAsync(Request);
+
+        Assert.Equal("https://x-access-token:tok@github.com/owner/repo.git", info.CloneUrl);
+        Assert.Equal("refs/pull/42/head", info.HeadRef);
     }
 }

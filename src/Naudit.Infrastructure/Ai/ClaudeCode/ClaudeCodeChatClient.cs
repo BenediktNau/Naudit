@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
+using Naudit.Infrastructure.Process;
 
 namespace Naudit.Infrastructure.Ai.ClaudeCode;
 

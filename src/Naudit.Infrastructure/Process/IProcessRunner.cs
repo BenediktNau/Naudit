@@ -1,4 +1,4 @@
-namespace Naudit.Infrastructure.Ai.ClaudeCode;
+namespace Naudit.Infrastructure.Process;
 
 /// <summary>Dünne, testbare Naht über einen Subprozess (vermeidet echtes `claude` im Test).</summary>
 public interface IProcessRunner

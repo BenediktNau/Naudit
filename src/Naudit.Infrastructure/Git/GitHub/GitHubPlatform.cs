@@ -1,11 +1,12 @@
 using System.Net.Http.Json;
+using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 
 namespace Naudit.Infrastructure.Git.GitHub;
 
 /// <summary>IGitPlatform-Implementierung für GitHub. BaseAddress + Auth-Header kommen vom typed HttpClient.</summary>
-public sealed class GitHubPlatform(HttpClient http) : IGitPlatform
+public sealed class GitHubPlatform(HttpClient http, IOptions<GitHubOptions> options) : IGitPlatform
 {
     public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
     {
@@ -41,5 +42,17 @@ public sealed class GitHubPlatform(HttpClient http) : IGitPlatform
         };
         var response = await http.PostAsJsonAsync(url, payload, ct);
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
+    {
+        var repo = await http.GetFromJsonAsync<GitHubRepository>($"repos/{request.ProjectId}", ct)
+            ?? throw new InvalidOperationException("GitHub lieferte keine Repo-Infos.");
+        if (string.IsNullOrEmpty(repo.CloneUrl))
+            throw new InvalidOperationException("GitHub lieferte keine clone_url.");
+
+        // Token in die Klon-URL einbetten (x-access-token:<token>@host).
+        var cloneUrl = repo.CloneUrl.Replace("://", $"://x-access-token:{options.Value.Token}@");
+        return new RepoCheckoutInfo(cloneUrl, $"refs/pull/{request.MergeRequestIid}/head");
     }
 }

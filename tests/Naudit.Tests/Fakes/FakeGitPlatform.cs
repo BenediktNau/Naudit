@@ -19,4 +19,7 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
         PostCallCount++;
         return Task.CompletedTask;
     }
+
+    public Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
+        => Task.FromResult(new RepoCheckoutInfo("https://token@host/repo.git", "refs/test/head"));
 }
