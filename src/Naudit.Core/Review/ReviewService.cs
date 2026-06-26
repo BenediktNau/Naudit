@@ -32,7 +32,9 @@ public sealed class ReviewService(
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
 
-        var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(response.Text, JsonOpts)
+        // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
+        // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
+        var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
             ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
 
         // Fail-closed: nur explizite Verdicts; alles andere ist ein Fehler.
@@ -123,6 +125,21 @@ public sealed class ReviewService(
             }
         }
         return sb.ToString().TrimEnd();
+    }
+
+    // Robustheit gegen Modelle, die das JSON trotz ResponseFormat=Json in einen Markdown-Fence
+    // (```json … ```) packen. Bei barem JSON ein No-op (nur Trim).
+    private static string ExtractJson(string text)
+    {
+        var s = text.Trim();
+        if (s.StartsWith("```", StringComparison.Ordinal))
+        {
+            var nl = s.IndexOf('\n');
+            if (nl >= 0) s = s[(nl + 1)..];                              // einleitende ```json-Zeile weg
+            var fence = s.LastIndexOf("```", StringComparison.Ordinal);
+            if (fence >= 0) s = s[..fence];                              // schließenden Fence weg
+        }
+        return s.Trim();
     }
 
     // Wire-DTO für die LLM-Antwort. Verdict bewusst als string (Mapping oben).
