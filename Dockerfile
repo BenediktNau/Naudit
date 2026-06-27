@@ -19,14 +19,15 @@ RUN dotnet publish src/Naudit.Web/Naudit.Web.csproj -c Release -o /app/publish -
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:ddcf70ad1ab963a4fcd41fbd722a6b660e404e87567cfbd46fd2809c21b02088 AS runtime
 WORKDIR /app
 
-# SAST/SCA/Secrets-Tools: Trivy + OpenGrep + Gitleaks (alles Binaries). Als root installieren,
-# dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt (sha256-verifiziert) fuer
-# Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr: spart Python im Image und
-# vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
+# SAST/SCA/Secrets-Tools: Trivy + OpenGrep + Gitleaks + OSV-Scanner (alles Binaries). Als root
+# installieren, dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt
+# (sha256-verifiziert) fuer Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr:
+# spart Python im Image und vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
 ARG TRIVY_VERSION=0.71.2
 ARG OPENGREP_VERSION=1.23.0
 ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa
 ARG GITLEAKS_VERSION=8.30.1
+ARG OSV_SCANNER_VERSION=2.4.0
 USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -47,6 +48,9 @@ RUN apt-get update \
  && echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
  && rm /tmp/gitleaks.tar.gz \
+ && curl -sfL -o /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" \
+ && echo "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0  /usr/local/bin/osv-scanner" | sha256sum -c - \
+ && chmod +x /usr/local/bin/osv-scanner \
  && apt-get purge -y curl && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 

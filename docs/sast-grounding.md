@@ -23,6 +23,9 @@ their own (no hard tool gate).
   rule paths** — never `--config auto` (that would pull the license-restricted
   Semgrep registry rules and send telemetry).
 - **trivy** — SCA/dependency CVEs, multi-ecosystem, no build.
+- **osv-scanner** — SCA via Google's OSV database (`osv-scanner scan source`),
+  language-agnostic over lockfiles/manifests, no build. Complements trivy. CVE in
+  `RuleId`, package/version in the message; severity mapped from the CVSS score.
 - **gitleaks** — secrets detection (`gitleaks dir`), no build. Findings carry the
   rule, file and line only — the **raw secret value is never forwarded** into the
   prompt or logs. Reported under the `Secrets` category.

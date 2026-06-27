@@ -91,6 +91,12 @@ public static class DependencyInjection
                             sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitleaksAnalyzer>(),
                             sastOptions.AnalyzerTimeout));
                         break;
+                    case "osv-scanner":
+                        services.AddScoped<ISastAnalyzer>(sp => new OsvScannerAnalyzer(
+                            sp.GetRequiredService<IProcessRunner>(),
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<OsvScannerAnalyzer>(),
+                            sastOptions.AnalyzerTimeout));
+                        break;
                     case "trivy":
                         services.AddScoped<ISastAnalyzer>(sp => new TrivyAnalyzer(
                             sp.GetRequiredService<IProcessRunner>(),
