@@ -24,7 +24,7 @@ public class SastWiringTests
         {
             ["Naudit:Git:Platform"] = "GitLab",
             ["Naudit:Sast:Enabled"] = "true",
-            ["Naudit:Sast:Analyzers:0"] = "semgrep",
+            ["Naudit:Sast:Analyzers:0"] = "opengrep",
             ["Naudit:Sast:Analyzers:1"] = "trivy",
         });
 
@@ -32,7 +32,7 @@ public class SastWiringTests
         var analyzers = scope.ServiceProvider.GetServices<ISastAnalyzer>().ToList();
 
         Assert.Equal(2, analyzers.Count);
-        Assert.Contains(analyzers, a => a.Name == "semgrep");
+        Assert.Contains(analyzers, a => a.Name == "opengrep");
         Assert.Contains(analyzers, a => a.Name == "trivy");
     }
 
@@ -51,7 +51,7 @@ public class SastWiringTests
     }
 
     [Fact]
-    public void Enabled_withNoAnalyzersConfig_registersDefaultSemgrepAndTrivy()
+    public void Enabled_withNoAnalyzersConfig_registersDefaultOpengrepAndTrivy()
     {
         using var sp = Build(new()
         {
@@ -63,7 +63,7 @@ public class SastWiringTests
         var analyzers = scope.ServiceProvider.GetServices<ISastAnalyzer>().ToList();
 
         Assert.Equal(2, analyzers.Count);
-        Assert.Contains(analyzers, a => a.Name == "semgrep");
+        Assert.Contains(analyzers, a => a.Name == "opengrep");
         Assert.Contains(analyzers, a => a.Name == "trivy");
     }
 

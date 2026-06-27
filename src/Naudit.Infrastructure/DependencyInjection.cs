@@ -63,7 +63,11 @@ public static class DependencyInjection
         // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.
         var sastOptions = configuration.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
         if (sastOptions.Analyzers.Count == 0)
-            sastOptions.Analyzers = new() { "semgrep", "trivy" };
+            sastOptions.Analyzers = new() { "opengrep", "trivy" };
+        // Voller gepinnter Regelbaum (alle Sprachen) + Overlay laufen IMMER; konfigurierte Pfade
+        // kommen additiv dazu. So fällt das Overlay nie versehentlich weg, wenn jemand einen
+        // eigenen Regelpfad ergänzt (statt die Defaults still zu ersetzen).
+        sastOptions.OpengrepRules = SastOptions.ResolveOpengrepRules(sastOptions.OpengrepRules);
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
         services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(sastOptions.MaxFindingsPerGroup));
         services.AddScoped<IWorkspaceProvider, GitWorkspaceProvider>();
@@ -74,11 +78,12 @@ public static class DependencyInjection
             {
                 switch (name.ToLowerInvariant())
                 {
-                    case "semgrep":
-                        services.AddScoped<ISastAnalyzer>(sp => new SemgrepAnalyzer(
+                    case "opengrep":
+                        services.AddScoped<ISastAnalyzer>(sp => new OpengrepAnalyzer(
                             sp.GetRequiredService<IProcessRunner>(),
-                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SemgrepAnalyzer>(),
-                            sastOptions.AnalyzerTimeout));
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<OpengrepAnalyzer>(),
+                            sastOptions.AnalyzerTimeout,
+                            sastOptions.OpengrepRules));
                         break;
                     case "trivy":
                         services.AddScoped<ISastAnalyzer>(sp => new TrivyAnalyzer(

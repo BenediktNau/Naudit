@@ -7,7 +7,7 @@ namespace Naudit.Tests;
 public class DeterministicFindingReducerTests
 {
     private static ScanFinding Sast(string file, int line, string rule, FindingSeverity sev, bool inDiff = false)
-        => new("semgrep", FindingCategory.Sast, sev, "msg", rule, file, line) { InDiff = inDiff };
+        => new("opengrep", FindingCategory.Sast, sev, "msg", rule, file, line) { InDiff = inDiff };
 
     [Fact]
     public async Task Reduce_dedupesIdenticalLocationRuleCategory()

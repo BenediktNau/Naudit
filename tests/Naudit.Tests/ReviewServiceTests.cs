@@ -155,14 +155,14 @@ public class ReviewServiceTests
     {
         var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
-        var finding = new ScanFinding("semgrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "a.cs", 5);
-        var analyzers = new[] { new FakeSastAnalyzer("semgrep", new[] { finding }) };
+        var finding = new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "a.cs", 5);
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", new[] { finding }) };
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
 
         await service.ReviewAsync(Request);
 
         var userText = chat.LastMessages![1].Text!;
-        Assert.Contains("[HIGH][in diff] semgrep", userText);
+        Assert.Contains("[HIGH][in diff] opengrep", userText);
         Assert.Contains("a.cs:5", userText);
     }
 
@@ -171,13 +171,13 @@ public class ReviewServiceTests
     {
         var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
-        var finding = new ScanFinding("semgrep", FindingCategory.Sast, FindingSeverity.Low, "x", "r", "other.cs", 1);
-        var analyzers = new[] { new FakeSastAnalyzer("semgrep", new[] { finding }) };
+        var finding = new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.Low, "x", "r", "other.cs", 1);
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", new[] { finding }) };
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
 
         await service.ReviewAsync(Request);
 
-        Assert.Contains("[LOW][pre-existing] semgrep", chat.LastMessages![1].Text!);
+        Assert.Contains("[LOW][pre-existing] opengrep", chat.LastMessages![1].Text!);
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public class ReviewServiceTests
     {
         var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
-        var analyzers = new[] { new FakeSastAnalyzer("semgrep", Array.Empty<ScanFinding>()) };
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", Array.Empty<ScanFinding>()) };
         var ws = new FakeWorkspaceProvider { ThrowOnCheckout = true };
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers, ws);
 
