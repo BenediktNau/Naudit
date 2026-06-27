@@ -15,9 +15,11 @@ public class GitleaksAnalyzerTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private const string FakeSecret = "ghp_0a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXy";
+    // Bewusst NICHT PAT-förmig: `gitleaks dir .` scannt das ganze Repo, ein echtes `ghp_…`-Literal
+    // hier würde Naudit beim Review des eigenen Repos als Dauer-False-Positive melden.
+    private const string FakeSecret = "TEST-FAKE-SECRET-not-a-real-token-000";
 
-    // Echtes gitleaks-`dir --report-format json`-Schema (Top-Level-Array; enthält bewusst Secret/Match).
+    // Gitleaks-`dir --report-format json`-Schema (Top-Level-Array; enthält bewusst Secret/Match-Felder).
     private static readonly string Json = $$"""
     [
       { "RuleID": "github-pat",
@@ -84,5 +86,19 @@ public class GitleaksAnalyzerTests
         var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
 
         Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_propagatesCancellation_insteadOfSwallowingAsEmpty()
+    {
+        // Externe Cancellation (Request-Abbruch/Shutdown) darf NICHT als "keine Funde" durchgehen,
+        // sonst läuft der abgebrochene Review weiter. (Per-Analyzer-Timeout ⇒ TimeoutException, bleibt graceful.)
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var runner = new StubProcessRunner(_ => throw new OperationCanceledException(cts.Token));
+        var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => analyzer.AnalyzeAsync(new Ws("/tmp/x"), [], cts.Token));
     }
 }

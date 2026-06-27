@@ -28,6 +28,7 @@ public sealed class GitleaksAnalyzer(
 
         ProcessResult result;
         try { result = await runner.RunAsync(spec, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; } // Abbruch propagieren, nicht schlucken
         catch (Exception ex) { logger.LogWarning(ex, "gitleaks nicht ausführbar"); return []; }
 
         // Gitleaks: Exit 0 (keine Funde) oder 1 (Funde) liefern den JSON-Report; höhere Codes = echter Fehler.
