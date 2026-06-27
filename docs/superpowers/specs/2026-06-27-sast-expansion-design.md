@@ -57,8 +57,8 @@ unangetastet — jedes neue Tool = eine Infra-Klasse + Config-Eintrag + Dockerfi
 
 | PR | Task | Core-Änderung | Größe |
 |----|------|---------------|-------|
-| **1** | **OpenGrep ersetzt Semgrep** (Engine + gepinntes Regelset + Overlay + Dockerfile) | nein | M |
-| **2** | **Gitleaks** (Secrets) | **ja** (`FindingCategory.Secrets`) | S |
+| **1** | **OpenGrep ersetzt Semgrep** (Engine + gepinntes Regelset + Overlay + Dockerfile) ✅ | nein | M |
+| **2** | **Gitleaks** (Secrets) ✅ | **ja** (`FindingCategory.Secrets`) | S |
 | **3** | **OSV-Scanner** (SCA) | nein | S |
 | **4** | **Infra-Linter-Bündel** (Hadolint + actionlint + zizmor) | nein | M |
 | **5** | **LLM-Verifikations-Reducer** (`Reducer="llm"`, strategischer Hebel) | nein | L |
@@ -152,13 +152,18 @@ Naudit:Sast:OpengrepRules = []   # leer = voller Baum (alle Sprachen) + Overlay;
 
 ---
 
-## PR 2 — Gitleaks / Secrets (Umriss)
+## PR 2 — Gitleaks / Secrets ✅ umgesetzt
 
-- **Core:** `FindingCategory.Secrets` ergänzen (+ Grounding-Sektion „## Secrets" im `PromptBuilder`;
-  die Verdichtung gruppiert generisch nach Category, braucht keine Änderung).
-- **`GitleaksAnalyzer`** — `gitleaks dir --report-format json --no-banner <root>`; Map →
-  `Category.Secrets`, Severity-Default `High`, Regel-ID/Datei/Zeile aus dem Report. Rein statisch.
-- Dockerfile: `gitleaks`-Binary gepinnt + sha256. Tests via `StubProcessRunner` + Fixture.
+- **Core:** `FindingCategory.Secrets` ergänzt; `PromptBuilder` rendert eine **`## Secrets`-Sektion
+  zuerst** (am dringlichsten), vor Dependency/SCA und SAST. Verdichtung gruppiert generisch nach
+  Category → unverändert.
+- **`GitleaksAnalyzer`** — `gitleaks dir . --report-format json --report-path /dev/stdout --no-banner`
+  (Report über `/dev/stdout` in die `IProcessRunner`-Naht; Exit 0/1 ⇒ parsen, >1 ⇒ leer). Map →
+  `Category.Secrets`, Severity `High`. **Sicherheits-Kernpunkt:** nur RuleID/Description/Datei/Zeile
+  werden übernommen — der rohe `Secret`/`Match`-Wert **nie** (ginge sonst in Prompt + Logs); eigener
+  Test deckt das ab.
+- Dockerfile: `gitleaks` v8.30.1 gepinnt + sha256; Install-Block im Runtime-Image verifiziert.
+  6 neue Tests (Mapping, No-Leak, Argumente, Fehler; Prompt-Sektion; Wiring). Suite **102/102** grün.
 
 ## PR 3 — OSV-Scanner / SCA (Umriss)
 
