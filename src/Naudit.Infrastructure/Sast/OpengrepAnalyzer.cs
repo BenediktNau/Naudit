@@ -36,9 +36,14 @@ public sealed class OpengrepAnalyzer(
         args.Add("--json");
         args.Add(".");
 
+        // OpenGreps gebündeltes Python liest die Regel-Dateien (mit UTF-8-Zeichen) gemäß Prozess-Locale.
+        // Im schlanken Container ist kein UTF-8-Locale gesetzt ⇒ ASCII-Decode ⇒ UnicodeDecodeError/Crash.
+        // C.UTF-8 ist in glibc ohne locales-Paket verfügbar und behebt das deterministisch.
+        var env = new Dictionary<string, string?> { ["LC_ALL"] = "C.UTF-8", ["LANG"] = "C.UTF-8" };
+
         var spec = new ProcessSpec(
             "opengrep", args,
-            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout);
+            StdIn: null, Environment: env, WorkingDirectory: workspace.RootPath, Timeout: timeout);
 
         ProcessResult result;
         try { result = await runner.RunAsync(spec, ct); }

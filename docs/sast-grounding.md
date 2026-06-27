@@ -11,7 +11,7 @@ their own (no hard tool gate).
 | --- | --- | --- |
 | `Enabled` | `false` | Master switch. `false` ⇒ exact diff-only behavior. |
 | `Analyzers` | `["opengrep","trivy"]` | Active analyzers by name. |
-| `OpengrepRules` | curated subtrees + overlay | `--config` paths for OpenGrep (see below). |
+| `OpengrepRules` | _(empty)_ | Extra `--config` paths for OpenGrep, **added on top** of the defaults (see below). |
 | `Reducer` | `deterministic` | Finding de-duplication strategy (seam for a future `llm` reducer). |
 | `AnalyzerTimeout` | `00:05:00` | Per-tool timeout. |
 | `MaxFindingsPerGroup` | `20` | Cap per category after sorting. |
@@ -30,15 +30,21 @@ their own (no hard tool gate).
 
 ### OpenGrep rules
 
-The image ships two rule sources, both **pinned**:
+By default OpenGrep runs the **whole** pinned rule set — **all ~30 languages**
+OpenGrep supports — so you do **not** need to configure anything per language. The
+image ships two rule sources, both **pinned**:
 
-- `opengrep/opengrep-rules` (LGPL-2.1) at a pinned commit, under `/opt/opengrep-rules`.
+- `opengrep/opengrep-rules` (LGPL-2.1) at a pinned commit, under `/opt/opengrep-rules`
+  (≈2000 rules across all languages). The Docker build strips the repo's non-rule
+  YAML (`.github/`, `stats/`, `.pre-commit-config.yaml`) — a single non-rule YAML in
+  the `--config` tree would otherwise abort the entire scan.
 - Naudit's own `.NET`/C# security overlay under `/opt/naudit-rules` (repo: `sast/rules/`).
 
-`OpengrepRules` defaults to the curated subtrees `csharp`, `generic`, `dockerfile`
-plus the overlay — **not** the whole `opengrep-rules` tree, because a single invalid
-rule file in it aborts the entire scan. Add more language subtrees per deployment by
-overriding `Naudit:Sast:OpengrepRules` (e.g. append `/opt/opengrep-rules/python`).
+Both defaults **always run**. `Naudit:Sast:OpengrepRules` lets a deployment **add**
+extra `--config` paths (e.g. an in-house rule directory) on top of the defaults —
+they are appended, not replaced, so the overlay can never be dropped by accident.
+OpenGrep only applies rules matching each file's language, so the full set adds no
+noise for languages a repo doesn't use.
 
 ## Behavior
 

@@ -64,16 +64,10 @@ public static class DependencyInjection
         var sastOptions = configuration.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
         if (sastOptions.Analyzers.Count == 0)
             sastOptions.Analyzers = new() { "opengrep", "trivy" };
-        if (sastOptions.OpengrepRules.Count == 0)
-            // Kuratierte Teilbäume (nicht der volle opengrep-rules-Baum: eine einzige ungültige Regel
-            // darin bräche den ganzen Scan ab). Pro Deployment via Config um weitere Sprachen erweiterbar.
-            sastOptions.OpengrepRules = new()
-            {
-                "/opt/opengrep-rules/csharp",
-                "/opt/opengrep-rules/generic",
-                "/opt/opengrep-rules/dockerfile",
-                "/opt/naudit-rules",
-            };
+        // Voller gepinnter Regelbaum (alle Sprachen) + Overlay laufen IMMER; konfigurierte Pfade
+        // kommen additiv dazu. So fällt das Overlay nie versehentlich weg, wenn jemand einen
+        // eigenen Regelpfad ergänzt (statt die Defaults still zu ersetzen).
+        sastOptions.OpengrepRules = SastOptions.ResolveOpengrepRules(sastOptions.OpengrepRules);
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
         services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(sastOptions.MaxFindingsPerGroup));
         services.AddScoped<IWorkspaceProvider, GitWorkspaceProvider>();

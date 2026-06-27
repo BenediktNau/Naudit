@@ -67,6 +67,22 @@ public class OpengrepAnalyzerTests
     }
 
     [Fact]
+    public async Task AnalyzeAsync_forcesUtf8Locale_soOpengrepDoesNotCrashOnNonAsciiRules()
+    {
+        // OpenGreps gebündeltes Python liest Regel-Dateien mit UTF-8-Zeichen; ohne UTF-8-Locale
+        // (z.B. im schlanken Container) crasht es mit UnicodeDecodeError. Wir erzwingen C.UTF-8.
+        var runner = new StubProcessRunner(_ => new ProcessResult(0, """{ "results": [], "errors": [] }""", ""));
+        var analyzer = new OpengrepAnalyzer(
+            runner, NullLogger<OpengrepAnalyzer>.Instance, TimeSpan.FromMinutes(5), ["/opt/opengrep-rules"]);
+
+        await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []);
+
+        var env = runner.LastSpec!.Environment!;
+        Assert.Equal("C.UTF-8", env["LC_ALL"]);
+        Assert.Equal("C.UTF-8", env["LANG"]);
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_returnsEmpty_whenToolFails()
     {
         var runner = new StubProcessRunner(_ => new ProcessResult(2, "", "opengrep crashed"));

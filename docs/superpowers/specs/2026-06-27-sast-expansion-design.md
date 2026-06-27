@@ -32,9 +32,13 @@ unangetastet — jedes neue Tool = eine Infra-Klasse + Config-Eintrag + Dockerfi
   entfallen damit alle drei). Dazu ein **kleines eigenes Overlay** im Repo (`sast/rules/`, ~10–15
   kuratierte C#/.NET-Regeln) für hauseigene Konventionen. Aktualisierung des externen Sets via
   Dependabot/Renovate-pinbarem Commit, nicht „live".
-- **Regel-Scope kuratiert, nicht „alles".** `opengrep-rules` enthält tausende Regeln über viele
-  Sprachen. Naudit zeigt OpenGrep nur die relevanten Teilbäume (C#/.NET, generische Security,
-  Dockerfile) + das Overlay — hält Latenz und Rauschen niedrig.
+- **Regel-Scope = voller Baum (alle Sprachen), nicht kuratiert.** OpenGreps Stärke ist die breite
+  Sprachabdeckung (~30 Sprachen); ein Bot, der beliebige Repos reviewt, soll sie nutzen. Der Build
+  entfernt die **Nicht-Regel-YAMLs** des Repos (`.github/`, `stats/`, `.pre-commit-config.yaml`) —
+  eine einzige Nicht-Regel-YAML im `--config`-Baum bricht sonst den **ganzen** Scan ab
+  (`InvalidRuleSchemaError`, am Binary verifiziert: bereinigt ⇒ „0 config errors, 2007 rules"). Default
+  ist damit der **volle** Baum + Overlay; **keine** Sprach-Auswahl nötig. OpenGrep wendet je Datei nur
+  sprachpassende Regeln an → kein Rauschen für ungenutzte Sprachen.
 - **Neue `FindingCategory.Secrets`** für Gitleaks. Heute nur `{ Sast, Sca }`. Secrets sind weder
   noch; eine eigene Kategorie hält die Grounding-Sektion und die Verdichtung sauber gruppiert. Das
   ist die **einzige Core-Model-Änderung** der gesamten Roadmap.
@@ -86,21 +90,22 @@ bekommen je einen eigenen Spec, wenn sie dran sind.
 - **`SemgrepAnalyzer` + `SemgrepAnalyzerTests` entfallen** (harter Schnitt; `case "semgrep"` wird zum
   unbekannten Namen → wirft wie gehabt). `OpengrepAnalyzerTests` prüfen Mapping **und** die exakten
   Argumente (`scan … --config … --json .`, niemals `auto`).
-- **Regelquelle (beide gepinnt):**
+- **Regelquelle (beide gepinnt, beide laufen immer):**
   - extern: `opengrep/opengrep-rules` (LGPL-2.1) per **Commit** `f1d2b562…` als sha256-verifizierter
-    Tarball nach `/opt/opengrep-rules`. Config zeigt auf **kuratierte Teilbäume** (`csharp`,
-    `generic`, `dockerfile`) — **nicht** den vollen Baum: eine einzige ungültige Regel darin
-    (`InvalidRuleSchemaError`) bricht den **ganzen** Scan ab (am Binary verifiziert). Pro Deployment
-    via Config um weitere Sprach-Teilbäume erweiterbar.
+    Tarball nach `/opt/opengrep-rules`. Config zeigt auf den **vollen** Baum (~2000 Regeln, alle
+    Sprachen); der Build entfernt vorher die Nicht-Regel-YAMLs (`.github/`, `stats/`,
+    `.pre-commit-config.yaml`), die den Scan sonst abbrächen. `Naudit:Sast:OpengrepRules` **ergänzt**
+    optional weitere `--config`-Pfade (additiv via `SastOptions.ResolveOpengrepRules`, Defaults bleiben
+    immer — Overlay fällt nie weg).
   - Overlay: `sast/rules/dotnet-security.yaml` im Naudit-Repo (6 hochsignalige .NET-Regeln:
     schwache Krypto MD5/SHA1, ECB-Modus, Command-Injection `Process.Start`-Concat, EF-Raw-SQL-
     Interpolation, `BinaryFormatter`, deaktivierte TLS-Prüfung) → `/opt/naudit-rules`. Gegen das
     echte Binary validiert (lädt fehlerfrei, matcht alle Zielstellen).
 - **`DependencyInjection.cs`:** `case "semgrep"` → `case "opengrep"`; Default-Fallback-Liste
-  `{ "semgrep", "trivy" }` → `{ "opengrep", "trivy" }`; Default-`OpengrepRules` = die kuratierten
-  Pfade + Overlay (gesetzt wenn Config leer, analog zur Analyzer-Liste).
-- **`SastOptions`:** neue Liste `OpengrepRules` (je Eintrag ein `--config`-Pfad), config-
-  überschreibbar; leer ⇒ Default in DI.
+  `{ "semgrep", "trivy" }` → `{ "opengrep", "trivy" }`; die effektiven Regelpfade über
+  `SastOptions.ResolveOpengrepRules(...)` (Defaults immer + konfigurierte additiv).
+- **`SastOptions`:** Liste `OpengrepRules` (zusätzliche `--config`-Pfade) + `DefaultOpengrepRules`
+  (voller Baum + Overlay) + statischer Merge-Helper `ResolveOpengrepRules` (separat unit-getestet).
 
 ### Dockerfile
 
@@ -115,7 +120,8 @@ RUN curl -sfL -o /usr/local/bin/opengrep ".../v${OPENGREP_VERSION}/opengrep_many
  && echo "1f06548a…5ef8  /usr/local/bin/opengrep" | sha256sum -c - && chmod +x /usr/local/bin/opengrep \
  && curl -sfL -o /tmp/r.tar.gz ".../opengrep-rules/archive/${OPENGREP_RULES_REF}.tar.gz" \
  && echo "9a5f1cd5…619d  /tmp/r.tar.gz" | sha256sum -c - \
- && mkdir -p /opt/opengrep-rules && tar -xzf /tmp/r.tar.gz -C /opt/opengrep-rules --strip-components=1
+ && mkdir -p /opt/opengrep-rules && tar -xzf /tmp/r.tar.gz -C /opt/opengrep-rules --strip-components=1 \
+ && rm -rf /opt/opengrep-rules/.github /opt/opengrep-rules/stats /opt/opengrep-rules/.pre-commit-config.yaml
 COPY sast/rules /opt/naudit-rules
 ```
 
@@ -123,8 +129,7 @@ COPY sast/rules /opt/naudit-rules
 
 ```
 Naudit:Sast:Analyzers     = ["opengrep","trivy"]    # dotnet-sca weiterhin opt-in
-Naudit:Sast:OpengrepRules = ["/opt/opengrep-rules/csharp","/opt/opengrep-rules/generic",
-                             "/opt/opengrep-rules/dockerfile","/opt/naudit-rules"]   # Default; überschreibbar
+Naudit:Sast:OpengrepRules = []   # leer = voller Baum (alle Sprachen) + Overlay; Einträge kommen additiv dazu
 ```
 
 ### Tests (TDD)
@@ -134,6 +139,8 @@ Naudit:Sast:OpengrepRules = ["/opt/opengrep-rules/csharp","/opt/opengrep-rules/g
   (`scan --config … --json .`, enthält **nie** `auto`); ein Fall: Exit>1 ⇒ leere Liste.
 - **`SastWiringTests`** — `"opengrep"` registriert den `OpengrepAnalyzer`, Default ist
   `opengrep`+`trivy`; `"semgrep"` ist kein gültiger Name mehr (harter Schnitt, unbekannter Name wirft).
+- **`SastOptionsTests`** — `ResolveOpengrepRules`: leer ⇒ voller Baum + Overlay; gesetzt ⇒ Defaults
+  bleiben immer, konfigurierte Pfade additiv (dedupliziert).
 - Bestehende `ReviewServiceTests`/`PromptBuilderTests`/`DeterministicFindingReducerTests` laufen
   weiter (Tool-Label-Fixtures `semgrep`→`opengrep` angeglichen).
 

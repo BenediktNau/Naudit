@@ -41,6 +41,7 @@ RUN apt-get update \
  && mkdir -p /opt/opengrep-rules \
  && tar -xzf /tmp/opengrep-rules.tar.gz -C /opt/opengrep-rules --strip-components=1 \
  && rm /tmp/opengrep-rules.tar.gz \
+ && rm -rf /opt/opengrep-rules/.github /opt/opengrep-rules/stats /opt/opengrep-rules/.pre-commit-config.yaml \
  && apt-get purge -y curl && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
