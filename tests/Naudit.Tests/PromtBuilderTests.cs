@@ -61,14 +61,14 @@ public class PromptBuilderTests
         var changes = new[] { new CodeChange("src/Foo.cs", "@@ +1 @@") };
         var findings = new[]
         {
-            new ScanFinding("semgrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "src/Foo.cs", 42) { InDiff = true },
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "src/Foo.cs", 42) { InDiff = true },
             new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.Critical, "Newtonsoft.Json 9.0.1", "CVE-2024-1", "packages.lock.json") { InDiff = false },
         };
 
         var text = PromptBuilder.Build("SYS", request, changes, findings)[1].Text!;
 
         Assert.Contains("## SAST", text);
-        Assert.Contains("[HIGH][in diff] semgrep", text);
+        Assert.Contains("[HIGH][in diff] opengrep", text);
         Assert.Contains("src/Foo.cs:42", text);
         Assert.Contains("## Dependency / SCA", text);
         Assert.Contains("[CRITICAL][pre-existing] trivy", text);

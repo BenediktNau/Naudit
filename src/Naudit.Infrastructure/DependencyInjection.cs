@@ -63,7 +63,17 @@ public static class DependencyInjection
         // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.
         var sastOptions = configuration.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
         if (sastOptions.Analyzers.Count == 0)
-            sastOptions.Analyzers = new() { "semgrep", "trivy" };
+            sastOptions.Analyzers = new() { "opengrep", "trivy" };
+        if (sastOptions.OpengrepRules.Count == 0)
+            // Kuratierte Teilbäume (nicht der volle opengrep-rules-Baum: eine einzige ungültige Regel
+            // darin bräche den ganzen Scan ab). Pro Deployment via Config um weitere Sprachen erweiterbar.
+            sastOptions.OpengrepRules = new()
+            {
+                "/opt/opengrep-rules/csharp",
+                "/opt/opengrep-rules/generic",
+                "/opt/opengrep-rules/dockerfile",
+                "/opt/naudit-rules",
+            };
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
         services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(sastOptions.MaxFindingsPerGroup));
         services.AddScoped<IWorkspaceProvider, GitWorkspaceProvider>();
@@ -74,11 +84,12 @@ public static class DependencyInjection
             {
                 switch (name.ToLowerInvariant())
                 {
-                    case "semgrep":
-                        services.AddScoped<ISastAnalyzer>(sp => new SemgrepAnalyzer(
+                    case "opengrep":
+                        services.AddScoped<ISastAnalyzer>(sp => new OpengrepAnalyzer(
                             sp.GetRequiredService<IProcessRunner>(),
-                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SemgrepAnalyzer>(),
-                            sastOptions.AnalyzerTimeout));
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<OpengrepAnalyzer>(),
+                            sastOptions.AnalyzerTimeout,
+                            sastOptions.OpengrepRules));
                         break;
                     case "trivy":
                         services.AddScoped<ISastAnalyzer>(sp => new TrivyAnalyzer(

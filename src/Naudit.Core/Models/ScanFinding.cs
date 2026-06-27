@@ -6,7 +6,7 @@ public enum FindingCategory { Sast, Sca }
 /// <summary>Normalisierter Schweregrad über alle Tools hinweg (Reihenfolge = Rang für Sortierung).</summary>
 public enum FindingSeverity { Info, Low, Medium, High, Critical }
 
-/// <summary>Ein tool-agnostischer, normalisierter Fund (Semgrep/Trivy/dotnet/…).</summary>
+/// <summary>Ein tool-agnostischer, normalisierter Fund (OpenGrep/Trivy/dotnet/…).</summary>
 public sealed record ScanFinding(
     string Tool,
     FindingCategory Category,

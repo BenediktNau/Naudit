@@ -1,0 +1,66 @@
+# Naudit-Overlay: kuratierte .NET/C#-Security-Regeln (LGPL-frei, hauseigen).
+# Läuft zusätzlich zum gepinnten opengrep-rules-Set. Bewusst klein & hochsignalig
+# gehalten — Breite kommt aus opengrep-rules, hier nur .NET-Konventionen mit hoher Präzision.
+rules:
+  - id: naudit-dotnet-weak-hash
+    languages: [csharp]
+    severity: WARNING
+    message: >-
+      MD5/SHA1 sind kryptografisch gebrochen. Für Integrität/Signaturen SHA-256 oder stärker nutzen.
+    metadata: { cwe: "CWE-327", owasp: "A02:2021", category: security }
+    pattern-either:
+      - pattern: MD5.Create()
+      - pattern: SHA1.Create()
+      - pattern: new MD5CryptoServiceProvider()
+      - pattern: new SHA1CryptoServiceProvider()
+
+  - id: naudit-dotnet-cipher-ecb
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      ECB-Modus verschlüsselt gleiche Klartextblöcke identisch und leakt Struktur. CBC/GCM verwenden.
+    metadata: { cwe: "CWE-327", owasp: "A02:2021", category: security }
+    pattern: $X.Mode = CipherMode.ECB
+
+  - id: naudit-dotnet-process-start-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      Möglicher Command-Injection: kein konkatenierter String in Process.Start. Argumente
+      über ProcessStartInfo.ArgumentList einzeln übergeben.
+    metadata: { cwe: "CWE-78", owasp: "A03:2021", category: security }
+    pattern-either:
+      - pattern: System.Diagnostics.Process.Start($A + $B)
+      - pattern: Process.Start($A + $B)
+
+  - id: naudit-dotnet-ef-raw-sql-interpolation
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      Interpolierter String in EF-Raw-SQL ist SQL-Injection-anfällig. Parametrisierte Queries
+      bzw. FromSqlInterpolated/ExecuteSqlInterpolated mit echten Parametern nutzen.
+    metadata: { cwe: "CWE-89", owasp: "A03:2021", category: security }
+    pattern-either:
+      - pattern: $DB.FromSqlRaw($"...")
+      - pattern: $DB.ExecuteSqlRaw($"...")
+      - pattern: $DB.ExecuteSqlRawAsync($"...")
+
+  - id: naudit-dotnet-binaryformatter
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      BinaryFormatter ist unsicher (RCE via untrusted Daten) und in .NET deprecated. Sicheren
+      Serializer (System.Text.Json) verwenden.
+    metadata: { cwe: "CWE-502", owasp: "A08:2021", category: security }
+    pattern: new BinaryFormatter(...)
+
+  - id: naudit-dotnet-disable-tls-validation
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      Server-Zertifikatsprüfung deaktiviert (akzeptiert jedes Zertifikat) — öffnet MITM. Niemals
+      in Produktion.
+    metadata: { cwe: "CWE-295", owasp: "A07:2021", category: security }
+    pattern-either:
+      - pattern: $H.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+      - pattern: ServicePointManager.ServerCertificateValidationCallback = (...) => true
