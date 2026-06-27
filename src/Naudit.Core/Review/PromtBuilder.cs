@@ -93,6 +93,8 @@ public static class PromptBuilder
         }
         sb.AppendLine("Prioritize [in diff] (introduced/touched by this MR). [pre-existing] were already in the repo.");
 
+        // Secrets zuerst (am dringlichsten), dann Dependencies, dann SAST.
+        AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
     }

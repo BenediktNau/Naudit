@@ -68,6 +68,22 @@ public class SastWiringTests
     }
 
     [Fact]
+    public void Enabled_registersGitleaks()
+    {
+        using var sp = Build(new()
+        {
+            ["Naudit:Git:Platform"] = "GitLab",
+            ["Naudit:Sast:Enabled"] = "true",
+            ["Naudit:Sast:Analyzers:0"] = "gitleaks",
+        });
+
+        using var scope = sp.CreateScope();
+        var analyzers = scope.ServiceProvider.GetServices<ISastAnalyzer>().ToList();
+
+        Assert.Contains(analyzers, a => a.Name == "gitleaks");
+    }
+
+    [Fact]
     public void Enabled_withUnknownAnalyzer_throws()
     {
         Assert.Throws<InvalidOperationException>(() => Build(new()

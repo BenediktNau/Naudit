@@ -23,6 +23,9 @@ their own (no hard tool gate).
   rule paths** — never `--config auto` (that would pull the license-restricted
   Semgrep registry rules and send telemetry).
 - **trivy** — SCA/dependency CVEs, multi-ecosystem, no build.
+- **gitleaks** — secrets detection (`gitleaks dir`), no build. Findings carry the
+  rule, file and line only — the **raw secret value is never forwarded** into the
+  prompt or logs. Reported under the `Secrets` category.
 - **dotnet-sca** — `.NET` SCA via `dotnet list package --vulnerable`. **Opt-in:**
   it runs `dotnet restore`, which **executes the reviewed code's build logic**,
   and it needs the .NET SDK in the image (the default runtime image only ships

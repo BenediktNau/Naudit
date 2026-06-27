@@ -85,6 +85,12 @@ public static class DependencyInjection
                             sastOptions.AnalyzerTimeout,
                             sastOptions.OpengrepRules));
                         break;
+                    case "gitleaks":
+                        services.AddScoped<ISastAnalyzer>(sp => new GitleaksAnalyzer(
+                            sp.GetRequiredService<IProcessRunner>(),
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitleaksAnalyzer>(),
+                            sastOptions.AnalyzerTimeout));
+                        break;
                     case "trivy":
                         services.AddScoped<ISastAnalyzer>(sp => new TrivyAnalyzer(
                             sp.GetRequiredService<IProcessRunner>(),
