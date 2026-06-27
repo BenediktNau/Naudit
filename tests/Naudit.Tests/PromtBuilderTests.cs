@@ -78,6 +78,25 @@ public class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_rendersSecretsFindings_beforeOtherCategories()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        var findings = new[]
+        {
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.Low, "x", "r", "a.cs", 1) { InDiff = true },
+            new ScanFinding("gitleaks", FindingCategory.Secrets, FindingSeverity.High, "GitHub Personal Access Token", "github-pat", "a.cs", 2) { InDiff = true },
+        };
+
+        var text = PromptBuilder.Build("SYS", request, changes, findings)[1].Text!;
+
+        Assert.Contains("## Secrets", text);
+        Assert.Contains("[HIGH][in diff] gitleaks · github-pat", text);
+        // Secrets sind am dringlichsten -> vor SAST gerendert.
+        Assert.True(text.IndexOf("## Secrets") < text.IndexOf("## SAST"));
+    }
+
+    [Fact]
     public void Build_withoutFindings_saysNoToolFindings()
     {
         var request = new ReviewRequest("1", 42, "T");

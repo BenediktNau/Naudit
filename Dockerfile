@@ -19,13 +19,14 @@ RUN dotnet publish src/Naudit.Web/Naudit.Web.csproj -c Release -o /app/publish -
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:ddcf70ad1ab963a4fcd41fbd722a6b660e404e87567cfbd46fd2809c21b02088 AS runtime
 WORKDIR /app
 
-# SAST/SCA-Tools: Trivy (Binary) + OpenGrep (Binary, voll-LGPL-Fork von Semgrep). Als root
-# installieren, dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt
-# (sha256-verifiziert) fuer Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr:
-# spart Python im Image und vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
+# SAST/SCA/Secrets-Tools: Trivy + OpenGrep + Gitleaks (alles Binaries). Als root installieren,
+# dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt (sha256-verifiziert) fuer
+# Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr: spart Python im Image und
+# vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
 ARG TRIVY_VERSION=0.71.2
 ARG OPENGREP_VERSION=1.23.0
 ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa
+ARG GITLEAKS_VERSION=8.30.1
 USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -42,6 +43,10 @@ RUN apt-get update \
  && tar -xzf /tmp/opengrep-rules.tar.gz -C /opt/opengrep-rules --strip-components=1 \
  && rm /tmp/opengrep-rules.tar.gz \
  && rm -rf /opt/opengrep-rules/.github /opt/opengrep-rules/stats /opt/opengrep-rules/.pre-commit-config.yaml \
+ && curl -sfL -o /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+ && echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
+ && rm /tmp/gitleaks.tar.gz \
  && apt-get purge -y curl && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
