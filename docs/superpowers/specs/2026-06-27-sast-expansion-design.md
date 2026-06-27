@@ -59,7 +59,7 @@ unangetastet — jedes neue Tool = eine Infra-Klasse + Config-Eintrag + Dockerfi
 |----|------|---------------|-------|
 | **1** | **OpenGrep ersetzt Semgrep** (Engine + gepinntes Regelset + Overlay + Dockerfile) ✅ | nein | M |
 | **2** | **Gitleaks** (Secrets) ✅ | **ja** (`FindingCategory.Secrets`) | S |
-| **3** | **OSV-Scanner** (SCA) | nein | S |
+| **3** | **OSV-Scanner** (SCA) ✅ | nein | S |
 | **4** | **Infra-Linter-Bündel** (Hadolint + actionlint + zizmor) | nein | M |
 | **5** | **LLM-Verifikations-Reducer** (`Reducer="llm"`, strategischer Hebel) | nein | L |
 
@@ -165,11 +165,15 @@ Naudit:Sast:OpengrepRules = []   # leer = voller Baum (alle Sprachen) + Overlay;
 - Dockerfile: `gitleaks` v8.30.1 gepinnt + sha256; Install-Block im Runtime-Image verifiziert.
   6 neue Tests (Mapping, No-Leak, Argumente, Fehler; Prompt-Sektion; Wiring). Suite **102/102** grün.
 
-## PR 3 — OSV-Scanner / SCA (Umriss)
+## PR 3 — OSV-Scanner / SCA ✅ umgesetzt
 
-- **`OsvScannerAnalyzer`** — `osv-scanner --format json -r <root>` → `Category.Sca`
-  (CVE/GHSA → `RuleId`, Package/Version → `Message`). Ergänzt trivy/dotnet-sca sprach-agnostisch.
-- Dockerfile: `osv-scanner`-Binary gepinnt + sha256. Tests via Stub + Fixture.
+- **`OsvScannerAnalyzer`** — `osv-scanner scan source --format json -r .` (WorkingDirectory = Root)
+  → `Category.Sca`. Ein Fund je OSV-**group**; CVE-Alias bevorzugt als `RuleId`, Package/Version/
+  Ecosystem in der Message, Severity aus `max_severity` (CVSS-Score → Info/Low/Medium/High/Critical).
+  OSV liefert **absolute** Pfade → relativ zur Root gemappt. Exit 0/1 ⇒ parsen, **128 = keine
+  Lockfiles** (ok, leer), sonst Fehler ⇒ leer. Cancellation propagiert (nicht geschluckt).
+- Dockerfile: `osv-scanner` v2.4.0 gepinnt + sha256; im echten Image gebaut + **echter Scan**
+  verifiziert (46 Vuln-IDs auf Django 2.0). 6 neue Tests. Suite **112/112** grün.
 
 ## PR 4 — Infra-Linter-Bündel (Umriss)
 
