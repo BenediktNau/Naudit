@@ -65,8 +65,10 @@ Three projects with a strict, deliberate dependency direction:
 ### Request flow
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
-→ ReviewService` which: `IGitPlatform.GetChangesAsync` → `PromptBuilder.Build` → `IChatClient.GetResponseAsync`
-→ `IGitPlatform.PostReviewAsync`. If there are no changes, nothing is posted.
+→ ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding) →
+`IPromptRedactor.RedactAsync` (mask secrets/IPs/e-mails in diff + findings + title, **before** the prompt) →
+`PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
+changes, nothing is posted.
 
 ### Extension points (do not break the Core rule)
 
@@ -86,6 +88,13 @@ Three projects with a strict, deliberate dependency direction:
   Selection is config-only via `Naudit:Sast:Analyzers`. No change to Core. The
   findings are fed to the LLM as grounding (`PromptBuilder`); the verdict stays
   LLM-only.
+- **New prompt redactor:** implement `IPromptRedactor` in
+  `src/Naudit.Infrastructure/Redaction/` and register it in `DependencyInjection.cs`.
+  The interface lives in Core (`Naudit.Core.Abstractions`), the implementation in
+  Infrastructure (Core rule intact). The default `PatternRedactor` (regex + entropy)
+  masks secrets/IPs/e-mails **before** `PromptBuilder.Build`; `Naudit:Redaction:Enabled=false`
+  swaps in `NullPromptRedactor` (no-op). Seam for a future Presidio/LLM redactor. See
+  `docs/redaction.md`.
 
 ### CI/CD & container
 
