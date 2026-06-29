@@ -11,6 +11,7 @@ using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
 using Naudit.Infrastructure.Process;
+using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
 
 namespace Naudit.Infrastructure;
@@ -114,6 +115,13 @@ public static class DependencyInjection
                 }
             }
         }
+
+        // Prompt-Redaction: Secrets/IPs/E-Mails maskieren, bevor der Prompt das LLM erreicht.
+        // Default AN (Section fehlt ⇒ Enabled=true); aus ⇒ NullPromptRedactor = heutiges Verhalten.
+        var redactionOptions = configuration.GetSection("Naudit:Redaction").Get<RedactionOptions>() ?? new RedactionOptions();
+        services.AddSingleton<IPromptRedactor>(redactionOptions.Enabled
+            ? new PatternRedactor(redactionOptions)
+            : new NullPromptRedactor());
 
         services.AddScoped<ReviewService>();
         return services;
