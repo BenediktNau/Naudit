@@ -34,6 +34,9 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Ai:Endpoint` | Ollama URL or base URL of an OpenAI-compatible service |
 | `Naudit:Ai:ApiKey` | API key (required for Anthropic / OpenAI-compatible) |
 | `Naudit:Review:SystemPrompt` | Global review prompt; empty = built-in default |
+| `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
+| `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
+| `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
 
 ## Choosing an AI provider
 

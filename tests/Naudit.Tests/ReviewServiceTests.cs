@@ -15,11 +15,13 @@ public class ReviewServiceTests
         Naudit.Core.Abstractions.IGitPlatform git,
         ReviewOptions options,
         IEnumerable<ISastAnalyzer>? analyzers = null,
-        FakeWorkspaceProvider? workspace = null)
+        FakeWorkspaceProvider? workspace = null,
+        IPromptRedactor? redactor = null)
         => new(chat, git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
-            new FakeFindingReducer());
+            new FakeFindingReducer(),
+            redactor ?? new NullPromptRedactor());
 
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
@@ -213,6 +215,26 @@ public class ReviewServiceTests
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
         Assert.Contains("No tool findings.", chat.LastMessages![1].Text!);
         Assert.Equal(1, git.PostCallCount);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_redactsDiff_findingMessage_andTitle_beforePrompt()
+    {
+        // Beweist: Diff, Finding-Message UND Titel laufen vor dem Prompt-Aufbau durch den Redactor.
+        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@\n+var k = \"SECRET\";")]);
+        var finding = new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.High, "leak SECRET here", "R", "a.cs", 1);
+        var analyzers = new[] { new FakeSastAnalyzer("trivy", new[] { finding }) };
+        var redactor = new FakePromptRedactor("SECRET");
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers, redactor: redactor);
+
+        await service.ReviewAsync(new ReviewRequest("1", 42, "Fix SECRET in config"));
+
+        var userText = chat.LastMessages![1].Text!;
+        Assert.DoesNotContain("SECRET", userText);   // Diff + Finding-Message + Titel redigiert
+        Assert.Contains("«red»", userText);
+        Assert.Equal(3, redactor.Calls);             // pro Feld einzeln redigiert (Diff, Finding, Titel)
     }
 
     [Fact]
