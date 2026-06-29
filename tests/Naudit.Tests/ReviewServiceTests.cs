@@ -233,6 +233,24 @@ public class ReviewServiceTests
     }
 
     [Fact]
+    public async Task ReviewAsync_orphanFindingWithoutLine_stillBlocks_andLandsInSummary()
+    {
+        // Neuer Kontrakt: ein Fund OHNE "line" (nicht-verortbar) bleibt strukturiert in comments[],
+        // trägt Severity/Confidence und treibt das Gate — statt unstrukturiert in summary zu landen.
+        var chat = new FakeChatClient(
+            """{"summary":"s","comments":[{"file":"a.cs","comment":"global race","severity":"critical","confidence":"high"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.RequestChanges, result.Verdict);
+        Assert.Empty(git.PostedComments);
+        Assert.Contains("global race", git.PostedMarkdown!);
+        Assert.Contains("ohne Position", git.PostedMarkdown!);
+    }
+
+    [Fact]
     public async Task ReviewAsync_groundsFindings_inPrompt_andAnnotatesInDiff()
     {
         var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");

@@ -72,8 +72,8 @@ public sealed class ReviewService(
             blocking |= IsBlocking(severity, confidence);
 
             var badged = $"{SeverityBadge(severity, confidence)}\n\n{body}";
-            if (!string.IsNullOrEmpty(c.File) && commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(c.Line, out var oldLine))
-                inline.Add(new InlineComment(c.File, c.Line, oldLine, badged, severity, confidence));
+            if (!string.IsNullOrEmpty(c.File) && c.Line is int ln && commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(ln, out var oldLine))
+                inline.Add(new InlineComment(c.File, ln, oldLine, badged, severity, confidence));
             else
                 orphans.Add(new OrphanComment(c.File, body, severity, confidence));
         }
@@ -199,7 +199,9 @@ public sealed class ReviewService(
     // Wire-DTO für die LLM-Antwort. Kein Verdict mehr — das Gate leitet es aus den Findings ab.
     private sealed record LlmReviewResponse(string? Summary, List<LlmComment>? Comments);
 
-    private sealed record LlmComment(string? File, int Line, string? Comment, string? Severity = null, string? Confidence = null);
+    // Line nullable: ein Fund ohne konkrete Diff-Zeile lässt "line" weg (oder null) und wird als
+    // Orphan getragen — Severity/Confidence bleiben strukturiert erhalten und gaten weiterhin.
+    private sealed record LlmComment(string? File, int? Line, string? Comment, string? Severity = null, string? Confidence = null);
 
     // Nicht-verortbarer Fund (kein passender Diff-Treffer) — trägt Severity/Confidence fürs Gate + die Summary.
     private sealed record OrphanComment(string? File, string Body, FindingSeverity Severity, ReviewConfidence Confidence);
