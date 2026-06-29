@@ -38,9 +38,11 @@ public class ReviewServiceTests
     }
 
     [Fact]
-    public async Task ReviewAsync_returnsRequestChanges_whenModelSaysSo()
+    public async Task ReviewAsync_blocks_onConfirmedHighFinding()
     {
-        var chat = new FakeChatClient("""{"summary":"## Review\n- bug here","verdict":"request_changes","comments":[]}""");
+        // Severity-bewusstes Gate: ein bestätigter High-Fund (High-Confidence) ⇒ request_changes.
+        var chat = new FakeChatClient(
+            """{"summary":"## Review\n- bug here","comments":[{"file":"a.cs","line":1,"comment":"bug here","severity":"high","confidence":"high"}]}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
@@ -51,10 +53,10 @@ public class ReviewServiceTests
     }
 
     [Fact]
-    public async Task ReviewAsync_validLine_isPostedInline()
+    public async Task ReviewAsync_validLine_isPostedInline_withSeverityBadgeAndFields()
     {
         var chat = new FakeChatClient(
-            """{"summary":"## Review","verdict":"request_changes","comments":[{"file":"src/Foo.cs","line":1,"comment":"null deref"}]}""");
+            """{"summary":"## Review","comments":[{"file":"src/Foo.cs","line":1,"comment":"null deref","severity":"medium","confidence":"high"}]}""");
         var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
@@ -63,7 +65,11 @@ public class ReviewServiceTests
         var inline = Assert.Single(git.PostedComments);
         Assert.Equal("src/Foo.cs", inline.FilePath);
         Assert.Equal(1, inline.NewLine);
-        Assert.Equal("null deref", inline.Body);
+        Assert.Contains("null deref", inline.Body);     // Originaltext bleibt erhalten
+        Assert.Contains("Medium", inline.Body);          // sichtbare Severity-Plakette am Kommentar
+        Assert.Contains("confidence high", inline.Body);
+        Assert.Equal(FindingSeverity.Medium, inline.Severity);   // strukturiert für das Gate
+        Assert.Equal(ReviewConfidence.High, inline.Confidence);
     }
 
     [Fact]
@@ -140,14 +146,88 @@ public class ReviewServiceTests
     }
 
     [Fact]
-    public async Task ReviewAsync_withUnknownVerdict_throws()
+    public async Task ReviewAsync_unparseableResponse_throws()
     {
-        // Fail-closed: ein unbekanntes/kaputtes Verdict darf das Gate nicht still auf approve fallen lassen.
-        var chat = new FakeChatClient("""{"summary":"## Review\n- ?","verdict":"maybe"}""");
+        // Fail-closed bleibt für "gar keine parsebare Antwort": darf nicht still auf approve fallen.
+        var chat = new FakeChatClient("null");   // JSON-Literal null ⇒ Deserialize liefert null
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReviewAsync(Request));
+    }
+
+    [Fact]
+    public async Task ReviewAsync_doesNotBlock_onHighSeverity_butLowConfidence()
+    {
+        // BA-Empfehlung #5: valider Code soll nicht an einem schwachen (Low-Confidence) Signal scheitern.
+        var chat = new FakeChatClient(
+            """{"summary":"s","comments":[{"file":"a.cs","line":1,"comment":"maybe?","severity":"high","confidence":"low"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_doesNotBlock_onMediumSeverity_belowDefaultThreshold()
+    {
+        var chat = new FakeChatClient(
+            """{"summary":"s","comments":[{"file":"a.cs","line":1,"comment":"nit","severity":"medium","confidence":"high"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_commentWithoutSeverity_doesNotBlock()
+    {
+        // Fehlende severity/confidence ⇒ Info/Low ⇒ nicht blockierend.
+        var chat = new FakeChatClient(
+            """{"summary":"s","comments":[{"file":"a.cs","line":1,"comment":"style"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_gateThreshold_isConfigurable()
+    {
+        // MinSeverity auf Critical hochgesetzt ⇒ ein High-Fund blockt nicht mehr.
+        var chat = new FakeChatClient(
+            """{"summary":"s","comments":[{"file":"a.cs","line":1,"comment":"bug","severity":"high","confidence":"high"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var options = new ReviewOptions { SystemPrompt = "SYS" };
+        options.Gate.MinSeverity = FindingSeverity.Critical;
+        var service = CreateService(chat, git, options);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_orphanHighFinding_stillBlocks_andLandsInSummary()
+    {
+        // Auch nicht-verortbare Funde tragen Severity/Confidence und treiben das Gate.
+        var chat = new FakeChatClient(
+            """{"summary":"s","comments":[{"file":"a.cs","line":99,"comment":"race condition","severity":"critical","confidence":"high"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.RequestChanges, result.Verdict);
+        Assert.Empty(git.PostedComments);
+        Assert.Contains("race condition", git.PostedMarkdown!);
+        Assert.Contains("ohne Position", git.PostedMarkdown!);
     }
 
     [Fact]
