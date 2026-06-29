@@ -32,8 +32,10 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
 
     // Generische Zuweisung password|secret|api_key|… = "wert" → nur die Wertgruppe maskieren
     // (fängt auch kurze, niedrig-entropische Passwörter, die der Entropie-Pass verfehlt).
+    // (?<![\w-]) erzwingt eine linke Grenze, damit Suffixe in normalen Bezeichnern (z. B. authToken)
+    // nicht fälschlich greifen; (?<kq>["']?) erlaubt zitierte JSON-Keys wie "password": "…".
     private static readonly Regex Assignment = R(
-        @"(?<key>password|passwd|pwd|secret|api[-_]?key|access[-_]?key|token)(?<sep>\s*[:=]\s*)(?<q>[""']?)(?<val>[^\s""',;]+)(\k<q>)",
+        @"(?<![\w-])(?<kq>[""']?)(?<key>password|passwd|pwd|secret|api[-_]?key|access[-_]?key|token)(\k<kq>)(?<sep>\s*[:=]\s*)(?<q>[""']?)(?<val>[^\s""',;]+)(\k<q>)",
         RegexOptions.IgnoreCase);
 
     // Token-artige Substrings für den Entropie-Fallback.
@@ -58,9 +60,10 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
 
     private string RedactLine(string line)
     {
-        // 1) Generische Zuweisung: nur den Wert ersetzen, Schlüssel/Trenner/Quotes behalten.
+        // 1) Generische Zuweisung: nur den Wert ersetzen, Schlüssel/Trenner/Quotes behalten
+        //    (inkl. evtl. Key-Quotes kq, damit "password": "…" als "password": "«…»" erhalten bleibt).
         line = Assignment.Replace(line, m =>
-            $"{m.Groups["key"].Value}{m.Groups["sep"].Value}{m.Groups["q"].Value}«redacted:secret»{m.Groups["q"].Value}");
+            $"{m.Groups["kq"].Value}{m.Groups["key"].Value}{m.Groups["kq"].Value}{m.Groups["sep"].Value}{m.Groups["q"].Value}«redacted:secret»{m.Groups["q"].Value}");
 
         // 2) Strukturierte Pattern.
         foreach (var (kind, rx) in Rules)

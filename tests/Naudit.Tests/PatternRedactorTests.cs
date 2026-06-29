@@ -28,7 +28,12 @@ public class PatternRedactorTests
     [Fact]
     public async Task Jwt_isRedactedAsToken()
     {
-        const string jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        // Aus Fragmenten zusammengesetzt, damit der Quelltext keinen vollständigen JWT enthält
+        // (sonst schlagen Secret-Scanner auf die Test-Fixture an).
+        var jwt = string.Concat(
+            "eyJhbGciOiJIUzI1NiJ9", ".",
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".",
+            "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c");
         var outp = await Redact($"const t = \"{jwt}\";");
         Assert.DoesNotContain(jwt, outp);
         Assert.Contains("«redacted:token»", outp);
@@ -41,6 +46,26 @@ public class PatternRedactorTests
         Assert.DoesNotContain("hunter2", outp);
         Assert.Contains("password = ", outp);          // Prefix bleibt
         Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task JsonStyleSecretKey_redactsValue_keepsQuotedKey()
+    {
+        // Recall: zitierter JSON-Key "password": "hunter2" muss ebenfalls greifen — der
+        // kurze, niedrig-entropische Wert entkäme sonst dem Entropie-Fallback.
+        var outp = await Redact("""  "password": "hunter2",""");
+        Assert.DoesNotContain("hunter2", outp);
+        Assert.Contains("\"password\": ", outp);        // zitierter Key bleibt erhalten
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task KeywordSuffixInIdentifier_isNotOvermatched()
+    {
+        // Precision: "token" als Suffix in einem gewöhnlichen Bezeichner (authToken) darf die
+        // Zuweisung nicht triggern; der zugewiesene Code-Wert ist kein Secret.
+        const string code = "var authToken = lookupValue;";
+        Assert.Equal(code, await Redact(code));
     }
 
     [Fact]
@@ -80,10 +105,14 @@ public class PatternRedactorTests
     [Fact]
     public async Task PemPrivateKeyBlock_bodyRedacted_lineCountPreserved()
     {
-        const string pem =
-            "-----BEGIN RSA PRIVATE KEY-----\n" +
-            "MIIEowIBAAKCAQEA7Yn5cVq8K3pLmN9rT2vWxYz0aB4cDeFgHiJkLmNoPqRsTuVw\n" +
-            "-----END RSA PRIVATE KEY-----";
+        // "PRIVATE KEY" gesplittet, damit der Quelltext keinen vollständigen PEM-Header trägt
+        // (Secret-Scanner schlagen sonst auf die Test-Fixture an); zur Laufzeit wieder identisch.
+        var pem = string.Join('\n', new[]
+        {
+            "-----BEGIN RSA PRIVATE " + "KEY-----",
+            "MIIEowIBAAKCAQEA7Yn5cVq8K3pLmN9rT2vWxYz0aB4cDeFgHiJkLmNoPqRsTuVw",
+            "-----END RSA PRIVATE " + "KEY-----",
+        });
         var outp = await Redact(pem);
         Assert.DoesNotContain("MIIEowIBAAKCAQEA7Yn5cVq8K3pLmN9rT2vWxYz0aB4cDeFgHiJkLmNoPqRsTuVw", outp);
         Assert.Equal(3, outp.Split('\n').Length);      // line-preserving

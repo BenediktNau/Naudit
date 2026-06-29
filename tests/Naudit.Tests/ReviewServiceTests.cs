@@ -225,14 +225,16 @@ public class ReviewServiceTests
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@\n+var k = \"SECRET\";")]);
         var finding = new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.High, "leak SECRET here", "R", "a.cs", 1);
         var analyzers = new[] { new FakeSastAnalyzer("trivy", new[] { finding }) };
+        var redactor = new FakePromptRedactor("SECRET");
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
-            analyzers, redactor: new FakePromptRedactor("SECRET"));
+            analyzers, redactor: redactor);
 
         await service.ReviewAsync(new ReviewRequest("1", 42, "Fix SECRET in config"));
 
         var userText = chat.LastMessages![1].Text!;
         Assert.DoesNotContain("SECRET", userText);   // Diff + Finding-Message + Titel redigiert
         Assert.Contains("«red»", userText);
+        Assert.Equal(3, redactor.Calls);             // pro Feld einzeln redigiert (Diff, Finding, Titel)
     }
 
     [Fact]
