@@ -34,6 +34,8 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Ai:Endpoint` | Ollama URL or base URL of an OpenAI-compatible service |
 | `Naudit:Ai:ApiKey` | API key (required for Anthropic / OpenAI-compatible) |
 | `Naudit:Review:SystemPrompt` | Global review prompt; empty = built-in default |
+| `Naudit:Review:Gate:MinSeverity` | Lowest finding severity that can block the merge — `Info` \| `Low` \| `Medium` \| `High` \| `Critical` (default `High`) (see [Review gate](review-gate.md)) |
+| `Naudit:Review:Gate:MinConfidence` | Lowest LLM confidence that can block the merge — `Low` \| `Medium` \| `High` (default `Medium`) |
 
 ## Choosing an AI provider
 

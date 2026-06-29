@@ -66,7 +66,9 @@ Three projects with a strict, deliberate dependency direction:
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
 → ReviewService` which: `IGitPlatform.GetChangesAsync` → `PromptBuilder.Build` → `IChatClient.GetResponseAsync`
-→ `IGitPlatform.PostReviewAsync`. If there are no changes, nothing is posted.
+→ `IGitPlatform.PostReviewAsync`. If there are no changes, nothing is posted. The merge
+verdict is **derived** from a severity-aware gate over the LLM findings' severity/confidence
+(the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
 
 ### Extension points (do not break the Core rule)
 
@@ -85,7 +87,9 @@ Three projects with a strict, deliberate dependency direction:
   add a `case` in the analyzer-selection `switch` in `DependencyInjection.cs`.
   Selection is config-only via `Naudit:Sast:Analyzers`. No change to Core. The
   findings are fed to the LLM as grounding (`PromptBuilder`); the verdict stays
-  LLM-only.
+  LLM-driven — derived from the LLM findings' own severity/confidence via the
+  severity-aware gate (`Naudit:Review:Gate`, see `docs/review-gate.md`), never from
+  SAST findings.
 
 ### CI/CD & container
 
