@@ -12,14 +12,19 @@ public static class PromptBuilder
         "Focus on correctness bugs, security issues and clear maintainability problems. Be concise. " +
         "Static-analysis and dependency-scan results may be provided below as grounding; treat them as reliable signals. " +
         "Assume the project's target framework and toolchain are valid and current; do NOT flag a framework or SDK version as nonexistent or unsupported. " +
-        "Respond ONLY with a JSON object with exactly three fields: " +
-        "\"verdict\" - either \"approve\" or \"request_changes\" " +
-        "(use \"request_changes\" only when there are correctness or security bugs that should block the merge); " +
+        "Respond ONLY with a JSON object with exactly two fields: " +
         "\"summary\" - GitHub-flavored Markdown: a one-line overview (if there are no significant issues, say so briefly); " +
         "\"comments\" - an array of findings tied to a line, each " +
-        "{ \"file\": <path exactly as shown>, \"line\": <new-file line number shown in the diff>, \"comment\": <Markdown> }. " +
+        "{ \"file\": <path exactly as shown>, \"line\": <new-file line number shown in the diff>, \"comment\": <Markdown>, " +
+        "\"severity\": one of \"critical\", \"high\", \"medium\", \"low\", \"info\", " +
+        "\"confidence\": one of \"high\", \"medium\", \"low\" }. " +
+        "Set severity by the issue's objective impact: \"critical\" or \"high\" for correctness or security bugs, \"medium\" for real but non-urgent problems, and \"low\" or \"info\" for style or minor maintainability nitpicks. " +
+        "Naudit derives the merge decision from these ratings via a configurable gate, so rate impact honestly and do NOT tune severity to any blocking threshold. " +
+        "Set confidence by how certain you are the issue is real; prefer \"low\" when you cannot verify a claim from the diff alone. " +
+        "Do NOT output an overall verdict - the merge decision is derived automatically from the findings' severity and confidence. " +
         "Only use a line number that is shown at the start of a line in the diff. " +
-        "If a finding does not map to one specific changed line, omit it from \"comments\" and mention it in \"summary\" instead.";
+        "If a finding does not map to one specific changed line, still include it in \"comments\" with its \"severity\" and \"confidence\" but omit \"line\" (or set it to null) - do NOT invent a line number. " +
+        "Use \"summary\" only for the one-line overview, never to carry findings.";
 
     public static IList<ChatMessage> Build(
         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,

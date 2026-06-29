@@ -68,7 +68,8 @@ Three projects with a strict, deliberate dependency direction:
 → ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding) →
 `IPromptRedactor.RedactAsync` (mask secrets/IPs/e-mails in diff + findings + title, **before** the prompt) →
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
-changes, nothing is posted.
+changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
+findings' severity/confidence (the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
 
 ### Extension points (do not break the Core rule)
 
@@ -87,7 +88,9 @@ changes, nothing is posted.
   add a `case` in the analyzer-selection `switch` in `DependencyInjection.cs`.
   Selection is config-only via `Naudit:Sast:Analyzers`. No change to Core. The
   findings are fed to the LLM as grounding (`PromptBuilder`); the verdict stays
-  LLM-only.
+  LLM-driven — derived from the LLM findings' own severity/confidence via the
+  severity-aware gate (`Naudit:Review:Gate`, see `docs/review-gate.md`), never from
+  SAST findings.
 - **New prompt redactor:** implement `IPromptRedactor` in
   `src/Naudit.Infrastructure/Redaction/` and register it in `DependencyInjection.cs`.
   The interface lives in Core (`Naudit.Core.Abstractions`), the implementation in

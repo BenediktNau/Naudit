@@ -42,7 +42,8 @@ public class ReviewEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task Review_withValidToken_runsReview_andReturnsVerdict()
     {
-        var fakeChat = new FakeChatClient("""{"summary":"## Review\n- bug","verdict":"request_changes"}""");
+        var fakeChat = new FakeChatClient(
+            """{"summary":"## Review\n- bug","comments":[{"file":"a.cs","line":1,"comment":"sqli","severity":"critical","confidence":"high"}]}""");
         var fakeGit = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
 
         var client = _factory

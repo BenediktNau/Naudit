@@ -15,7 +15,7 @@ public sealed class ReviewService(
     IFindingReducer findingReducer,
     IPromptRedactor redactor)
 {
-    // Web-Defaults: camelCase + case-insensitive — passt zu summary/verdict/comments.
+    // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
     private readonly IReadOnlyList<ISastAnalyzer> _analyzers = analyzers.ToList();
 
@@ -47,21 +47,17 @@ public sealed class ReviewService(
 
         // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
+        // Fail-closed bleibt nur für "gar keine parsebare Antwort": das Verdict wird unten aus den
+        // Findings abgeleitet, nicht mehr vom LLM behauptet.
         var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
             ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
 
-        // Fail-closed: nur explizite Verdicts; alles andere ist ein Fehler.
-        var verdict = parsed.Verdict?.ToLowerInvariant() switch
-        {
-            "request_changes" => ReviewVerdict.RequestChanges,
-            "approve" => ReviewVerdict.Approve,
-            _ => throw new InvalidOperationException($"Unerwartetes Verdict vom LLM: '{parsed.Verdict}'."),
-        };
-
-        // Jede Finding gegen die kommentierbaren Diff-Zeilen prüfen.
+        // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
+        // Gate auswerten: blockt nur ein BESTÄTIGTER High/Critical-Fund (≥ konfigurierter Schwelle).
         var commentable = DiffParser.Parse(changes);
         var inline = new List<InlineComment>();
-        var orphans = new List<LlmComment>();
+        var orphans = new List<OrphanComment>();
+        var blocking = false;
         foreach (var c in parsed.Comments ?? [])
         {
             // Leerer/fehlender Body würde beim Plattform-POST scheitern -> solche Findings verwerfen.
@@ -69,12 +65,20 @@ public sealed class ReviewService(
             if (string.IsNullOrEmpty(body))
                 continue;
 
-            if (!string.IsNullOrEmpty(c.File) && commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(c.Line, out var oldLine))
-                inline.Add(new InlineComment(c.File, c.Line, oldLine, body));
+            // Fehlende/unbekannte Severity bzw. Confidence ⇒ Info/Low (bewusst NICHT blockierend):
+            // valider Code soll nicht an einem schwachen Signal scheitern (BA-Empfehlung #5).
+            var severity = ParseSeverity(c.Severity);
+            var confidence = ParseConfidence(c.Confidence);
+            blocking |= IsBlocking(severity, confidence);
+
+            var badged = $"{SeverityBadge(severity, confidence)}\n\n{body}";
+            if (!string.IsNullOrEmpty(c.File) && c.Line is int ln && commentable.TryGetValue(c.File, out var lines) && lines.TryGetValue(ln, out var oldLine))
+                inline.Add(new InlineComment(c.File, ln, oldLine, badged, severity, confidence));
             else
-                orphans.Add(c with { Comment = body });
+                orphans.Add(new OrphanComment(c.File, body, severity, confidence));
         }
 
+        var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
         await gitPlatform.PostReviewAsync(request, summary, inline, ct);
         return new ReviewResult(summary, verdict);
@@ -119,14 +123,19 @@ public sealed class ReviewService(
         catch (Exception) when (!ct.IsCancellationRequested) { return []; }
     }
 
-    // Schlanker Hybrid: LLM-Überblick + Verdict-Zeile + Count + nicht-verortbare Findings.
-    private static string ComposeSummary(string? llmSummary, ReviewVerdict verdict, int inlineCount, IReadOnlyList<LlmComment> orphans)
+    // Severity-bewusstes Gate: ein Fund blockt nur, wenn er BEIDE Schwellen erreicht.
+    private bool IsBlocking(FindingSeverity severity, ReviewConfidence confidence)
+        => severity >= options.Gate.MinSeverity && confidence >= options.Gate.MinConfidence;
+
+    // Schlanker Hybrid: LLM-Überblick + Verdict-Zeile (abgeleitet) + Count + nicht-verortbare Findings.
+    private string ComposeSummary(string? llmSummary, ReviewVerdict verdict, int inlineCount, IReadOnlyList<OrphanComment> orphans)
     {
         var sb = new StringBuilder();
         sb.AppendLine((llmSummary ?? string.Empty).TrimEnd());
         sb.AppendLine();
         var verdictText = verdict == ReviewVerdict.RequestChanges ? "⚠️ request_changes" : "✅ approve";
         sb.AppendLine($"**Verdict:** {verdictText} · {inlineCount} inline, {orphans.Count} ohne Position");
+        sb.AppendLine($"_Gate: blockt ab {options.Gate.MinSeverity} + {options.Gate.MinConfidence}-Confidence._");
         if (orphans.Count > 0)
         {
             sb.AppendLine();
@@ -134,10 +143,42 @@ public sealed class ReviewService(
             foreach (var o in orphans)
             {
                 var where = string.IsNullOrEmpty(o.File) ? "" : $"`{o.File}` ";
-                sb.AppendLine($"- {where}{o.Comment}");
+                sb.AppendLine($"- {SeverityBadge(o.Severity, o.Confidence)} — {where}{o.Body}");
             }
         }
         return sb.ToString().TrimEnd();
+    }
+
+    // LLM-String → Severity. Unbekannt/fehlend ⇒ Info (nicht blockierend).
+    private static FindingSeverity ParseSeverity(string? s) => s?.Trim().ToLowerInvariant() switch
+    {
+        "critical" => FindingSeverity.Critical,
+        "high" => FindingSeverity.High,
+        "medium" => FindingSeverity.Medium,
+        "low" => FindingSeverity.Low,
+        _ => FindingSeverity.Info,
+    };
+
+    // LLM-String → Confidence. Unbekannt/fehlend ⇒ Low (nicht blockierend).
+    private static ReviewConfidence ParseConfidence(string? s) => s?.Trim().ToLowerInvariant() switch
+    {
+        "high" => ReviewConfidence.High,
+        "medium" => ReviewConfidence.Medium,
+        _ => ReviewConfidence.Low,
+    };
+
+    // Sichtbare, getypte Plakette am Kommentar — Severity + Confidence direkt am Fund (BA-Empfehlung #4).
+    private static string SeverityBadge(FindingSeverity severity, ReviewConfidence confidence)
+    {
+        var icon = severity switch
+        {
+            FindingSeverity.Critical => "🔴",
+            FindingSeverity.High => "🟠",
+            FindingSeverity.Medium => "🟡",
+            FindingSeverity.Low => "🔵",
+            _ => "⚪",
+        };
+        return $"**{icon} {severity}** · confidence {confidence.ToString().ToLowerInvariant()}";
     }
 
     // Robustheit gegen Modelle, die das JSON trotz ResponseFormat=Json in einen Markdown-Fence
@@ -155,8 +196,13 @@ public sealed class ReviewService(
         return s.Trim();
     }
 
-    // Wire-DTO für die LLM-Antwort. Verdict bewusst als string (Mapping oben).
-    private sealed record LlmReviewResponse(string? Summary, string Verdict, List<LlmComment>? Comments);
+    // Wire-DTO für die LLM-Antwort. Kein Verdict mehr — das Gate leitet es aus den Findings ab.
+    private sealed record LlmReviewResponse(string? Summary, List<LlmComment>? Comments);
 
-    private sealed record LlmComment(string? File, int Line, string? Comment);
+    // Line nullable: ein Fund ohne konkrete Diff-Zeile lässt "line" weg (oder null) und wird als
+    // Orphan getragen — Severity/Confidence bleiben strukturiert erhalten und gaten weiterhin.
+    private sealed record LlmComment(string? File, int? Line, string? Comment, string? Severity = null, string? Confidence = null);
+
+    // Nicht-verortbarer Fund (kein passender Diff-Treffer) — trägt Severity/Confidence fürs Gate + die Summary.
+    private sealed record OrphanComment(string? File, string Body, FindingSeverity Severity, ReviewConfidence Confidence);
 }
