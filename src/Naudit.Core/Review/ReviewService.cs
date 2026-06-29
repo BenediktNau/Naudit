@@ -12,7 +12,8 @@ public sealed class ReviewService(
     ReviewOptions options,
     IWorkspaceProvider workspaceProvider,
     IEnumerable<ISastAnalyzer> analyzers,
-    IFindingReducer findingReducer)
+    IFindingReducer findingReducer,
+    IPromptRedactor redactor)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -27,7 +28,19 @@ public sealed class ReviewService(
         // SAST/SCA-Grounding vor dem Prompt-Aufbau einsammeln (leer, wenn Feature aus).
         var findings = await CollectFindingsAsync(request, changes, ct);
 
-        var messages = PromptBuilder.Build(options.SystemPrompt, request, changes, findings);
+        // Redaction: Secrets/IPs/E-Mails maskieren, BEVOR irgendetwas das LLM erreicht.
+        // No-Op-Redactor (Feature aus) ⇒ identischer Prompt wie früher.
+        var redChanges = new List<CodeChange>(changes.Count);
+        foreach (var c in changes)
+            redChanges.Add(c with { Diff = await redactor.RedactAsync(c.Diff, ct) });
+
+        var redFindings = new List<ScanFinding>(findings.Count);
+        foreach (var f in findings)
+            redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
+
+        var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
+
+        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
