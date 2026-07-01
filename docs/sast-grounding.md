@@ -26,9 +26,11 @@ their own (no hard tool gate).
 - **osv-scanner** — SCA via Google's OSV database (`osv-scanner scan source`),
   language-agnostic over lockfiles/manifests, no build. Complements trivy. CVE in
   `RuleId`, package/version in the message; severity mapped from the CVSS score.
-- **gitleaks** — secrets detection (`gitleaks dir`), no build. Findings carry the
-  rule, file and line only — the **raw secret value is never forwarded** into the
-  prompt or logs. Reported under the `Secrets` category.
+- **betterleaks** — secrets detection (`betterleaks dir`), no build. The maintained,
+  gitleaks-CLI-compatible successor by the original Gitleaks author (replaces the
+  bundled `gitleaks` binary). Findings carry the rule, file and line only — the
+  **raw secret value is never forwarded** into the prompt or logs. Reported under the
+  `Secrets` category.
 - **dotnet-sca** — `.NET` SCA via `dotnet list package --vulnerable`. **Opt-in:**
   it runs `dotnet restore`, which **executes the reviewed code's build logic**,
   and it needs the .NET SDK in the image (the default runtime image only ships

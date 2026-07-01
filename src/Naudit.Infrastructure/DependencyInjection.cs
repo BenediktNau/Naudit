@@ -90,10 +90,10 @@ public static class DependencyInjection
                             sastOptions.AnalyzerTimeout,
                             sastOptions.OpengrepRules));
                         break;
-                    case "gitleaks":
-                        services.AddScoped<ISastAnalyzer>(sp => new GitleaksAnalyzer(
+                    case "betterleaks":
+                        services.AddScoped<ISastAnalyzer>(sp => new BetterleaksAnalyzer(
                             sp.GetRequiredService<IProcessRunner>(),
-                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitleaksAnalyzer>(),
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<BetterleaksAnalyzer>(),
                             sastOptions.AnalyzerTimeout));
                         break;
                     case "osv-scanner":
