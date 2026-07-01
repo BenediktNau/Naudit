@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,11 +37,14 @@ public static class DependencyInjection
         {
             case GitPlatformKind.GitHub:
                 services.Configure<GitHubOptions>(configuration.GetSection("Naudit:GitHub"));
+                // Per-Projekt-Token-Auflösung (Override je Projekt, sonst globaler Token), aus der aktiven Section geseedet.
+                var gitHubOptions = configuration.GetSection("Naudit:GitHub").Get<GitHubOptions>() ?? new GitHubOptions();
+                services.AddSingleton<IGitTokenProvider>(new ConfiguredGitTokenProvider(gitHubOptions.Token, gitHubOptions.ProjectTokens));
                 services.AddHttpClient<IGitPlatform, GitHubPlatform>((sp, http) =>
                 {
                     var opt = sp.GetRequiredService<IOptions<GitHubOptions>>().Value;
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
-                    http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", opt.Token);
+                    // Auth wird pro Request in GitHubPlatform gesetzt (Per-Projekt-Token), nicht als Default-Header.
                     http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
                     http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
                     http.DefaultRequestHeaders.UserAgent.ParseAdd("Naudit"); // GitHub verlangt einen User-Agent
@@ -51,11 +53,13 @@ public static class DependencyInjection
 
             default: // GitPlatformKind.GitLab
                 services.Configure<GitLabOptions>(configuration.GetSection("Naudit:GitLab"));
+                var gitLabOptions = configuration.GetSection("Naudit:GitLab").Get<GitLabOptions>() ?? new GitLabOptions();
+                services.AddSingleton<IGitTokenProvider>(new ConfiguredGitTokenProvider(gitLabOptions.Token, gitLabOptions.ProjectTokens));
                 services.AddHttpClient<IGitPlatform, GitLabPlatform>((sp, http) =>
                 {
                     var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
-                    http.DefaultRequestHeaders.Add("PRIVATE-TOKEN", opt.Token);
+                    // Auth (PRIVATE-TOKEN) wird pro Request in GitLabPlatform gesetzt (Per-Projekt-Token).
                 });
                 break;
         }
