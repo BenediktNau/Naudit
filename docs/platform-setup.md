@@ -43,6 +43,10 @@ Required permissions:
 
 Store the token under `Naudit:GitHub:Token` (user-secrets, never `appsettings.json`).
 
+> **Per-project tokens:** to scope a fine-grained PAT to a single repository (instead
+> of one shared token for all), keep this global token as a fallback and add a
+> per-repo override — see [Per-project tokens](configuration.md#per-project-tokens).
+
 ### 3. Set up the webhook in each target repository
 
 Naudit reviews every repo that has a webhook configured and that the PAT can access.

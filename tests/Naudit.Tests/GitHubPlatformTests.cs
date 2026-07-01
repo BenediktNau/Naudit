@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
-using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
+using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Tests.Fakes;
 using Xunit;
@@ -11,6 +11,11 @@ namespace Naudit.Tests;
 public class GitHubPlatformTests
 {
     private static readonly ReviewRequest Request = new("octo/hello-world", 42, "Title");
+
+    // Token-Provider für die Tests: Default-Token, optional Per-Projekt-Overrides ("owner/repo" → Token).
+    private static IGitTokenProvider Tokens(string @default = "tok", Dictionary<string, string>? map = null)
+        => new ConfiguredGitTokenProvider(@default,
+            (map ?? new()).Select(kv => new ProjectTokenEntry { Project = kv.Key, Token = kv.Value }));
 
     private static HttpClient ClientReturning(HttpStatusCode status, string json, StubHttpMessageHandler? capture = null)
     {
@@ -30,7 +35,7 @@ public class GitHubPlatformTests
           { "filename": "assets/logo.png" }
         ]
         """;
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, json), Options.Create(new GitHubOptions { Token = "tok" }));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, json), Tokens());
 
         var changes = await platform.GetChangesAsync(Request);
 
@@ -46,7 +51,7 @@ public class GitHubPlatformTests
         {
             Content = new StringContent("[]", Encoding.UTF8, "application/json"),
         });
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "[]", capture), Options.Create(new GitHubOptions { Token = "tok" }));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "[]", capture), Tokens());
 
         await platform.GetChangesAsync(Request);
 
@@ -56,10 +61,44 @@ public class GitHubPlatformTests
     }
 
     [Fact]
+    public async Task GetChangesAsync_usesPerProjectToken_inAuthHeader()
+    {
+        var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+        });
+        var platform = new GitHubPlatform(
+            ClientReturning(HttpStatusCode.OK, "[]", capture),
+            Tokens("default-tok", new() { ["octo/hello-world"] = "proj-tok" }));
+
+        await platform.GetChangesAsync(Request);  // Request.ProjectId == "octo/hello-world"
+
+        var auth = capture.LastRequest!.Headers.Authorization!;
+        Assert.Equal("Bearer", auth.Scheme);
+        Assert.Equal("proj-tok", auth.Parameter);
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_unmappedProject_fallsBackToDefaultToken()
+    {
+        var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+        });
+        var platform = new GitHubPlatform(
+            ClientReturning(HttpStatusCode.OK, "[]", capture),
+            Tokens("default-tok", new() { ["octo/other"] = "proj-tok" }));
+
+        await platform.GetChangesAsync(Request);
+
+        Assert.Equal("default-tok", capture.LastRequest!.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
     public async Task PostReviewAsync_withoutComments_postsReviewBody()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Options.Create(new GitHubOptions { Token = "tok" }));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Tokens());
 
         await platform.PostReviewAsync(Request, "## Naudit Review", []);
 
@@ -73,7 +112,7 @@ public class GitHubPlatformTests
     public async Task PostReviewAsync_withComments_includesPathLineSide()
     {
         var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
-        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Options.Create(new GitHubOptions { Token = "tok" }));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Tokens());
 
         await platform.PostReviewAsync(Request, "## Naudit Review",
             [new InlineComment("src/Foo.cs", 5, null, "finding here")]);
@@ -90,13 +129,24 @@ public class GitHubPlatformTests
     public async Task GetCheckoutAsync_buildsCloneUrlWithToken_andPrRef()
     {
         const string json = """{ "clone_url": "https://github.com/owner/repo.git" }""";
-        var platform = new GitHubPlatform(
-            ClientReturning(HttpStatusCode.OK, json),
-            Options.Create(new GitHubOptions { Token = "tok" }));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, json), Tokens());
 
         var info = await platform.GetCheckoutAsync(Request);
 
         Assert.Equal("https://x-access-token:tok@github.com/owner/repo.git", info.CloneUrl);
         Assert.Equal("refs/pull/42/head", info.HeadRef);
+    }
+
+    [Fact]
+    public async Task GetCheckoutAsync_usesPerProjectToken_inCloneUrl()
+    {
+        const string json = """{ "clone_url": "https://github.com/owner/repo.git" }""";
+        var platform = new GitHubPlatform(
+            ClientReturning(HttpStatusCode.OK, json),
+            Tokens("default-tok", new() { ["octo/hello-world"] = "proj-tok" }));
+
+        var info = await platform.GetCheckoutAsync(Request);
+
+        Assert.Equal("https://x-access-token:proj-tok@github.com/owner/repo.git", info.CloneUrl);
     }
 }

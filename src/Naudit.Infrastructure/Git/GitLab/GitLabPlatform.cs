@@ -1,21 +1,24 @@
 using System.Net.Http.Json;
-using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 
 namespace Naudit.Infrastructure.Git.GitLab;
 
-/// <summary>IGitPlatform-Implementierung für GitLab. BaseAddress + PRIVATE-TOKEN kommen vom typed HttpClient.</summary>
-public sealed class GitLabPlatform(HttpClient http, IOptions<GitLabOptions> options) : IGitPlatform
+/// <summary>IGitPlatform-Implementierung für GitLab. BaseAddress kommt vom typed HttpClient; der
+/// PRIVATE-TOKEN wird pro Request aus dem projekt-aufgelösten <see cref="IGitTokenProvider"/> gesetzt
+/// (Per-Projekt-Token).</summary>
+public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens) : IGitPlatform
 {
     public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
     {
         var url = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}/changes";
-        var response = await http.GetFromJsonAsync<GitLabChangesResponse>(url, ct);
-        if (response?.Changes is null)
+        using var response = await SendAsync(HttpMethod.Get, url, request.ProjectId, null, ct);
+        response.EnsureSuccessStatusCode();
+        var changes = await response.Content.ReadFromJsonAsync<GitLabChangesResponse>(ct);
+        if (changes?.Changes is null)
             return [];
 
-        return response.Changes
+        return changes.Changes
             .Select(c => new CodeChange(c.NewPath, c.Diff))
             .ToList();
     }
@@ -25,13 +28,15 @@ public sealed class GitLabPlatform(HttpClient http, IOptions<GitLabOptions> opti
         var basePath = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}";
 
         // 1) Summary als normale Note.
-        (await http.PostAsJsonAsync($"{basePath}/notes", new { body = summaryMarkdown }, ct)).EnsureSuccessStatusCode();
+        (await SendAsync(HttpMethod.Post, $"{basePath}/notes", request.ProjectId, new { body = summaryMarkdown }, ct)).EnsureSuccessStatusCode();
 
         if (comments.Count == 0)
             return;
 
         // 2) diff_refs (base/head/start SHA) für die Discussion-Position holen.
-        var detail = await http.GetFromJsonAsync<GitLabMergeRequestDetail>(basePath, ct);
+        using var detailResponse = await SendAsync(HttpMethod.Get, basePath, request.ProjectId, null, ct);
+        detailResponse.EnsureSuccessStatusCode();
+        var detail = await detailResponse.Content.ReadFromJsonAsync<GitLabMergeRequestDetail>(ct);
         var refs = detail?.DiffRefs
             ?? throw new InvalidOperationException("GitLab lieferte keine diff_refs für die Inline-Position.");
 
@@ -55,19 +60,31 @@ public sealed class GitLabPlatform(HttpClient http, IOptions<GitLabOptions> opti
                 position["old_line"] = oldLine;
 
             var payload = new { body = c.Body, position };
-            (await http.PostAsJsonAsync($"{basePath}/discussions", payload, ct)).EnsureSuccessStatusCode();
+            (await SendAsync(HttpMethod.Post, $"{basePath}/discussions", request.ProjectId, payload, ct)).EnsureSuccessStatusCode();
         }
     }
 
     public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
     {
-        var project = await http.GetFromJsonAsync<GitLabProject>($"api/v4/projects/{request.ProjectId}", ct)
+        using var response = await SendAsync(HttpMethod.Get, $"api/v4/projects/{request.ProjectId}", request.ProjectId, null, ct);
+        response.EnsureSuccessStatusCode();
+        var project = await response.Content.ReadFromJsonAsync<GitLabProject>(ct)
             ?? throw new InvalidOperationException("GitLab lieferte keine Projekt-Infos.");
         if (string.IsNullOrEmpty(project.HttpUrlToRepo))
             throw new InvalidOperationException("GitLab lieferte keine http_url_to_repo.");
 
-        // Token in die Klon-URL einbetten (oauth2:<token>@host).
-        var cloneUrl = project.HttpUrlToRepo.Replace("://", $"://oauth2:{options.Value.Token}@");
+        // Token in die Klon-URL einbetten (oauth2:<token>@host) — projekt-aufgelöst.
+        var cloneUrl = project.HttpUrlToRepo.Replace("://", $"://oauth2:{tokens.ResolveToken(request.ProjectId)}@");
         return new RepoCheckoutInfo(cloneUrl, $"refs/merge-requests/{request.MergeRequestIid}/head");
+    }
+
+    // Auth pro Request: GitLab nutzt den PRIVATE-TOKEN-Header mit dem projekt-aufgelösten Token.
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string projectId, object? body, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(method, url);
+        req.Headers.Add("PRIVATE-TOKEN", tokens.ResolveToken(projectId));
+        if (body is not null)
+            req.Content = JsonContent.Create(body);
+        return await http.SendAsync(req, ct);
     }
 }
