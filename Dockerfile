@@ -23,7 +23,7 @@ WORKDIR /app
 # installieren, dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt
 # (sha256-verifiziert) fuer Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr:
 # spart Python im Image und vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
-ARG TRIVY_VERSION=0.71.2
+ARG TRIVY_VERSION=0.72.0
 ARG OPENGREP_VERSION=1.23.0
 ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa
 ARG GITLEAKS_VERSION=8.30.1
@@ -32,7 +32,7 @@ USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
  && curl -sfL -o /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
- && echo "0510e71e2fd39bf863856d499c8dc19feb4e7336546394c502a8f5cc7ab27460  /tmp/trivy.tar.gz" | sha256sum -c - \
+ && echo "bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea  /tmp/trivy.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
  && rm /tmp/trivy.tar.gz \
  && curl -sfL -o /usr/local/bin/opengrep "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/opengrep_manylinux_x86" \
