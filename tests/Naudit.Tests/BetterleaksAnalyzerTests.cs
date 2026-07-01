@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Naudit.Tests;
 
-public class GitleaksAnalyzerTests
+public class BetterleaksAnalyzerTests
 {
     private sealed class Ws(string root) : Naudit.Core.Abstractions.IReviewWorkspace
     {
@@ -15,11 +15,11 @@ public class GitleaksAnalyzerTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    // Bewusst NICHT PAT-förmig: `gitleaks dir .` scannt das ganze Repo, ein echtes `ghp_…`-Literal
+    // Bewusst NICHT PAT-förmig: `betterleaks dir .` scannt das ganze Repo, ein echtes `ghp_…`-Literal
     // hier würde Naudit beim Review des eigenen Repos als Dauer-False-Positive melden.
     private const string FakeSecret = "TEST-FAKE-SECRET-not-a-real-token-000";
 
-    // Gitleaks-`dir --report-format json`-Schema (Top-Level-Array; enthält bewusst Secret/Match-Felder).
+    // Betterleaks-`dir --report-format json`-Schema (gitleaks-kompatibel: Top-Level-Array; enthält bewusst Secret/Match-Felder).
     private static readonly string Json = $$"""
     [
       { "RuleID": "github-pat",
@@ -32,15 +32,15 @@ public class GitleaksAnalyzerTests
     """;
 
     [Fact]
-    public async Task AnalyzeAsync_mapsGitleaksFinding_toSecretsFinding()
+    public async Task AnalyzeAsync_mapsBetterleaksFinding_toSecretsFinding()
     {
         var runner = new StubProcessRunner(_ => new ProcessResult(1, Json, "")); // Exit 1 = Funde
-        var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+        var analyzer = new BetterleaksAnalyzer(runner, NullLogger<BetterleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
 
         var findings = await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []);
 
         var f = Assert.Single(findings);
-        Assert.Equal("gitleaks", f.Tool);
+        Assert.Equal("betterleaks", f.Tool);
         Assert.Equal(FindingCategory.Secrets, f.Category);
         Assert.Equal(FindingSeverity.High, f.Severity);
         Assert.Equal("config.cs", f.FilePath);
@@ -53,7 +53,7 @@ public class GitleaksAnalyzerTests
     public async Task AnalyzeAsync_doesNotLeakTheSecretValue_intoTheFinding()
     {
         var runner = new StubProcessRunner(_ => new ProcessResult(1, Json, ""));
-        var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+        var analyzer = new BetterleaksAnalyzer(runner, NullLogger<BetterleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
 
         var f = Assert.Single(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
 
@@ -67,12 +67,12 @@ public class GitleaksAnalyzerTests
     public async Task AnalyzeAsync_invokesDir_withJsonReportToStdout()
     {
         var runner = new StubProcessRunner(_ => new ProcessResult(0, "[]", ""));
-        var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+        var analyzer = new BetterleaksAnalyzer(runner, NullLogger<BetterleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
 
         await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []);
 
         var spec = runner.LastSpec!;
-        Assert.Equal("gitleaks", spec.FileName);
+        Assert.Equal("betterleaks", spec.FileName);
         Assert.Equal("/tmp/x", spec.WorkingDirectory);
         Assert.Equal(
             new[] { "dir", ".", "--report-format", "json", "--report-path", "/dev/stdout", "--no-banner" },
@@ -82,8 +82,8 @@ public class GitleaksAnalyzerTests
     [Fact]
     public async Task AnalyzeAsync_returnsEmpty_whenToolErrors()
     {
-        var runner = new StubProcessRunner(_ => new ProcessResult(2, "", "gitleaks error")); // >1 = echter Fehler
-        var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+        var runner = new StubProcessRunner(_ => new ProcessResult(2, "", "betterleaks error")); // >1 = echter Fehler
+        var analyzer = new BetterleaksAnalyzer(runner, NullLogger<BetterleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
 
         Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
     }
@@ -96,7 +96,7 @@ public class GitleaksAnalyzerTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         var runner = new StubProcessRunner(_ => throw new OperationCanceledException(cts.Token));
-        var analyzer = new GitleaksAnalyzer(runner, NullLogger<GitleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+        var analyzer = new BetterleaksAnalyzer(runner, NullLogger<BetterleaksAnalyzer>.Instance, TimeSpan.FromMinutes(5));
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => analyzer.AnalyzeAsync(new Ws("/tmp/x"), [], cts.Token));

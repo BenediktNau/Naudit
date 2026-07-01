@@ -68,19 +68,19 @@ public class SastWiringTests
     }
 
     [Fact]
-    public void Enabled_registersGitleaks()
+    public void Enabled_registersBetterleaks()
     {
         using var sp = Build(new()
         {
             ["Naudit:Git:Platform"] = "GitLab",
             ["Naudit:Sast:Enabled"] = "true",
-            ["Naudit:Sast:Analyzers:0"] = "gitleaks",
+            ["Naudit:Sast:Analyzers:0"] = "betterleaks",
         });
 
         using var scope = sp.CreateScope();
         var analyzers = scope.ServiceProvider.GetServices<ISastAnalyzer>().ToList();
 
-        Assert.Contains(analyzers, a => a.Name == "gitleaks");
+        Assert.Contains(analyzers, a => a.Name == "betterleaks");
     }
 
     [Fact]
