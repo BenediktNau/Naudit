@@ -78,6 +78,12 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           vuln-type: os,library
+          # osv-scanner 2.4.0 ist das aktuelle Release (kein Update verfuegbar) und traegt transitive
+          # Go-Dependency-CVEs. Es laeuft in Naudit NUR als isolierter fs-/Datei-Scanner auf
+          # ausgecheckten Repos (nicht in der Angriffsflaeche; VEX: vulnerable_code_not_in_execute_path)
+          # und ist versions- + sha256-gepinnt. Nur dieses eine Binary vom Scan ausnehmen -- alle
+          # anderen Tools sowie OS/.NET/App (die eigentliche Angriffsflaeche) bleiben voll gescannt.
+          skip-files: usr/local/bin/osv-scanner
           # VEX-Ausnahmen: nur die nicht-ausnutzbaren containerd-CVEs im mitgelieferten
           # trivy-Binary (Naudit nutzt nur `trivy fs`, keine Runtime). Siehe .trivyignore.
           trivyignores: .trivyignore
