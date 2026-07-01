@@ -15,18 +15,33 @@ RUN dotnet restore src/Naudit.Web/Naudit.Web.csproj
 COPY src/ src/
 RUN dotnet publish src/Naudit.Web/Naudit.Web.csproj -c Release -o /app/publish --no-restore
 
+# --- Betterleaks aus Quelle bauen ---
+# Das offizielle betterleaks-1.6.1-Release-Binary ist mit Go 1.25.10 gebaut und traegt zwei
+# Go-stdlib-DoS-CVEs (CVE-2026-27145 crypto/x509, CVE-2026-42504 net/textproto), fixed erst in
+# Go 1.25.11 -- ein neueres betterleaks-Release existiert (Stand 2026-07-01) noch nicht. Wir bauen
+# das versionsgepinnte Modul @v${BETTERLEAKS_VERSION} daher selbst mit Go 1.25.11 -> die stdlib-CVEs
+# sind damit ECHT behoben (kein Suppress/keine VEX-Gate-Ausnahme noetig).
+# GOTOOLCHAIN=local zwingt den Build auf das Image-Go 1.25.11 und ignoriert die
+# `toolchain go1.25.10`-Direktive in go.mod (sonst wuerde 1.25.10 nachgeladen = wieder verwundbar).
+# Der golang-Builder landet NICHT im finalen Image; die Modul-Integritaet garantiert die
+# Go-Checksum-DB (go.sum / sum.golang.org).
+FROM golang:1.25.11 AS betterleaks-build
+ARG BETTERLEAKS_VERSION=1.6.1
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath
+RUN go install "github.com/betterleaks/betterleaks@v${BETTERLEAKS_VERSION}"
+
 # --- Runtime-Stage: schlankes ASP.NET-Image, non-root ---
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:ddcf70ad1ab963a4fcd41fbd722a6b660e404e87567cfbd46fd2809c21b02088 AS runtime
 WORKDIR /app
 
-# SAST/SCA/Secrets-Tools: Trivy + OpenGrep + Betterleaks + OSV-Scanner (alles Binaries). Als root
+# SAST/SCA/Secrets-Tools: Trivy + OpenGrep + OSV-Scanner als sha256-gepinnte Release-Binaries;
+# Betterleaks wird oben aus Quelle gebaut und unten aus der Builder-Stage kopiert. Als root
 # installieren, dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt
 # (sha256-verifiziert) fuer Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr:
 # spart Python im Image und vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
 ARG TRIVY_VERSION=0.72.0
 ARG OPENGREP_VERSION=1.23.0
 ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa
-ARG BETTERLEAKS_VERSION=1.6.1
 ARG OSV_SCANNER_VERSION=2.4.0
 USER root
 RUN apt-get update \
@@ -44,15 +59,14 @@ RUN apt-get update \
  && tar -xzf /tmp/opengrep-rules.tar.gz -C /opt/opengrep-rules --strip-components=1 \
  && rm /tmp/opengrep-rules.tar.gz \
  && rm -rf /opt/opengrep-rules/.github /opt/opengrep-rules/stats /opt/opengrep-rules/.pre-commit-config.yaml \
- && curl -sfL -o /tmp/betterleaks.tar.gz "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
- && echo "fbefc700a0bd4522cc952dd2a8f259cdb80526d7e60114aca19bb2d6fdc80f81  /tmp/betterleaks.tar.gz" | sha256sum -c - \
- && tar -xzf /tmp/betterleaks.tar.gz -C /usr/local/bin betterleaks \
- && rm /tmp/betterleaks.tar.gz \
  && curl -sfL -o /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" \
  && echo "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0  /usr/local/bin/osv-scanner" | sha256sum -c - \
  && chmod +x /usr/local/bin/osv-scanner \
  && apt-get purge -y curl && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
+
+# Betterleaks aus der Builder-Stage (mit Go 1.25.11 gebaut, stdlib-CVEs behoben) ins Image.
+COPY --from=betterleaks-build /go/bin/betterleaks /usr/local/bin/betterleaks
 
 # Eigenes Regel-Overlay (.NET/C#-Security) ins Image (Pfad = Default in Naudit:Sast:OpengrepRules).
 COPY sast/rules /opt/naudit-rules
