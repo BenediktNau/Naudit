@@ -78,6 +78,12 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           vuln-type: os,library
+          # Nur den Vulnerability-Scanner laufen lassen: dieses Image-Gate ist ein reines CVE-Gate.
+          # Der (per Default aktive) Secret-Scanner wuerde sonst die BEISPIEL-Secrets IN den
+          # gebuendelten opengrep-Detektions-Regeln (/opt/opengrep-rules/**) als Funde melden --
+          # das sind Erkennungs-Muster, keine echten Leaks, und blockierten faelschlich das Release.
+          # Echte App-Secrets liegen nie im Image (Coolify injiziert sie zur Laufzeit).
+          scanners: vuln
           # osv-scanner 2.4.0 ist das aktuelle Release (kein Update verfuegbar) und traegt transitive
           # Go-Dependency-CVEs. Es laeuft in Naudit NUR als isolierter fs-/Datei-Scanner auf
           # ausgecheckten Repos (nicht in der Angriffsflaeche; VEX: vulnerable_code_not_in_execute_path)
