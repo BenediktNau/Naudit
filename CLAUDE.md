@@ -70,6 +70,9 @@ Three projects with a strict, deliberate dependency direction:
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
 findings' severity/confidence (the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
+The git-API token is resolved **per request** from the review's `ProjectId` via `IGitTokenProvider`
+(per-project override, else the global token) — set on each `HttpRequestMessage`, not as a static default
+header; see `docs/configuration.md#per-project-tokens`.
 
 ### Extension points (do not break the Core rule)
 
@@ -78,7 +81,7 @@ findings' severity/confidence (the LLM no longer returns a top-level verdict); s
   `Endpoint` — no dedicated adapter. Selection is config-only via `Naudit:Ai:Provider`.
 - **GitHub platform (implemented):** `src/Naudit.Infrastructure/Git/GitHub/` contains
   `GitHubPlatform` (`IGitPlatform` impl), `GitHubWebhook` (payload mapping + action filter),
-  `GitHubDtos` (JSON DTOs), and `GitHubOptions` (`BaseUrl`, `Token`, `WebhookSecret`).
+  `GitHubDtos` (JSON DTOs), and `GitHubOptions` (`BaseUrl`, `Token`, `WebhookSecret`, `ProjectTokens`).
   Selection is config-only via `Naudit:Git:Platform` (`GitLab` | `GitHub`; default `GitLab`) —
   one platform is active per deployment; only its webhook endpoint is mapped. The GitHub endpoint
   (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over the raw
@@ -98,6 +101,13 @@ findings' severity/confidence (the LLM no longer returns a top-level verdict); s
   masks secrets/IPs/e-mails **before** `PromptBuilder.Build`; `Naudit:Redaction:Enabled=false`
   swaps in `NullPromptRedactor` (no-op). Seam for a future Presidio/LLM redactor. See
   `docs/redaction.md`.
+- **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
+  git-API token from the review's `ProjectId` (per-project override → global fallback). The default
+  `ConfiguredGitTokenProvider` reads a `ProjectTokens` list (a list, not a map, so `owner/repo` stays
+  in the *value* and is env-var-settable) from the active platform's config section; the platform
+  clients apply it **per request** (GitHub `Authorization: Bearer`, GitLab `PRIVATE-TOKEN`). Seam for
+  a future secret-store provider (Vault/Key Vault/DB) — just a second impl + registration. No change to
+  Core (tokens are an Infrastructure concern). See `docs/configuration.md#per-project-tokens`.
 
 ### CI/CD & container
 

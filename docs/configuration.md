@@ -2,9 +2,9 @@
 
 Non-secret defaults live in `src/Naudit.Web/appsettings.json` under the `Naudit`
 section. **Secrets** (`GitLab:Token`, `GitLab:WebhookSecret`, `GitHub:Token`,
-`GitHub:WebhookSecret`, `Ai:ApiKey`) do **not** belong there — put them in
-user-secrets, environment variables, or your deployment environment's secret
-management.
+`GitHub:WebhookSecret`, any `ProjectTokens:*:Token`, `Ai:ApiKey`) do **not** belong
+there — put them in user-secrets, environment variables, or your deployment
+environment's secret management.
 
 > In a container the keys are set as environment variables — ASP.NET maps `:` to
 > `__`, e.g. `Naudit:Ai:ApiKey` → `Naudit__Ai__ApiKey`.
@@ -24,11 +24,13 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | --- | --- |
 | `Naudit:Git:Platform` | `GitLab` (default) \| `GitHub` — selects the active platform |
 | `Naudit:GitLab:BaseUrl` | Base URL of the GitLab instance, e.g. `https://gitlab.example.com` |
-| `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) |
+| `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) — global fallback |
 | `Naudit:GitLab:WebhookSecret` | Secret checked against the `X-Gitlab-Token` header |
+| `Naudit:GitLab:ProjectTokens:<n>:Project` / `:Token` | Optional per-project token override (`Project` = numeric project ID); falls back to `Naudit:GitLab:Token` (see [Per-project tokens](#per-project-tokens)) |
 | `Naudit:GitHub:BaseUrl` | Base URL of the GitHub API (default: `https://api.github.com`) |
-| `Naudit:GitHub:Token` | Fine-grained PAT (see [Platform setup](platform-setup.md)) |
+| `Naudit:GitHub:Token` | Fine-grained PAT (see [Platform setup](platform-setup.md)) — global fallback |
 | `Naudit:GitHub:WebhookSecret` | Secret for HMAC-SHA256 verification (`X-Hub-Signature-256`) |
+| `Naudit:GitHub:ProjectTokens:<n>:Project` / `:Token` | Optional per-project fine-grained PAT (`Project` = `owner/repo`); falls back to `Naudit:GitHub:Token` (see [Per-project tokens](#per-project-tokens)) |
 | `Naudit:Ai:Provider` | `Ollama` \| `Anthropic` \| `OpenAICompatible` \| `ClaudeCode` |
 | `Naudit:Ai:Model` | Model name for the chosen provider |
 | `Naudit:Ai:Endpoint` | Ollama URL or base URL of an OpenAI-compatible service |
@@ -66,3 +68,47 @@ dotnet user-secrets set "Naudit:Ai:Provider" "ClaudeCode" --project src/Naudit.W
 dotnet user-secrets set "Naudit:Ai:Model"    "sonnet"     --project src/Naudit.Web
 # Auth: set CLAUDE_CODE_OAUTH_TOKEN in the environment (from `claude setup-token`); no Naudit:Ai:ApiKey needed.
 ```
+
+## Per-project tokens
+
+By default every repository is accessed with the single global token
+(`Naudit:GitHub:Token` / `Naudit:GitLab:Token`). You can override the token **per
+project** — e.g. to give each repository its own fine-grained token with access to
+that repo only. At review time Naudit resolves the token from the project of the
+incoming webhook/PR/MR:
+
+- **override wins** if the project is listed, **otherwise** the global token is used;
+- an empty override entry is ignored (never an empty auth header);
+- the `Project` key is matched case-insensitively.
+
+The `Project` value must match the project identifier exactly as it arrives from the
+platform: for **GitHub** that is `owner/repo`, for **GitLab** the **numeric project
+ID** (Project overview / *Settings → General*), not the path.
+
+`ProjectTokens` is a **list** (not a map) on purpose: the `owner/repo` value stays in
+the *value*, so the config is also settable via environment variables (Coolify/Docker),
+whose names cannot contain a slash.
+
+**Local development (user-secrets):**
+
+```bash
+# GitHub — per-repo fine-grained PAT
+dotnet user-secrets set "Naudit:GitHub:ProjectTokens:0:Project" "octo/hello-world"  --project src/Naudit.Web
+dotnet user-secrets set "Naudit:GitHub:ProjectTokens:0:Token"   "github_pat_..."     --project src/Naudit.Web
+
+# GitLab — per-project token (numeric project ID)
+dotnet user-secrets set "Naudit:GitLab:ProjectTokens:0:Project" "12345"              --project src/Naudit.Web
+dotnet user-secrets set "Naudit:GitLab:ProjectTokens:0:Token"   "glpat-..."          --project src/Naudit.Web
+```
+
+**Container / Coolify (environment variables — `:` maps to `__`):**
+
+```
+Naudit__GitHub__ProjectTokens__0__Project = octo/hello-world
+Naudit__GitHub__ProjectTokens__0__Token   = github_pat_...
+Naudit__GitHub__ProjectTokens__1__Project = octo/other
+Naudit__GitHub__ProjectTokens__1__Token   = github_pat_...
+```
+
+> The token map is read **once at startup**. Adding or changing a per-project token
+> takes effect after a **restart/redeploy** of the service.
