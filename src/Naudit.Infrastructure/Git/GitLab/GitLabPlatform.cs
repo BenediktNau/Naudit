@@ -74,7 +74,8 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens) : 
             throw new InvalidOperationException("GitLab lieferte keine http_url_to_repo.");
 
         // Token in die Klon-URL einbetten (oauth2:<token>@host) — projekt-aufgelöst.
-        var cloneUrl = project.HttpUrlToRepo.Replace("://", $"://oauth2:{tokens.ResolveToken(request.ProjectId)}@");
+        var token = await tokens.ResolveTokenAsync(request.ProjectId, ct);
+        var cloneUrl = project.HttpUrlToRepo.Replace("://", $"://oauth2:{token}@");
         return new RepoCheckoutInfo(cloneUrl, $"refs/merge-requests/{request.MergeRequestIid}/head");
     }
 
@@ -82,7 +83,7 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens) : 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string projectId, object? body, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, url);
-        req.Headers.Add("PRIVATE-TOKEN", tokens.ResolveToken(projectId));
+        req.Headers.Add("PRIVATE-TOKEN", await tokens.ResolveTokenAsync(projectId, ct));
         if (body is not null)
             req.Content = JsonContent.Create(body);
         return await http.SendAsync(req, ct);

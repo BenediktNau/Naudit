@@ -58,7 +58,8 @@ public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens) : 
             throw new InvalidOperationException("GitHub lieferte keine clone_url.");
 
         // Token in die Klon-URL einbetten (x-access-token:<token>@host) — projekt-aufgelöst.
-        var cloneUrl = repo.CloneUrl.Replace("://", $"://x-access-token:{tokens.ResolveToken(request.ProjectId)}@");
+        var token = await tokens.ResolveTokenAsync(request.ProjectId, ct);
+        var cloneUrl = repo.CloneUrl.Replace("://", $"://x-access-token:{token}@");
         return new RepoCheckoutInfo(cloneUrl, $"refs/pull/{request.MergeRequestIid}/head");
     }
 
@@ -66,7 +67,7 @@ public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens) : 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string projectId, object? body, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.ResolveToken(projectId));
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await tokens.ResolveTokenAsync(projectId, ct));
         if (body is not null)
             req.Content = JsonContent.Create(body);
         return await http.SendAsync(req, ct);

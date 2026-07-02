@@ -18,7 +18,7 @@ public class GitTokenWiringTests
     }
 
     [Fact]
-    public void GitHub_resolvesProviderFromGitHubSection()
+    public async Task GitHub_resolvesProviderFromGitHubSection()
     {
         using var sp = Build(new()
         {
@@ -29,12 +29,12 @@ public class GitTokenWiringTests
         });
 
         var provider = sp.GetRequiredService<IGitTokenProvider>();
-        Assert.Equal("proj-tok", provider.ResolveToken("octo/repo"));
-        Assert.Equal("default-tok", provider.ResolveToken("octo/other"));
+        Assert.Equal("proj-tok", await provider.ResolveTokenAsync("octo/repo"));
+        Assert.Equal("default-tok", await provider.ResolveTokenAsync("octo/other"));
     }
 
     [Fact]
-    public void GitLab_resolvesProviderFromGitLabSection()
+    public async Task GitLab_resolvesProviderFromGitLabSection()
     {
         using var sp = Build(new()
         {
@@ -45,12 +45,12 @@ public class GitTokenWiringTests
         });
 
         var provider = sp.GetRequiredService<IGitTokenProvider>();
-        Assert.Equal("proj-tok", provider.ResolveToken("12345"));
-        Assert.Equal("default-tok", provider.ResolveToken("999"));
+        Assert.Equal("proj-tok", await provider.ResolveTokenAsync("12345"));
+        Assert.Equal("default-tok", await provider.ResolveTokenAsync("999"));
     }
 
     [Fact]
-    public void NoProjectTokens_configured_alwaysResolvesDefault()
+    public async Task NoProjectTokens_configured_alwaysResolvesDefault()
     {
         using var sp = Build(new()
         {
@@ -59,6 +59,6 @@ public class GitTokenWiringTests
         });
 
         var provider = sp.GetRequiredService<IGitTokenProvider>();
-        Assert.Equal("default-tok", provider.ResolveToken("octo/anything"));
+        Assert.Equal("default-tok", await provider.ResolveTokenAsync("octo/anything"));
     }
 }
