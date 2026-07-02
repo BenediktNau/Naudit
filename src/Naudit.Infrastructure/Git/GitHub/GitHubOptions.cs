@@ -12,6 +12,11 @@ public sealed class GitHubOptions
     // Auth-Modus: Pat = heutiges Verhalten (statischer Token), App = GitHub-App-Installation-Token (Task 2).
     public GitHubAuthKind Auth { get; set; } = GitHubAuthKind.Pat;
     public GitHubAppOptions App { get; set; } = new();
+
+    // Opt-in: echtes Review-Verdikt posten (event=APPROVE/REQUEST_CHANGES). Default false = heutiges
+    // Verhalten (event=COMMENT). Achtung: GitHub lehnt APPROVE/REQUEST_CHANGES vom PR-Autor mit 422 ab
+    // — nur mit App-/Service-Account-Identität aktivieren.
+    public bool PostVerdict { get; set; }
 }
 
 /// <summary>Wählt die <see cref="Git.IGitTokenProvider"/>-Implementierung für GitHub (config-only, s. CLAUDE.md).</summary>

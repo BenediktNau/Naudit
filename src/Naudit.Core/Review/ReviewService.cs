@@ -80,7 +80,7 @@ public sealed class ReviewService(
 
         var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
-        await gitPlatform.PostReviewAsync(request, summary, inline, ct);
+        await gitPlatform.PostReviewAsync(request, summary, inline, verdict, ct);
         return new ReviewResult(summary, verdict);
     }
 

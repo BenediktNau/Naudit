@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 
@@ -8,7 +9,7 @@ namespace Naudit.Infrastructure.Git.GitHub;
 /// <summary>IGitPlatform-Implementierung für GitHub. BaseAddress + statische Header kommen vom typed
 /// HttpClient; der Auth-Token wird pro Request aus dem projekt-aufgelösten <see cref="IGitTokenProvider"/>
 /// gesetzt (Per-Projekt-Token).</summary>
-public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens) : IGitPlatform
+public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens, IOptions<GitHubOptions> options) : IGitPlatform
 {
     public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
     {
@@ -27,15 +28,18 @@ public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens) : 
             .ToList();
     }
 
-    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, CancellationToken ct = default)
+    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
-        // Ein Review-Call trägt Summary (body) UND alle Inline-Kommentare. event=COMMENT:
-        // Naudit gatet nicht über GitHubs eigenen Review-Status (Verdict läuft über ReviewResult).
+        // Ein Review-Call trägt Summary (body) UND alle Inline-Kommentare.
+        // Echtes Verdikt nur opt-in (PostVerdict) — Default bleibt COMMENT (kein Review-Status;
+        // Naudit gatet nicht automatisch über GitHubs eigenen Review-Status).
         var url = $"repos/{request.ProjectId}/pulls/{request.MergeRequestIid}/reviews";
+        var @event = !options.Value.PostVerdict ? "COMMENT"
+            : verdict == ReviewVerdict.RequestChanges ? "REQUEST_CHANGES" : "APPROVE";
         var payload = new
         {
             body = summaryMarkdown,
-            @event = "COMMENT",
+            @event,
             comments = comments.Select(c => new
             {
                 path = c.FilePath,

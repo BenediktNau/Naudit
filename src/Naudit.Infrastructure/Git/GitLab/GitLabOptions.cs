@@ -8,4 +8,8 @@ public sealed class GitLabOptions
 
     // Per-Projekt-Override: Token je numerischer Projekt-ID; leer ⇒ globaler Token.
     public List<ProjectTokenEntry> ProjectTokens { get; set; } = new();
+
+    // Opt-in: echtes Review-Verdikt posten (approve/unapprove). Default false = heutiges Verhalten
+    // (kein Approval-Call).
+    public bool PostVerdict { get; set; }
 }

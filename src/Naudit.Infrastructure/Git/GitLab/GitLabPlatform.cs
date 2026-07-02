@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 
@@ -7,7 +9,7 @@ namespace Naudit.Infrastructure.Git.GitLab;
 /// <summary>IGitPlatform-Implementierung für GitLab. BaseAddress kommt vom typed HttpClient; der
 /// PRIVATE-TOKEN wird pro Request aus dem projekt-aufgelösten <see cref="IGitTokenProvider"/> gesetzt
 /// (Per-Projekt-Token).</summary>
-public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens) : IGitPlatform
+public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IOptions<GitLabOptions> options) : IGitPlatform
 {
     public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
     {
@@ -23,44 +25,60 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens) : 
             .ToList();
     }
 
-    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, CancellationToken ct = default)
+    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
         var basePath = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}";
 
         // 1) Summary als normale Note.
         (await SendAsync(HttpMethod.Post, $"{basePath}/notes", request.ProjectId, new { body = summaryMarkdown }, ct)).EnsureSuccessStatusCode();
 
-        if (comments.Count == 0)
-            return;
-
-        // 2) diff_refs (base/head/start SHA) für die Discussion-Position holen.
-        using var detailResponse = await SendAsync(HttpMethod.Get, basePath, request.ProjectId, null, ct);
-        detailResponse.EnsureSuccessStatusCode();
-        var detail = await detailResponse.Content.ReadFromJsonAsync<GitLabMergeRequestDetail>(ct);
-        var refs = detail?.DiffRefs
-            ?? throw new InvalidOperationException("GitLab lieferte keine diff_refs für die Inline-Position.");
-
-        // 3) Je Inline-Kommentar eine Discussion mit text-Position posten.
-        foreach (var c in comments)
+        if (comments.Count > 0)
         {
-            // GitLab verlangt old_path UND new_path im text-Position-Payload – auch für
-            // hinzugefügte Zeilen. old_line wird nur bei vorhandener alter Position gesetzt.
-            var position = new Dictionary<string, object?>
-            {
-                ["position_type"] = "text",
-                ["base_sha"] = refs.BaseSha,
-                ["head_sha"] = refs.HeadSha,
-                ["start_sha"] = refs.StartSha,
-                ["old_path"] = c.FilePath,
-                ["new_path"] = c.FilePath,
-                ["new_line"] = c.NewLine,
-            };
-            // Kontextzeile: zusätzlich die alte Zeilennummer angeben.
-            if (c.OldLine is int oldLine)
-                position["old_line"] = oldLine;
+            // 2) diff_refs (base/head/start SHA) für die Discussion-Position holen.
+            using var detailResponse = await SendAsync(HttpMethod.Get, basePath, request.ProjectId, null, ct);
+            detailResponse.EnsureSuccessStatusCode();
+            var detail = await detailResponse.Content.ReadFromJsonAsync<GitLabMergeRequestDetail>(ct);
+            var refs = detail?.DiffRefs
+                ?? throw new InvalidOperationException("GitLab lieferte keine diff_refs für die Inline-Position.");
 
-            var payload = new { body = c.Body, position };
-            (await SendAsync(HttpMethod.Post, $"{basePath}/discussions", request.ProjectId, payload, ct)).EnsureSuccessStatusCode();
+            // 3) Je Inline-Kommentar eine Discussion mit text-Position posten.
+            foreach (var c in comments)
+            {
+                // GitLab verlangt old_path UND new_path im text-Position-Payload – auch für
+                // hinzugefügte Zeilen. old_line wird nur bei vorhandener alter Position gesetzt.
+                var position = new Dictionary<string, object?>
+                {
+                    ["position_type"] = "text",
+                    ["base_sha"] = refs.BaseSha,
+                    ["head_sha"] = refs.HeadSha,
+                    ["start_sha"] = refs.StartSha,
+                    ["old_path"] = c.FilePath,
+                    ["new_path"] = c.FilePath,
+                    ["new_line"] = c.NewLine,
+                };
+                // Kontextzeile: zusätzlich die alte Zeilennummer angeben.
+                if (c.OldLine is int oldLine)
+                    position["old_line"] = oldLine;
+
+                var payload = new { body = c.Body, position };
+                (await SendAsync(HttpMethod.Post, $"{basePath}/discussions", request.ProjectId, payload, ct)).EnsureSuccessStatusCode();
+            }
+        }
+
+        // Echtes Verdikt (opt-in): Approve setzen bzw. eine frühere Approval zurückziehen.
+        if (options.Value.PostVerdict)
+        {
+            if (verdict == ReviewVerdict.Approve)
+            {
+                (await SendAsync(HttpMethod.Post, $"{basePath}/approve", request.ProjectId, null, ct)).EnsureSuccessStatusCode();
+            }
+            else
+            {
+                // 404 = es gab keine Approval dieses Users — kein Fehler.
+                using var resp = await SendAsync(HttpMethod.Post, $"{basePath}/unapprove", request.ProjectId, null, ct);
+                if (resp.StatusCode != HttpStatusCode.NotFound)
+                    resp.EnsureSuccessStatusCode();
+            }
         }
     }
 

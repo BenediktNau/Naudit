@@ -7,15 +7,17 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
 {
     public string? PostedMarkdown { get; private set; }
     public IReadOnlyList<InlineComment> PostedComments { get; private set; } = [];
+    public ReviewVerdict? PostedVerdict { get; private set; }
     public int PostCallCount { get; private set; }
 
     public Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
         => Task.FromResult(changes);
 
-    public Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, CancellationToken ct = default)
+    public Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
         PostedMarkdown = summaryMarkdown;
         PostedComments = comments;
+        PostedVerdict = verdict;
         PostCallCount++;
         return Task.CompletedTask;
     }
