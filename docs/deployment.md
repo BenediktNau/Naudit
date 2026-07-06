@@ -57,10 +57,56 @@ Naudit__Ai__Provider=OpenAICompatible
 Naudit__Ai__Endpoint=https://integrate.api.nvidia.com/v1
 Naudit__Ai__Model=nvidia/llama-3.1-nemotron-ultra-253b-v1
 Naudit__Ai__ApiKey=<nvidia-key>       # 🔒 secret
+
+# Claude Code CLI (your Claude Pro/Max subscription, not an API key):
+Naudit__Ai__Provider=ClaudeCode
+Naudit__Ai__Model=sonnet
+CLAUDE_CODE_OAUTH_TOKEN=<claude-setup-token>   # 🔒 secret — needs the derived image (see below)
 ```
 
 After deploying, point the platform webhook at `https://<your-coolify-domain>/webhook/github`
 (or `/webhook/gitlab`) — see [Platform setup](platform-setup.md).
+
+## Claude Code CLI provider (subscription)
+
+The `ClaudeCode` AI provider does not call an HTTP API — it shells out to the `claude`
+CLI as a local subprocess and authenticates with a **Claude Pro/Max subscription** (no
+API key, no per-token billing). The CLI must therefore live **inside the container**, so it
+is **not** part of the public `ghcr.io/benediktnau/naudit` image. Use the derived image
+[`deploy/coolify/Dockerfile`](../deploy/coolify/Dockerfile) — `FROM …/naudit:latest` plus the
+pinned, checksum-verified `claude` binary — for your own instance only:
+
+1. **Generate an OAuth token** once, locally, where a browser login is possible:
+   ```bash
+   claude setup-token   # prints a 1-year token bound to your subscription
+   ```
+2. **Deploy the derived image in Coolify** — set the resource's Build Pack to **Dockerfile**
+   and point it at `deploy/coolify/Dockerfile` instead of the prebuilt image. Coolify rebuilds
+   it on each deploy. Coolify runs a plain `docker build`, which reuses a cached `:latest`
+   **base**; to also pull a fresh base each time, add `--pull` to the build command in the
+   resource's build settings.
+3. **Set the env vars** (in addition to the platform/webhook ones):
+   ```bash
+   Naudit__Ai__Provider=ClaudeCode
+   Naudit__Ai__Model=sonnet                       # optional; defaults to sonnet
+   CLAUDE_CODE_OAUTH_TOKEN=<token from step 1>    # 🔒 secret
+   ```
+
+**Updating the CLI:** nothing to do — each Coolify rebuild resolves the newest `stable`
+release, downloads the binary, and verifies its SHA256 against the checksum in that version's
+`manifest.json` (the build fails on a mismatch). BuildKit only re-downloads when the
+version actually changed. To **pin or roll back** (e.g. a bad Claude Code release), build
+with `--build-arg CLAUDE_CODE_VERSION=<version>` instead of the empty default.
+
+**Caveats:**
+
+- The token expires after **1 year** with no auto-refresh — regenerate it then.
+- "Always latest" means a broken Claude Code release lands on the next deploy — use the
+  `CLAUDE_CODE_VERSION` build-arg to pin back if that happens.
+- Integrity is **checksum-only**: the binary is checked against the SHA256 in `manifest.json`.
+  Anthropic GPG-signs that manifest (`manifest.json.sig`), but this build does not verify the
+  signature — it guards against a corrupt download, not a compromised upstream.
+- The derived image is ~250 MB larger than the base (the self-contained `claude` binary).
 
 ## Automatic deploy on each release
 
