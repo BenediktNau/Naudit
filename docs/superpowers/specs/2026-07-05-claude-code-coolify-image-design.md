@@ -42,7 +42,7 @@ ARG CLAUDE_CODE_VERSION=
 # layer cache whenever a new version ships (no 250 MB re-download while unchanged).
 ADD https://downloads.claude.ai/claude-code-releases/stable /tmp/claude-stable
 
-# Resolve the version, read its linux-x64 SHA256 from the signed manifest.json, download the
+# Resolve the version, read its linux-x64 SHA256 from manifest.json, download the
 # self-contained native binary (own Node runtime + ripgrep) and verify it (fail-closed:
 # the build aborts on a hash mismatch). curl + jq are added and removed in the same layer.
 RUN set -eux; \
@@ -100,7 +100,8 @@ alternatively be supplied via `Naudit__Ai__ApiKey`, which the client copies into
 ## Deliverables
 
 1. `deploy/coolify/Dockerfile` — the derived image above, resolving the newest `stable`
-   release at build time and verifying it against the signed manifest.
+   release at build time and verifying it against the checksum in the manifest (checksum-only;
+   the manifest's GPG signature is not verified).
 2. A docs section (in `docs/deployment.md` or a new `docs/claude-code-coolify.md`)
    covering: why a derived image, `claude setup-token`, the Coolify env vars, and
    the token-renewal caveat.

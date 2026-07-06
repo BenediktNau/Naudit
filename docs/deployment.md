@@ -82,7 +82,9 @@ pinned, checksum-verified `claude` binary — for your own instance only:
    ```
 2. **Deploy the derived image in Coolify** — set the resource's Build Pack to **Dockerfile**
    and point it at `deploy/coolify/Dockerfile` instead of the prebuilt image. Coolify rebuilds
-   it on each deploy, always on top of the newest `:latest` base.
+   it on each deploy. Coolify runs a plain `docker build`, which reuses a cached `:latest`
+   **base**; to also pull a fresh base each time, add `--pull` to the build command in the
+   resource's build settings.
 3. **Set the env vars** (in addition to the platform/webhook ones):
    ```bash
    Naudit__Ai__Provider=ClaudeCode
@@ -91,7 +93,7 @@ pinned, checksum-verified `claude` binary — for your own instance only:
    ```
 
 **Updating the CLI:** nothing to do — each Coolify rebuild resolves the newest `stable`
-release, downloads the binary, and verifies its SHA256 against that version's signed
+release, downloads the binary, and verifies its SHA256 against the checksum in that version's
 `manifest.json` (the build fails on a mismatch). BuildKit only re-downloads when the
 version actually changed. To **pin or roll back** (e.g. a bad Claude Code release), build
 with `--build-arg CLAUDE_CODE_VERSION=<version>` instead of the empty default.
@@ -101,6 +103,9 @@ with `--build-arg CLAUDE_CODE_VERSION=<version>` instead of the empty default.
 - The token expires after **1 year** with no auto-refresh — regenerate it then.
 - "Always latest" means a broken Claude Code release lands on the next deploy — use the
   `CLAUDE_CODE_VERSION` build-arg to pin back if that happens.
+- Integrity is **checksum-only**: the binary is checked against the SHA256 in `manifest.json`.
+  Anthropic GPG-signs that manifest (`manifest.json.sig`), but this build does not verify the
+  signature — it guards against a corrupt download, not a compromised upstream.
 - The derived image is ~250 MB larger than the base (the self-contained `claude` binary).
 
 ## Automatic deploy on each release

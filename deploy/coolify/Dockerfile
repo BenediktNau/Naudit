@@ -20,9 +20,11 @@ ARG CLAUDE_CODE_VERSION=
 ADD https://downloads.claude.ai/claude-code-releases/stable /tmp/claude-stable
 
 # curl + jq nur temporaer zum Aufloesen/Verifizieren; im selben Layer wieder entfernt.
-# Die SHA256 kommt aus der (GPG-signierten) manifest.json der Version und wird per sha256sum
-# geprueft -> fail-closed: bei Mismatch bricht der Build ab. Die selbstständige native
-# linux-x64-Binary bringt eigene Node-Runtime + ripgrep mit.
+# Die SHA256 kommt aus der manifest.json der Version und wird per sha256sum geprueft
+# -> fail-closed: bei Mismatch bricht der Build ab. Checksum-only: Anthropic GPG-signiert die
+# manifest.json (manifest.json.sig), diese Signatur wird hier bewusst NICHT geprueft -> schuetzt
+# gegen korrupten/abgebrochenen Download, nicht gegen kompromittierten Upstream. Die
+# selbstständige native linux-x64-Binary bringt eigene Node-Runtime + ripgrep mit.
 USER root
 RUN set -eux; \
     apt-get update; \
