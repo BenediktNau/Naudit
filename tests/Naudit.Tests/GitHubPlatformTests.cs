@@ -183,4 +183,37 @@ public class GitHubPlatformTests
 
         Assert.Contains($"\"event\":\"{expectedEvent}\"", capture.LastRequestBody);
     }
+
+    [Fact]
+    public async Task PostReviewAsync_verdictRejected422_fallsBackToCommentOnce()
+    {
+        // GitHub lehnt APPROVE/REQUEST_CHANGES z. B. vom PR-Autor mit 422 ab. Der Review-Inhalt
+        // (Summary + Inline-Kommentare) darf dabei nicht verloren gehen: einmal als COMMENT nachposten.
+        var calls = 0;
+        var capture = new StubHttpMessageHandler(_ => ++calls == 1
+            ? new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            : new HttpResponseMessage(HttpStatusCode.OK));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "{}", capture), Tokens(),
+            Opts(postVerdict: true));
+
+        await platform.PostReviewAsync(Request, "## Naudit Review",
+            [new InlineComment("src/Foo.cs", 5, null, "finding here")], ReviewVerdict.RequestChanges);
+
+        Assert.Equal(2, capture.Calls.Count);
+        Assert.Contains("\"event\":\"REQUEST_CHANGES\"", capture.Calls[0].Body);
+        Assert.Contains("\"event\":\"COMMENT\"", capture.Calls[1].Body);
+        Assert.Contains("finding here", capture.Calls[1].Body); // Inhalt bleibt erhalten
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_commentRejected422_throwsWithoutRetry()
+    {
+        // Ohne Verdikt gibt es keinen sinnvollen Fallback — Fehler muss sichtbar bleiben.
+        var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.UnprocessableEntity));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "{}", capture), Tokens(), Opts());
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => platform.PostReviewAsync(Request, "## Naudit Review", [], ReviewVerdict.Approve));
+        Assert.Single(capture.Calls);
+    }
 }

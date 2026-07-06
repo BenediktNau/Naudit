@@ -1,5 +1,8 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
@@ -9,8 +12,12 @@ namespace Naudit.Infrastructure.Git.GitHub;
 /// <summary>IGitPlatform-Implementierung für GitHub. BaseAddress + statische Header kommen vom typed
 /// HttpClient; der Auth-Token wird pro Request aus dem projekt-aufgelösten <see cref="IGitTokenProvider"/>
 /// gesetzt (Per-Projekt-Token).</summary>
-public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens, IOptions<GitHubOptions> options) : IGitPlatform
+public sealed class GitHubPlatform(
+    HttpClient http, IGitTokenProvider tokens, IOptions<GitHubOptions> options,
+    ILogger<GitHubPlatform>? logger = null) : IGitPlatform
 {
+    private readonly ILogger<GitHubPlatform> _logger = logger ?? NullLogger<GitHubPlatform>.Instance;
+
     public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
     {
         // ProjectId enthält "owner/repo". Eine Seite (per_page=100) reicht für normale PRs (bewusste POC-Grenze).
@@ -36,6 +43,26 @@ public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens, IO
         var url = $"repos/{request.ProjectId}/pulls/{request.MergeRequestIid}/reviews";
         var @event = !options.Value.PostVerdict ? "COMMENT"
             : verdict == ReviewVerdict.RequestChanges ? "REQUEST_CHANGES" : "APPROVE";
+        using var response = await PostReviewOnceAsync(url, request, summaryMarkdown, comments, @event, ct);
+
+        // GitHub lehnt APPROVE/REQUEST_CHANGES u. a. vom PR-Autor mit 422 ab. Der Review-Inhalt
+        // (Summary + Inline-Kommentare) darf dabei nicht verloren gehen: einmal als COMMENT nachposten.
+        if (@event != "COMMENT" && response.StatusCode == HttpStatusCode.UnprocessableEntity)
+        {
+            _logger.LogWarning(
+                "GitHub hat das Review-Verdikt {Event} für {Project}#{Number} abgelehnt (422) — Review wird ohne Verdikt als COMMENT gepostet (typisch: Token-Identität ist der PR-Autor; GitHub-App oder Service-Account verwenden).",
+                @event, request.ProjectId, request.MergeRequestIid);
+            using var fallback = await PostReviewOnceAsync(url, request, summaryMarkdown, comments, "COMMENT", ct);
+            fallback.EnsureSuccessStatusCode();
+            return;
+        }
+        response.EnsureSuccessStatusCode();
+    }
+
+    private Task<HttpResponseMessage> PostReviewOnceAsync(
+        string url, ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments,
+        string @event, CancellationToken ct)
+    {
         var payload = new
         {
             body = summaryMarkdown,
@@ -48,8 +75,7 @@ public sealed class GitHubPlatform(HttpClient http, IGitTokenProvider tokens, IO
                 body = c.Body,
             }).ToArray(),
         };
-        using var response = await SendAsync(HttpMethod.Post, url, request.ProjectId, payload, ct);
-        response.EnsureSuccessStatusCode();
+        return SendAsync(HttpMethod.Post, url, request.ProjectId, payload, ct);
     }
 
     public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)

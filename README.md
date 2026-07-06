@@ -48,7 +48,8 @@ For the full key reference (GitLab, all provider variants, system prompt) see
 
 The example above uses a **user PAT** (`Naudit__GitHub__Token`) — simple, but every comment
 appears as *that user*, and GitHub rejects an `APPROVE`/`REQUEST_CHANGES` verdict on the token
-owner's own PRs (HTTP 422). To let Naudit act as its own bot **and** post a real, blocking review
+owner's own PRs (HTTP 422; Naudit then falls back to a plain comment so the review isn't lost).
+To let Naudit act as its own bot **and** post a real, blocking review
 verdict, run it as a **GitHub App**: create the app once (permissions `pull_requests: write`,
 `contents: read`, `metadata: read`; subscribe to `pull_request`), then install it on a repo/org
 with one click. Swap the PAT vars for:

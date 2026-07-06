@@ -70,7 +70,11 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
         {
             if (verdict == ReviewVerdict.Approve)
             {
-                (await SendAsync(HttpMethod.Post, $"{basePath}/approve", request.ProjectId, null, ct)).EnsureSuccessStatusCode();
+                // GitLab antwortet 401 auf ein erneutes Approve desselben Users (ApprovalService:
+                // bereits approved ⇒ nicht "eligible" ⇒ unauthorized!) — kein echter Auth-Fehler.
+                // Deshalb vorab user_has_approved prüfen; Re-Reviews bleiben so idempotent.
+                if (!await HasAlreadyApprovedAsync(basePath, request.ProjectId, ct))
+                    (await SendAsync(HttpMethod.Post, $"{basePath}/approve", request.ProjectId, null, ct)).EnsureSuccessStatusCode();
             }
             else
             {
@@ -79,6 +83,22 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
                 if (resp.StatusCode != HttpStatusCode.NotFound)
                     resp.EnsureSuccessStatusCode();
             }
+        }
+    }
+
+    private async Task<bool> HasAlreadyApprovedAsync(string basePath, string projectId, CancellationToken ct)
+    {
+        using var resp = await SendAsync(HttpMethod.Get, $"{basePath}/approvals", projectId, null, ct);
+        if (!resp.IsSuccessStatusCode)
+            return false; // im Zweifel approven — ein echter Fehler wird dann am approve-Call sichtbar
+        try
+        {
+            var approvals = await resp.Content.ReadFromJsonAsync<GitLabApprovals>(ct);
+            return approvals?.UserHasApproved == true;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false; // leerer/unerwarteter Body (z. B. ältere GitLab-Version) ⇒ normal approven
         }
     }
 

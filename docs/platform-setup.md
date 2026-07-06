@@ -37,7 +37,8 @@ path that supports a real blocking review verdict on the repo owner's own PRs (G
 
 The steps below set up the **PAT path** instead — simpler to start with, good for local
 development or as a fallback, but comments appear under the token owner's own account and it
-cannot post a real verdict on that owner's own PRs.
+cannot post a real verdict on that owner's own PRs (Naudit then falls back to posting the review
+as a plain comment and logs a warning).
 
 ### 1. Switch the Git platform to GitHub
 

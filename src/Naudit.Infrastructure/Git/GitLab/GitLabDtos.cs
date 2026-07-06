@@ -44,3 +44,9 @@ public sealed class GitLabDiffRefs
     [JsonPropertyName("head_sha")] public string HeadSha { get; set; } = "";
     [JsonPropertyName("start_sha")] public string StartSha { get; set; } = "";
 }
+
+public sealed class GitLabApprovals
+{
+    // Hat der aufrufende User (= Naudits Token-Identität) den MR bereits approved?
+    [JsonPropertyName("user_has_approved")] public bool UserHasApproved { get; set; }
+}

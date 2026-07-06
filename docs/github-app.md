@@ -17,7 +17,9 @@ the **recommended** way to run Naudit against GitHub in production; see
   [`PostVerdict`](configuration.md)) is actually possible. GitHub rejects `APPROVE`/
   `REQUEST_CHANGES` submitted by the **PR author** with HTTP 422 — with the repo owner's own PAT a
   real verdict is impossible on the owner's own PRs. A separate bot identity is the prerequisite,
-  not just cosmetics.
+  not just cosmetics. (If GitHub does reject a verdict with 422, Naudit degrades gracefully: it
+  re-posts the same review as a plain `COMMENT` and logs a warning — only the verdict is lost,
+  never the review content.)
 
 ## 1. Create the app (once per deployment)
 

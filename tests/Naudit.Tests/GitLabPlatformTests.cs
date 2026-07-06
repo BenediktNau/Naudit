@@ -190,6 +190,29 @@ public class GitLabPlatformTests
     }
 
     [Fact]
+    public async Task PostReviewAsync_postVerdictApprove_skipsApprove_whenAlreadyApproved()
+    {
+        // GitLab antwortet 401 auf ein erneutes Approve desselben Users (kein echter Auth-Fehler).
+        // Naudit prüft deshalb vorab user_has_approved und überspringt den Call — Re-Reviews
+        // desselben MR bleiben idempotent.
+        var capture = new StubHttpMessageHandler(req =>
+            req.RequestUri!.AbsolutePath.EndsWith("/approvals")
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"user_has_approved":true}""", Encoding.UTF8, "application/json"),
+                }
+                : Ok());
+        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Tokens(),
+            Opts(postVerdict: true));
+
+        await platform.PostReviewAsync(Request, "## Naudit Review", [], ReviewVerdict.Approve);
+
+        Assert.Contains(capture.Calls, c =>
+            c.Method == HttpMethod.Get && c.Uri!.AbsolutePath.EndsWith("/merge_requests/42/approvals"));
+        Assert.DoesNotContain(capture.Calls, c => c.Uri!.AbsolutePath.EndsWith("/merge_requests/42/approve"));
+    }
+
+    [Fact]
     public async Task PostReviewAsync_postVerdictRequestChanges_callsUnapprove_andTolerates404()
     {
         // Unapprove antwortet 404, wenn es keine bestehende Approval gibt — das darf nicht werfen.
