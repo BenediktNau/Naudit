@@ -145,6 +145,47 @@ public class GitHubAppTokenProviderTests
     }
 
     [Fact]
+    public async Task ResolveTokenAsync_staleInstallationId_relooksUpOnceAndMintsFresh()
+    {
+        // App deinstalliert + neu installiert ⇒ neue Installation-Id. Der Mint gegen die alte Id
+        // liefert 404; der Provider muss den Installation-Cache verwerfen und einmal frisch auflösen
+        // (statt bis zum Prozess-Neustart gegen die tote Id zu laufen).
+        using var rsa = RSA.Create(2048);
+        var time = new FakeTime(T0);
+        var reinstalled = false;
+        var stub = new StubHttpMessageHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            string json;
+            if (path.EndsWith("/installation"))
+                json = reinstalled ? """{"id":456}""" : """{"id":123}""";
+            else if (path.Contains("/installations/123/"))
+            {
+                if (reinstalled)
+                    return new HttpResponseMessage(HttpStatusCode.NotFound);
+                json = $$"""{"token":"ghs_old","expires_at":"{{T0.AddHours(1):O}}"}""";
+            }
+            else
+                json = $$"""{"token":"ghs_new","expires_at":"{{time.Now.AddHours(1):O}}"}""";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+        });
+        var provider = Provider(rsa, stub, time);
+
+        Assert.Equal("ghs_old", await provider.ResolveTokenAsync("octo/hello-world"));
+
+        reinstalled = true;
+        time.Now = T0.AddHours(2); // altes Token abgelaufen ⇒ Neu-Mint gegen die (jetzt tote) Id 123
+        Assert.Equal("ghs_new", await provider.ResolveTokenAsync("octo/hello-world"));
+
+        // Reihenfolge: Lookup(123), Mint(123), Mint(123)=404, Lookup(456), Mint(456).
+        Assert.Equal(5, stub.Calls.Count);
+        Assert.EndsWith("/app/installations/456/access_tokens", stub.Calls[4].Uri!.AbsolutePath);
+    }
+
+    [Fact]
     public async Task Minting_neverLogsPrivateKeyOrToken()
     {
         using var rsa = RSA.Create(2048);
