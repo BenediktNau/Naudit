@@ -10,12 +10,37 @@ using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
 using Naudit.Web;
+using Naudit.Web.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddNauditInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IReviewQueue, ReviewQueue>();
 builder.Services.AddHostedService<ReviewBackgroundService>();
+
+// WebUI-Auth (BFF): Cookie-Session; API-Verhalten statt Browser-Redirects (401/403 als Status).
+var uiConfig = builder.Configuration.GetSection("Naudit:Ui").Get<Naudit.Infrastructure.Ui.UiOptions>()
+    ?? new Naudit.Infrastructure.Ui.UiOptions();
+if (uiConfig.Enabled)
+{
+    var auth = builder.Services
+        .AddAuthentication(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme)
+        .AddCookie(o =>
+        {
+            o.Cookie.Name = "naudit.session";
+            o.Cookie.HttpOnly = true;
+            o.Cookie.SameSite = SameSiteMode.Lax;
+            o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            o.SlidingExpiration = true;
+            o.ExpireTimeSpan = TimeSpan.FromDays(7);
+            // SPA-Kontrakt: kein Redirect auf eine Login-SEITE — 401/403 sprechen für sich.
+            o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
+            o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
+        });
+    builder.Services.AddAuthorization();
+    // Task 6 registriert hier GitHub-OAuth/OIDC an `auth`, wenn per Config aktiviert.
+    _ = auth;
+}
 
 var app = builder.Build();
 
@@ -27,6 +52,12 @@ if (uiOptions.Enabled)
     var db = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
     db.Database.Migrate();
     await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
+}
+
+if (uiConfig.Enabled)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
 }
 
 app.MapGet("/health", () => Results.Ok("healthy"));
@@ -130,6 +161,12 @@ app.MapPost("/review", async (
     var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";
     return Results.Ok(new { verdict });
 });
+
+// WebUI-Endpoints nur bei aktiviertem UI mappen (aus = heutiges Verhalten, alles 404).
+if (uiConfig.Enabled)
+{
+    app.MapAuthEndpoints(uiConfig);
+}
 
 // Konstant-zeitlicher Vergleich; leeres Secret oder leerer Token ⇒ false (fail-closed).
 static bool IsValidNauditToken(string? secret, string? provided)
