@@ -27,8 +27,9 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
 
         var environments = CollectEnvironments(root, changes);
         var usages = CollectUsages(root, changes);
+        var overview = BuildOverview(root);
 
-        var ctx = new ReviewContext(environments, usages, null);
+        var ctx = ApplyBudget(new ReviewContext(environments, usages, overview));
         return Task.FromResult(ctx);
     }
 
@@ -251,6 +252,113 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
                 if (len > 0 && len <= MaxFileBytes) yield return f;
             }
         }
+    }
+
+    // ---- Überblick --------------------------------------------------------
+    private const int MaxTreeEntriesPerDir = 40;
+
+    private string? BuildOverview(string root)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Directory tree (depth ≤ {options.MaxTreeDepth}):");
+        AppendTree(sb, root, prefix: "", depth: 0);
+
+        var readme = FindReadme(root);
+        if (readme is not null)
+        {
+            try
+            {
+                var head = File.ReadLines(readme).Take(options.ReadmeMaxLines).ToList();
+                if (head.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"README (first {options.ReadmeMaxLines} lines):");
+                    foreach (var l in head) sb.AppendLine(l);
+                }
+            }
+            catch { /* README unlesbar -> nur Baum */ }
+        }
+
+        var text = sb.ToString().TrimEnd();
+        return text.Length == 0 ? null : text;
+    }
+
+    private void AppendTree(System.Text.StringBuilder sb, string dir, string prefix, int depth)
+    {
+        if (depth >= options.MaxTreeDepth) return;
+        List<string> subdirs, files;
+        try
+        {
+            subdirs = Directory.EnumerateDirectories(dir)
+                .Where(d => !ExcludedDirs.Contains(Path.GetFileName(d)))
+                .OrderBy(Path.GetFileName, StringComparer.Ordinal).Take(MaxTreeEntriesPerDir).ToList();
+            files = Directory.EnumerateFiles(dir)
+                .OrderBy(Path.GetFileName, StringComparer.Ordinal).Take(MaxTreeEntriesPerDir).ToList();
+        }
+        catch { return; }
+
+        foreach (var d in subdirs)
+        {
+            sb.AppendLine($"{prefix}{Path.GetFileName(d)}/");
+            AppendTree(sb, d, prefix + "  ", depth + 1);
+        }
+        foreach (var f in files)
+            sb.AppendLine($"{prefix}{Path.GetFileName(f)}");
+    }
+
+    private static string? FindReadme(string root)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(root)
+                .Where(f => Path.GetFileName(f).StartsWith("README", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(Path.GetFileName, StringComparer.Ordinal)
+                .FirstOrDefault();
+        }
+        catch { return null; }
+    }
+
+    // ---- Budget -----------------------------------------------------------
+    private const string BudgetMarker = "\n… [truncated by budget]";
+
+    // Füllt in Priorität Umgebung > Call-Sites > Überblick bis MaxChars; der erste überlaufende
+    // Block wird markiert abgeschnitten, alles danach fällt weg. Deterministisch.
+    private ReviewContext ApplyBudget(ReviewContext ctx)
+    {
+        int budget = options.MaxChars;
+
+        var envs = new List<FileEnvironment>();
+        foreach (var e in ctx.Environments)
+        {
+            if (budget <= 0) break;
+            var (content, used, truncated) = Fit(e.Content, budget);
+            envs.Add(e with { Content = content });
+            budget -= used;
+            if (truncated) { budget = 0; break; }
+        }
+
+        var usages = new List<SymbolUsage>();
+        foreach (var u in ctx.Usages)
+        {
+            if (budget <= 0) break;
+            var (snippet, used, truncated) = Fit(u.Snippet, budget);
+            usages.Add(u with { Snippet = snippet });
+            budget -= used;
+            if (truncated) { budget = 0; break; }
+        }
+
+        string? overview = null;
+        if (budget > 0 && ctx.Overview is not null)
+            overview = Fit(ctx.Overview, budget).Text;
+
+        return new ReviewContext(envs, usages, overview);
+    }
+
+    private static (string Text, int Used, bool Truncated) Fit(string text, int budget)
+    {
+        if (text.Length <= budget) return (text, text.Length, false);
+        var keep = Math.Max(0, budget - BudgetMarker.Length);
+        return (text[..keep] + BudgetMarker, budget, true);
     }
 
     // ---- Pfad-Sicherheit --------------------------------------------------

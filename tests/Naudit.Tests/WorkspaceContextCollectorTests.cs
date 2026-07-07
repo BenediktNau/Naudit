@@ -150,4 +150,40 @@ public class WorkspaceContextCollectorTests
 
         Assert.Empty(ctx.Usages);
     }
+
+    [Fact]
+    public async Task Collect_overview_hasTree_andReadmeHead()
+    {
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "README.md", "# MyProject\nDoes the thing.\nSecond line.\n");
+        WriteFile(root, "src/App.cs", "class App { }\n");
+        var changes = new[] { new CodeChange("src/App.cs", "@@ -1,0 +1,1 @@\n+class App { }") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions { ReadmeMaxLines = 2 });
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.NotNull(ctx.Overview);
+        Assert.Contains("src/", ctx.Overview!);            // Verzeichnisbaum
+        Assert.Contains("App.cs", ctx.Overview!);
+        Assert.Contains("# MyProject", ctx.Overview!);     // README-Kopf
+        Assert.DoesNotContain("Second line.", ctx.Overview!);  // durch ReadmeMaxLines gedeckelt
+    }
+
+    [Fact]
+    public async Task Collect_budget_truncatesAndMarks()
+    {
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "big.txt", new string('x', 200) + "\n");
+        var changes = new[] { new CodeChange("big.txt", "@@ -1,0 +1,1 @@\n+" + new string('x', 200)) };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions { MaxChars = 50 });
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        var env = Assert.Single(ctx.Environments);
+        Assert.Contains("[truncated by budget]", env.Content);
+        Assert.True(env.Content.Length <= 50, $"content length {env.Content.Length} exceeds budget 50");
+        Assert.Null(ctx.Overview);                          // Budget nach Umgebung erschöpft
+    }
 }
