@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
 using Naudit.Core.Review;
@@ -17,6 +18,16 @@ builder.Services.AddSingleton<IReviewQueue, ReviewQueue>();
 builder.Services.AddHostedService<ReviewBackgroundService>();
 
 var app = builder.Build();
+
+// UI-Persistenz: Migration + Seed-Admin beim Start (nur bei aktiviertem UI).
+var uiOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Ui.UiOptions>();
+if (uiOptions.Enabled)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
+    db.Database.Migrate();
+    await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
+}
 
 app.MapGet("/health", () => Results.Ok("healthy"));
 
@@ -45,6 +56,15 @@ if (platform == GitPlatformKind.GitHub)
         if (request is null)
             return Results.Ok(); // kein pull_request-Event oder keine reviewbare Aktion
 
+        // Zugangsschranke: Projekte ohne freigeschalteten Account werden still verworfen
+        // (200 nach außen, damit GitHub den Hook nicht deaktiviert; Details nur im Log).
+        var gate = context.RequestServices.GetRequiredService<Naudit.Core.Abstractions.IAccessGate>();
+        if (!await gate.IsAllowedAsync(request.ProjectId, context.RequestAborted))
+        {
+            app.Logger.LogInformation("Webhook für nicht freigeschaltetes Projekt {ProjectId} verworfen.", request.ProjectId);
+            return Results.Ok();
+        }
+
         await queue.EnqueueAsync(request);
         return Results.Ok();
     });
@@ -65,6 +85,14 @@ else // GitPlatformKind.GitLab
         var request = GitLabWebhook.ToReviewRequest(payload);
         if (request is null)
             return Results.Ok(); // kein MR-Event oder keine reviewbare Aktion
+
+        // Zugangsschranke wie beim GitHub-Hook: still verwerfen, Details nur im Log.
+        var gate = context.RequestServices.GetRequiredService<Naudit.Core.Abstractions.IAccessGate>();
+        if (!await gate.IsAllowedAsync(request.ProjectId, context.RequestAborted))
+        {
+            app.Logger.LogInformation("Webhook für nicht freigeschaltetes Projekt {ProjectId} verworfen.", request.ProjectId);
+            return Results.Ok();
+        }
 
         await queue.EnqueueAsync(request);
         return Results.Ok();
@@ -88,6 +116,11 @@ app.MapPost("/review", async (
     var token = context.Request.Headers["X-Naudit-Token"].ToString();
     if (!IsValidNauditToken(secret, token))
         return Results.Unauthorized();
+
+    // Gate auch hier: der CI-Aufrufer ist der Operator selbst ⇒ ehrliches 403 statt Silent-Drop.
+    var gate = context.RequestServices.GetRequiredService<Naudit.Core.Abstractions.IAccessGate>();
+    if (!await gate.IsAllowedAsync(body.ProjectId, ct))
+        return Results.Json(new { error = "project not authorized" }, statusCode: StatusCodes.Status403Forbidden);
 
     // ReviewService erst nach bestandener Auth auflösen (Scope-Service, inline statt Queue).
     var reviewService = context.RequestServices.GetRequiredService<ReviewService>();
