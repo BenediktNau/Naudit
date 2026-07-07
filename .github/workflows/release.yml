@@ -90,8 +90,8 @@ jobs:
           # und ist versions- + sha256-gepinnt. Nur dieses eine Binary vom Scan ausnehmen -- alle
           # anderen Tools sowie OS/.NET/App (die eigentliche Angriffsflaeche) bleiben voll gescannt.
           skip-files: usr/local/bin/osv-scanner
-          # VEX-Ausnahmen: nur die nicht-ausnutzbaren containerd-CVEs im mitgelieferten
-          # trivy-Binary (Naudit nutzt nur `trivy fs`, keine Runtime). Siehe .trivyignore.
+          # VEX-Ausnahmen: nur die nicht-ausnutzbare oras-go-Blob-Upload-CVE im mitgelieferten
+          # trivy-Binary (Naudit nutzt nur `trivy fs` und ZIEHT nur die Vuln-DB, pusht nie). Siehe .trivyignore.
           trivyignores: .trivyignore
 
       # Erst nach bestandenem Scan pushen (Images wurden oben bereits gebaut/geladen).
