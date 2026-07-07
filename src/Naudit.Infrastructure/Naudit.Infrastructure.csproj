@@ -8,7 +8,17 @@
     <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="10.0.9" />
+    <!-- Transitive-Bump: EF Sqlite 10.0.9 zieht SQLitePCLRaw.lib.e_sqlite3 2.1.11
+         (GHSA-2m69-gcr7-jv3q, HIGH — verwundbare native SQLite-Lib); die 2.1.x-Linie hat
+         keinen Patch, Fix erst in der 3.x-Linie. Nur das lib-Paket pinnen (trägt die native
+         .so, C-API stabil) — sonst failt das Trivy-/Audit-Gate. -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.9" />
     <PackageReference Include="OllamaSharp" Version="5.4.25" />

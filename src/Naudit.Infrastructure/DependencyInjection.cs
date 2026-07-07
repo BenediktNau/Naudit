@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +8,7 @@ using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Context;
+using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
@@ -146,9 +148,25 @@ public static class DependencyInjection
             ? new PatternRedactor(redactionOptions)
             : new NullPromptRedactor());
 
-        // WebUI-Seams: vorerst immer No-Op — Task "UiOptions + EF" registriert die echten Implementierungen konditional.
-        services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
-        services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());
+        // WebUI (Naudit:Ui): Gate + Audit-Sink + DbContext nur bei Enabled — sonst No-Ops
+        // (= exakt heutiges Verhalten, keine DB-Datei nötig). UiOptions immer registrieren,
+        // damit Program.cs/Endpoints sie lesen können.
+        var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
+        services.AddSingleton(uiOptions);
+        if (uiOptions.Enabled)
+        {
+            services.AddDbContext<NauditDbContext>(o => o.UseSqlite(uiOptions.Db));
+            // Task 3: services.AddScoped<IAccessGate, EfAccessGate>();
+            // Task 3: services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
+            // Task 3: services.AddScoped<AccountService>();
+            services.AddSingleton<IAccessGate>(new AllowAllAccessGate());        // Task 3 ersetzt
+            services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());  // Task 3 ersetzt
+        }
+        else
+        {
+            services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
+            services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());
+        }
 
         services.AddScoped<ReviewService>();
         return services;
