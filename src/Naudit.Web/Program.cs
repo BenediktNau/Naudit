@@ -226,6 +226,7 @@ app.MapPost("/review", async (
 if (uiConfig.Enabled)
 {
     app.MapAuthEndpoints(uiConfig);
+    app.MapAdminEndpoints();
 }
 
 // Konstant-zeitlicher Vergleich; leeres Secret oder leerer Token ⇒ false (fail-closed).
