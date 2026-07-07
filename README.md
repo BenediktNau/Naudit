@@ -28,6 +28,7 @@ GitLab or GitHub.
 - **Bot identity & real reviews (optional)** — run as a **GitHub App** (`Naudit[bot]`: one-click install, one central webhook, short-lived installation tokens instead of a user PAT) and submit a **real review verdict** (`APPROVE` / `REQUEST_CHANGES`) derived from the review gate, instead of a plain comment. Opt-in and off by default; see [GitHub App setup](docs/github-app.md).
 - **Asynchronous processing** — the webhook returns `200` immediately and the review runs in the background (no webhook timeout).
 - **CI/CD integration** — an additional synchronous `POST /review` that returns a merge-gate verdict (see [CI integration](docs/ci-integration.md)).
+- **WebUI (optional)** — access gate for public App installs (reviews only run for approved accounts) plus a dashboard: token usage, auto-registered projects, reviewed PRs with findings. Off by default; see [WebUI](docs/webui.md).
 
 ## Installation & Deployment (Docker)
 

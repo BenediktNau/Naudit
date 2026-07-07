@@ -15,6 +15,14 @@ RUN dotnet restore src/Naudit.Web/Naudit.Web.csproj
 COPY src/ src/
 RUN dotnet publish src/Naudit.Web/Naudit.Web.csproj -c Release -o /app/publish --no-restore
 
+# --- Frontend-Build: SPA (Vite/React) fuer wwwroot ---
+FROM node:26-alpine@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9 AS frontend-build
+WORKDIR /frontend
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN npm ci
+COPY src/frontend/ ./
+RUN npm run build
+
 # --- Betterleaks aus Quelle bauen ---
 # Das offizielle betterleaks-1.6.1-Release-Binary ist mit Go 1.25.10 gebaut und traegt zwei
 # Go-stdlib-DoS-CVEs (CVE-2026-27145 crypto/x509, CVE-2026-42504 net/textproto), fixed erst in
@@ -72,6 +80,9 @@ COPY --from=betterleaks-build /go/bin/betterleaks /usr/local/bin/betterleaks
 COPY sast/rules /opt/naudit-rules
 
 COPY --from=build /app/publish .
+
+# WebUI-SPA: nur aktiv, wenn Naudit:Ui:Enabled=true (sonst wird wwwroot nie serviert).
+COPY --from=frontend-build /frontend/dist ./wwwroot
 
 # Vom Base-Image bereitgestellter non-root-User.
 USER $APP_UID

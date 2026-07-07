@@ -55,6 +55,12 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
+| `Naudit:Ui:Enabled` | WebUI + access gate + persistence — **default `false`** = exactly today's behaviour (see [WebUI](webui.md)) |
+| `Naudit:Ui:Db` | SQLite connection string (default `Data Source=/data/naudit.db` — mount a volume!) |
+| `Naudit:Ui:Admin:Username` / `:InitialPassword` | Seed admin, created once on first start with an empty DB (secret!) |
+| `Naudit:Ui:Admins` | Usernames that get the admin role on (external) sign-in |
+| `Naudit:Ui:Auth:GitHub:Enabled` / `:ClientId` / `:ClientSecret` | GitHub-OAuth self-service sign-in (opt-in; secret!) |
+| `Naudit:Ui:Auth:Oidc:Enabled` / `:Authority` / `:ClientId` / `:ClientSecret` | OIDC/Keycloak self-service sign-in (opt-in; secret!) |
 
 > With `Naudit:GitHub:Auth = App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are
 > **ignored** — every request uses a freshly minted GitHub App installation token instead. See
