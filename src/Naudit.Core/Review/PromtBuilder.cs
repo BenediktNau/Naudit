@@ -112,9 +112,7 @@ public static class PromptBuilder
                 sb.AppendLine();
                 var label = e.IsFullFile ? "full file" : $"from line {e.StartLine}";
                 sb.AppendLine($"### {e.FilePath} ({label})");
-                sb.AppendLine("```");
-                sb.AppendLine(e.Content);
-                sb.AppendLine("```");
+                AppendFenced(sb, e.Content);
             }
         }
 
@@ -126,9 +124,7 @@ public static class PromptBuilder
             {
                 sb.AppendLine();
                 sb.AppendLine($"### `{u.Symbol}` — {u.FilePath}:{u.Line}");
-                sb.AppendLine("```");
-                sb.AppendLine(u.Snippet);
-                sb.AppendLine("```");
+                AppendFenced(sb, u.Snippet);
             }
         }
 
@@ -138,6 +134,23 @@ public static class PromptBuilder
             sb.AppendLine("## Repository overview");
             sb.AppendLine(context.Overview);
         }
+    }
+
+    // Umschließt Inhalt in einem Codeblock, dessen Fence LÄNGER ist als der längste Backtick-Lauf
+    // im Inhalt (CommonMark). Sonst würde Datei-/Snippet-Inhalt mit ``` den Block vorzeitig schließen
+    // und der Rest liefe unstrukturiert in den Prompt.
+    private static void AppendFenced(StringBuilder sb, string content)
+    {
+        int longest = 0, run = 0;
+        foreach (var ch in content)
+        {
+            if (ch == '`') { run++; if (run > longest) longest = run; }
+            else run = 0;
+        }
+        var fence = new string('`', Math.Max(3, longest + 1));
+        sb.AppendLine(fence);
+        sb.AppendLine(content);
+        sb.AppendLine(fence);
     }
 
     // Grounding-Sektion: alle Funde repo-weit, annotiert [in diff]/[pre-existing], gruppiert nach Category.

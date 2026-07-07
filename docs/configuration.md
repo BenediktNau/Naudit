@@ -41,7 +41,11 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Review:Context:Enabled` | Enrich the prompt with surrounding code / usages / repo overview from the checkout — **default `true`** (see [Review context](review-context.md)) |
 | `Naudit:Review:Context:MaxChars` | Character budget for the context section (default `40000`) |
 | `Naudit:Review:Context:FullFileMaxLines` | Changed file ≤ this ⇒ whole file in context; larger ⇒ block excerpts (default `400`) |
+| `Naudit:Review:Context:BlockPadLines` | ± fallback window around a hunk anchor when the block heuristic is too tight (default `30`) |
+| `Naudit:Review:Context:UsageSnippetLines` | ± lines around each call-site (default `3`) |
 | `Naudit:Review:Context:MaxUsagesPerSymbol` | Max call-sites shown per changed symbol (default `5`) |
+| `Naudit:Review:Context:MaxTreeDepth` | Directory-tree depth in the overview (default `3`) |
+| `Naudit:Review:Context:ReadmeMaxLines` | README head length in the overview (default `50`) |
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |

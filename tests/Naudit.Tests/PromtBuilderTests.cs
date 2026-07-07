@@ -168,6 +168,24 @@ public class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_contextContentWithBackticks_usesLongerFence()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        // Umgebung enthält selbst einen ```-Codeblock (z. B. eine geänderte Markdown-Datei).
+        var context = new ReviewContext(
+            new[] { new FileEnvironment("README.md", 1, "text\n```\ncode\n```\nmore", IsFullFile: true) },
+            Array.Empty<SymbolUsage>(), null);
+
+        var text = PromptBuilder.Build("SYS", request, changes, null, context)[1].Text!;
+
+        // Umschließender Fence muss länger sein als der längste ```-Lauf im Inhalt.
+        Assert.Contains("````", text);
+        // Inhalt bleibt vollständig (nichts läuft aus dem Block).
+        Assert.Contains("more", text);
+    }
+
+    [Fact]
     public void Build_withoutContext_rendersNoContextSection()
     {
         var request = new ReviewRequest("1", 42, "T");

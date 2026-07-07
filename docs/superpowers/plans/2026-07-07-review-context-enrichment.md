@@ -1556,13 +1556,13 @@ In `docs/configuration.md`, in the `## Keys` table, after the `Naudit:Review:Gat
 
 In `CLAUDE.md`, in the `### Request flow` paragraph, change the collection step. Find:
 
-```
+```text
 which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding) →
 ```
 
 and replace with:
 
-```
+```text
 which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding **and** repo-context enrichment, one shared checkout) →
 ```
 
@@ -1606,4 +1606,3 @@ git commit -m "docs(context): review-context.md + Config-Keys + CLAUDE.md-Naht"
 - **Core rule:** the only new Core types are the interface, the `ReviewContext` records,
   and the options — all MEAI-free. The implementation and all `System.IO`/regex live in
   Infrastructure.
-```

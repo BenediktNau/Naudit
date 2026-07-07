@@ -101,6 +101,26 @@ public class WorkspaceContextCollectorTests
     }
 
     [Fact]
+    public async Task Collect_pathTraversal_viaSiblingPrefixDir_isRejected()
+    {
+        // root = /tmp/naudit-ctx-XXXX; Geschwister-Verzeichnis mit gleichem Präfix + Extra-Zeichen.
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        var sibling = root + "-evil";
+        Directory.CreateDirectory(sibling);
+        File.WriteAllText(Path.Combine(sibling, "secret.cs"), "TOP SECRET class Leak { }");
+        // Angreiferkontrollierter Diff-Pfad, der per Präfix-Match aus dem Checkout ausbrechen will.
+        var escape = "../" + Path.GetFileName(sibling) + "/secret.cs";
+        var changes = new[] { new CodeChange(escape, "@@ -1,0 +1,1 @@\n+class Leak { }") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.Empty(ctx.Environments);                 // Datei außerhalb des Checkouts nie gelesen
+        Assert.DoesNotContain(ctx.Environments, e => e.Content.Contains("SECRET"));
+    }
+
+    [Fact]
     public async Task Collect_findsCallSites_ofNewlyDeclaredSymbol_excludingDeclaringFile()
     {
         var root = NewTempDir();

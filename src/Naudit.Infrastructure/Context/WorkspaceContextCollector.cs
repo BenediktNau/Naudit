@@ -177,31 +177,32 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
             if (abs is not null) declaringFiles.Add(abs);
         }
 
-        var files = EnumerateSourceFiles(root).ToList();     // deterministisch sortiert
+        // EIN Durchgang über alle Dateien; pro Zeile alle Symbole prüfen (statt O(Symbole × Dateien)
+        // wiederholter Datei-Reads). Sortierte Symbole ⇒ deterministische Ausgabe.
+        var regexBySymbol = symbols.ToDictionary(s => s, s => R($@"\b{Regex.Escape(s)}\b"), StringComparer.Ordinal);
+        var found = symbols.ToDictionary(s => s, _ => 0, StringComparer.Ordinal);
         var usages = new List<SymbolUsage>();
 
-        foreach (var symbol in symbols)
+        foreach (var abs in EnumerateSourceFiles(root))
         {
-            var rx = R($@"\b{Regex.Escape(symbol)}\b");
-            int found = 0;
-            foreach (var abs in files)
+            if (found.Values.All(c => c >= options.MaxUsagesPerSymbol)) break;   // alle Symbole voll
+            if (declaringFiles.Contains(abs)) continue;                          // Deklarationsdatei überspringen
+
+            string[] lines;
+            try { lines = File.ReadAllLines(abs); }
+            catch { continue; }
+
+            var rel = Path.GetRelativePath(root, abs).Replace('\\', '/');
+            for (int i = 0; i < lines.Length; i++)
             {
-                if (found >= options.MaxUsagesPerSymbol) break;
-                if (declaringFiles.Contains(abs)) continue;   // Deklarationsdatei überspringen
-
-                string[] lines;
-                try { lines = File.ReadAllLines(abs); }
-                catch { continue; }
-
-                for (int i = 0; i < lines.Length && found < options.MaxUsagesPerSymbol; i++)
+                foreach (var symbol in symbols)
                 {
-                    if (!rx.IsMatch(lines[i])) continue;
+                    if (found[symbol] >= options.MaxUsagesPerSymbol) continue;
+                    if (!regexBySymbol[symbol].IsMatch(lines[i])) continue;
                     int lo = Math.Max(0, i - options.UsageSnippetLines);
                     int hi = Math.Min(lines.Length - 1, i + options.UsageSnippetLines);
-                    var snippet = string.Join('\n', lines[lo..(hi + 1)]);
-                    var rel = Path.GetRelativePath(root, abs).Replace('\\', '/');
-                    usages.Add(new SymbolUsage(symbol, rel, i + 1, snippet));
-                    found++;
+                    usages.Add(new SymbolUsage(symbol, rel, i + 1, string.Join('\n', lines[lo..(hi + 1)])));
+                    found[symbol]++;
                 }
             }
         }
@@ -210,6 +211,7 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
     }
 
     // Zieht Bezeichner aus hinzugefügten (+) Diff-Zeilen über den Deklarations-Regex-Katalog.
+    // Sortiert ⇒ stabile Reihenfolge in der Call-Site-Suche.
     private static IReadOnlyList<string> ExtractSymbols(IReadOnlyList<CodeChange> changes)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -231,7 +233,7 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
                 }
             }
         }
-        return names.ToList();
+        return names.OrderBy(n => n, StringComparer.Ordinal).ToList();
     }
 
     // Rekursiver, deterministisch sortierter Datei-Walk unter Auslassung von Vendor-/Build-Dirs
@@ -389,6 +391,14 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
     {
         var rootFull = Path.GetFullPath(root);
         var full = Path.GetFullPath(Path.Combine(rootFull, relPath));
-        return full.StartsWith(rootFull, StringComparison.Ordinal) ? full : null;
+        // Separator-Grenze erzwingen: sonst würde ein Geschwister-Verzeichnis mit gleichem Präfix
+        // (z. B. "…/ws" vs. "…/ws-evil") den Prefix-Check bestehen und aus dem Checkout ausbrechen.
+        var rootWithSep = rootFull.EndsWith(Path.DirectorySeparatorChar)
+            ? rootFull
+            : rootFull + Path.DirectorySeparatorChar;
+        return full.Equals(rootFull, StringComparison.Ordinal)
+               || full.StartsWith(rootWithSep, StringComparison.Ordinal)
+            ? full
+            : null;
     }
 }
