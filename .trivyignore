@@ -1,20 +1,22 @@
 # VEX-Ausnahmen für das Release-Image-Gate (release.yml).
 #
-# Diese CVEs stammen aus dem mitgelieferten `trivy`-Binary (gobinary), das
-# `github.com/containerd/containerd/v2 v2.3.1` bündelt. Es sind containerd-CRI/
-# Runtime-Schwachstellen (Image-LABEL-Command-Exec, checkpoint/restore, CDI).
+# CVE-2026-50151 — oras.land/oras-go/v2 v2.6.0 (gobinary), transitive (indirect)
+# Dependency des mitgelieferten `trivy`-Binaries (v0.72.0, aktuellstes Release).
+# Die Schwachstelle betrifft den BLOB-UPLOAD/Push: oras-go leitet beim Folgen eines
+# Registry-Redirects die Credentials an einen fremden Host weiter. Gefixt in oras-go 2.6.1.
 #
-# Nicht ausnutzbar in Naudit: Naudit ruft ausschliesslich `trivy fs`
-# (Dateisystem-Scan) auf und betreibt containerd NIE als Runtime — kein CRI,
-# kein checkpoint/restore, kein CDI. Der verwundbare Code liegt damit ausserhalb
-# des Ausführungspfades (VEX: vulnerable_code_not_in_execute_path).
+# Nicht ausnutzbar in Naudit: Naudit ruft ausschliesslich `trivy fs` (Dateisystem-Scan)
+# auf. Trivy nutzt oras-go nur, um seine Vuln-DB aus einer OCI-Registry zu ZIEHEN
+# (Pull/Download) — es lädt nie Blobs hoch (Push). Der verwundbare Upload-Pfad liegt
+# damit ausserhalb des Ausführungspfades (VEX: vulnerable_code_not_in_execute_path).
+# Die eigene .NET-App nutzt oras-go gar nicht.
 #
-# Patchen derzeit nicht möglich: v0.71.2 ist das neueste Trivy-Release und
-# bündelt weiterhin containerd v2.3.1. Diese Ausnahmen ENTFERNEN, sobald ein
-# Trivy-Release containerd >= 2.3.2 bündelt.
+# Patchen derzeit nicht möglich: v0.72.0 ist das neueste Trivy-Release und bündelt
+# weiterhin oras-go v2.6.0. Diese Ausnahme ENTFERNEN, sobald ein Trivy-Release oras-go
+# >= 2.6.1 bündelt.
 #
-# Quellen: AWS-Bulletin 2026-046; containerd 2.3.2 Security-Release. Siehe auch
-# docs/sast-grounding.md.
-CVE-2026-53488
-CVE-2026-53489
-CVE-2026-53492
+# Quelle: CVE-2026-50151 (oras-go). Siehe auch docs/sast-grounding.md.
+CVE-2026-50151
+
+# Hinweis: Die frueheren containerd-CRI-CVEs (CVE-2026-53488/53489/53492) sind entfallen —
+# trivy v0.72.0 buendelt containerd v2.3.2 (den Fix), das Gate meldet sie nicht mehr.
