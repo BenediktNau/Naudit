@@ -18,7 +18,27 @@ In real operation GitLab delivers the event itself:
    - **Trigger:** only **Merge request events**
 3. *Add webhook*, then *Test → Merge request events* (or open a real MR).
 
+> **Bot identity:** by default Naudit comments under whatever account owns `Naudit:GitLab:Token`.
+> For a dedicated bot identity (and to enable a real, blocking approval via `PostVerdict`) use a
+> **group or project access token** instead of a personal token — GitLab attaches these to an
+> automatic bot user rather than a real person, at no extra integration cost (Naudit already
+> applies tokens per request). Combine it with **one group-level webhook**
+> (**Group → Settings → Webhooks**) so every project in the group is covered without a per-project
+> webhook. See [GitHub App setup — GitLab analogue](github-app.md#gitlab-analogue) for details and
+> the tier caveat (group/project access tokens are partially Premium on GitLab.com).
+
 ## Set up GitHub (productive)
+
+**Recommended: GitHub App.** Running Naudit as a **GitHub App** (`Naudit[bot]`) is the recommended
+production path — one-click install, one central webhook, short-lived tokens, and it's the only
+path that supports a real blocking review verdict on the repo owner's own PRs (GitHub rejects
+`APPROVE`/`REQUEST_CHANGES` from a PAT owned by the PR author with 422). See
+[GitHub App setup](github-app.md) for the full walkthrough.
+
+The steps below set up the **PAT path** instead — simpler to start with, good for local
+development or as a fallback, but comments appear under the token owner's own account and it
+cannot post a real verdict on that owner's own PRs (Naudit then falls back to posting the review
+as a plain comment and logs a warning).
 
 ### 1. Switch the Git platform to GitHub
 

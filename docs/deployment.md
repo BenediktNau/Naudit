@@ -26,13 +26,21 @@ Naudit__Git__Platform=GitHub          # GitHub | GitLab
 
 # ── GitHub (when Platform=GitHub) ───────────────────────────────────
 # Naudit__GitHub__BaseUrl=https://api.github.com   # only needed for GitHub Enterprise
-Naudit__GitHub__Token=<fine-grained-PAT>           # 🔒 secret  (Pull requests: RW, Contents: R)
+Naudit__GitHub__Auth=Pat                           # Pat (default) | App — see docs/github-app.md
+Naudit__GitHub__Token=<fine-grained-PAT>           # 🔒 secret  (Pull requests: RW, Contents: R) — only for Auth=Pat
 Naudit__GitHub__WebhookSecret=<random-secret>      # 🔒 secret  (must match the repo webhook secret)
+Naudit__GitHub__PostVerdict=false                  # true = post a real APPROVE/REQUEST_CHANGES review state
+
+# ── GitHub App (recommended, instead of the Token above; requires Auth=App) ────
+# Naudit__GitHub__App__AppId=123456
+# Naudit__GitHub__App__PrivateKey=<base64-encoded-PEM>   # 🔒 secret
+# Naudit__GitHub__App__InstallationId=                   # optional: fixed installation id
 
 # ── GitLab (alternatively, when Platform=GitLab) ────────────────────
 # Naudit__GitLab__BaseUrl=https://gitlab.example.com
 # Naudit__GitLab__Token=<token-with-api-scope>     # 🔒 secret
 # Naudit__GitLab__WebhookSecret=<random-secret>    # 🔒 secret  (= X-Gitlab-Token)
+# Naudit__GitLab__PostVerdict=false                # true = call MR approve/unapprove from the verdict
 
 # ── AI provider ─────────────────────────────────────────────────────
 Naudit__Ai__Provider=Anthropic        # Ollama | Anthropic | OpenAICompatible

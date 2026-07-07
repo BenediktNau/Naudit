@@ -199,6 +199,22 @@ public class ReviewServiceTests
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
     }
 
+    [Theory]
+    [InlineData("""{"summary":"s","comments":[{"file":"a.cs","line":1,"comment":"bug","severity":"high","confidence":"high"}]}""", ReviewVerdict.RequestChanges)]
+    [InlineData("""{"summary":"s","comments":[]}""", ReviewVerdict.Approve)]
+    public async Task ReviewAsync_postsDerivedVerdict_toGitPlatform(string chatJson, ReviewVerdict expectedVerdict)
+    {
+        // FakeGitPlatform.PostedVerdict muss exakt das vom Gate abgeleitete Verdikt tragen —
+        // blockierendes Finding ⇒ RequestChanges, harmloses/kein Finding ⇒ Approve.
+        var chat = new FakeChatClient(chatJson);
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.Equal(expectedVerdict, git.PostedVerdict);
+    }
+
     [Fact]
     public async Task ReviewAsync_gateThreshold_isConfigurable()
     {

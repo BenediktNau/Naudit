@@ -18,6 +18,7 @@ GitLab or GitHub.
 - **Automatic MR/PR review** when a merge request (GitLab) or pull request (GitHub) is opened or updated.
 - **Provider-agnostic** via MEAI — Ollama (local, no API key), Anthropic, or any OpenAI-compatible endpoint, switchable by config.
 - **Platform-agnostic** — GitLab or GitHub, chosen via `Naudit:Git:Platform`, with no code change.
+- **Bot identity & real reviews (optional)** — run as a **GitHub App** (`Naudit[bot]`: one-click install, one central webhook, short-lived installation tokens instead of a user PAT) and submit a **real review verdict** (`APPROVE` / `REQUEST_CHANGES`) derived from the review gate, instead of a plain comment. Opt-in and off by default; see [GitHub App setup](docs/github-app.md).
 - **Asynchronous processing** — the webhook returns `200` immediately and the review runs in the background (no webhook timeout).
 - **CI/CD integration** — an additional synchronous `POST /review` that returns a merge-gate verdict (see [CI integration](docs/ci-integration.md)).
 
@@ -42,6 +43,36 @@ curl http://localhost:8080/health   # -> healthy
 For the full key reference (GitLab, all provider variants, system prompt) see
 [Configuration](docs/configuration.md); for connecting to GitLab/GitHub see
 [Platform setup](docs/platform-setup.md).
+
+### Bot identity & real reviews (GitHub App)
+
+The example above uses a **user PAT** (`Naudit__GitHub__Token`) — simple, but every comment
+appears as *that user*, and GitHub rejects an `APPROVE`/`REQUEST_CHANGES` verdict on the token
+owner's own PRs (HTTP 422; Naudit then falls back to a plain comment so the review isn't lost).
+To let Naudit act as its own bot **and** post a real, blocking review
+verdict, run it as a **GitHub App**: create the app once (permissions `pull_requests: write`,
+`contents: read`, `metadata: read`; subscribe to `pull_request`), then install it on a repo/org
+with one click. Swap the PAT vars for:
+
+```bash
+docker run -d -p 8080:8080 \
+  -e Naudit__Git__Platform=GitHub \
+  -e Naudit__GitHub__Auth=App \
+  -e Naudit__GitHub__App__AppId=<app-id> \
+  -e Naudit__GitHub__App__PrivateKey=<base64-encoded-PEM> \
+  -e Naudit__GitHub__WebhookSecret=<random-secret> \
+  -e Naudit__GitHub__PostVerdict=true \
+  -e Naudit__Ai__Provider=Anthropic \
+  -e Naudit__Ai__Model=claude-sonnet-4-6 \
+  -e Naudit__Ai__ApiKey=<anthropic-key> \
+  ghcr.io/benediktnau/naudit:latest
+```
+
+`Auth=App` (default `Pat`) selects App authentication; `PostVerdict=true` (default `false`) enables
+the real verdict — both are independent opt-ins, so the default behaviour is unchanged. The private
+key is accepted as raw PEM or base64-encoded PEM (base64 avoids newline issues in env vars). GitLab
+has no App concept; the equivalent is a group access token (bot user) plus `Naudit__GitLab__PostVerdict`.
+Full walkthrough (app creation, manifest flow, install, Coolify) in [GitHub App setup](docs/github-app.md).
 
 ### Release pipeline
 
@@ -90,6 +121,7 @@ dotnet run --project src/Naudit.Web --urls http://localhost:5080
 - [Configuration](docs/configuration.md) — all `Naudit:*` keys, secrets, choosing an AI provider
 - [Deployment](docs/deployment.md) — Coolify env template, auto-deploy, release pipeline & supply-chain hardening
 - [Platform setup](docs/platform-setup.md) — wiring up the GitLab/GitHub webhook + simulating a review locally
+- [GitHub App setup](docs/github-app.md) — bot identity (`Naudit[bot]`), one-click install, and real `APPROVE`/`REQUEST_CHANGES` reviews
 - [CI integration](docs/ci-integration.md) — synchronous `POST /review` as a merge gate
 - [Architecture & status](docs/architecture.md) — how it works, project layout, tests, roadmap, known limitations
 

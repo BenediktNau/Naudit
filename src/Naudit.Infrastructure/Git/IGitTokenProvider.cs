@@ -5,8 +5,9 @@ namespace Naudit.Infrastructure.Git;
 /// zweite Implementierung derselben Naht.</summary>
 public interface IGitTokenProvider
 {
-    /// <summary>Per-Projekt-Override, sonst der globale Default-Token.</summary>
-    string ResolveToken(string projectId);
+    /// <summary>Per-Projekt-Override, sonst der globale Default-Token. Async, weil Implementierungen
+    /// Tokens zur Laufzeit minten können (GitHub-App-Installation-Tokens = HTTP-I/O).</summary>
+    ValueTask<string> ResolveTokenAsync(string projectId, CancellationToken ct = default);
 }
 
 /// <summary>Ein Per-Projekt-Token-Eintrag. Bewusst eine Liste (statt Dictionary), damit der Projekt-Key
@@ -39,6 +40,6 @@ public sealed class ConfiguredGitTokenProvider : IGitTokenProvider
         _projectTokens = map;
     }
 
-    public string ResolveToken(string projectId)
-        => _projectTokens.TryGetValue(projectId, out var t) ? t : _defaultToken;
+    public ValueTask<string> ResolveTokenAsync(string projectId, CancellationToken ct = default)
+        => ValueTask.FromResult(_projectTokens.TryGetValue(projectId, out var t) ? t : _defaultToken);
 }

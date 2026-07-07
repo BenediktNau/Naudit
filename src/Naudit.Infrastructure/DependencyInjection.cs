@@ -39,15 +39,29 @@ public static class DependencyInjection
                 services.Configure<GitHubOptions>(configuration.GetSection("Naudit:GitHub"));
                 // Per-Projekt-Token-Auflösung (Override je Projekt, sonst globaler Token), aus der aktiven Section geseedet.
                 var gitHubOptions = configuration.GetSection("Naudit:GitHub").Get<GitHubOptions>() ?? new GitHubOptions();
-                services.AddSingleton<IGitTokenProvider>(new ConfiguredGitTokenProvider(gitHubOptions.Token, gitHubOptions.ProjectTokens));
+                if (gitHubOptions.Auth == GitHubAuthKind.App)
+                {
+                    // Fail-fast beim Start statt kryptischem Fehler beim ersten Review.
+                    if (string.IsNullOrWhiteSpace(gitHubOptions.App.AppId) || string.IsNullOrWhiteSpace(gitHubOptions.App.PrivateKey))
+                        throw new InvalidOperationException("Naudit:GitHub:Auth=App verlangt Naudit:GitHub:App:AppId und Naudit:GitHub:App:PrivateKey.");
+
+                    // Eigener named Client fürs Token-Minting (JWT-Auth pro Request; gleiche Basis-Header wie die API).
+                    // Bewusst Singleton-Provider mit einmal erzeugtem Client: Minting ist selten (~1×/h), Ziel-Host fix.
+                    services.AddHttpClient("github-app", http => ConfigureGitHubClient(http, gitHubOptions.BaseUrl));
+                    services.AddSingleton<IGitTokenProvider>(sp => new GitHubAppTokenProvider(
+                        sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
+                        gitHubOptions.App,
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>()));
+                }
+                else
+                {
+                    services.AddSingleton<IGitTokenProvider>(new ConfiguredGitTokenProvider(gitHubOptions.Token, gitHubOptions.ProjectTokens));
+                }
                 services.AddHttpClient<IGitPlatform, GitHubPlatform>((sp, http) =>
                 {
                     var opt = sp.GetRequiredService<IOptions<GitHubOptions>>().Value;
-                    http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                     // Auth wird pro Request in GitHubPlatform gesetzt (Per-Projekt-Token), nicht als Default-Header.
-                    http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
-                    http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-                    http.DefaultRequestHeaders.UserAgent.ParseAdd("Naudit"); // GitHub verlangt einen User-Agent
+                    ConfigureGitHubClient(http, opt.BaseUrl);
                 });
                 break;
 
@@ -129,5 +143,15 @@ public static class DependencyInjection
 
         services.AddScoped<ReviewService>();
         return services;
+    }
+
+    /// <summary>Gemeinsame GitHub-Client-Basis (API-Client und App-Token-Minting): BaseAddress +
+    /// Pflicht-Header an genau einer Stelle, damit z. B. ein API-Versions-Bump nicht auseinanderläuft.</summary>
+    private static void ConfigureGitHubClient(HttpClient http, string baseUrl)
+    {
+        http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+        http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+        http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Naudit"); // GitHub verlangt einen User-Agent
     }
 }

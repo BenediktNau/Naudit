@@ -31,6 +31,12 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:GitHub:Token` | Fine-grained PAT (see [Platform setup](platform-setup.md)) — global fallback |
 | `Naudit:GitHub:WebhookSecret` | Secret for HMAC-SHA256 verification (`X-Hub-Signature-256`) |
 | `Naudit:GitHub:ProjectTokens:<n>:Project` / `:Token` | Optional per-project fine-grained PAT (`Project` = `owner/repo`); falls back to `Naudit:GitHub:Token` (see [Per-project tokens](#per-project-tokens)) |
+| `Naudit:GitHub:Auth` | `Pat` (default) or `App` — how Naudit authenticates against GitHub |
+| `Naudit:GitHub:App:AppId` | GitHub App ID (required for `Auth=App`) |
+| `Naudit:GitHub:App:PrivateKey` | App private key: raw PEM or base64-encoded PEM (required for `Auth=App`; secret!) |
+| `Naudit:GitHub:App:InstallationId` | Optional: fixed installation id (skips the per-repo lookup) |
+| `Naudit:GitHub:PostVerdict` | `true` posts a real review state (`APPROVE`/`REQUEST_CHANGES`); default `false` = `COMMENT` |
+| `Naudit:GitLab:PostVerdict` | `true` calls MR `approve`/`unapprove` from the verdict; default `false` |
 | `Naudit:Ai:Provider` | `Ollama` \| `Anthropic` \| `OpenAICompatible` \| `ClaudeCode` |
 | `Naudit:Ai:Model` | Model name for the chosen provider |
 | `Naudit:Ai:Endpoint` | Ollama URL or base URL of an OpenAI-compatible service |
@@ -41,6 +47,10 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
+
+> With `Naudit:GitHub:Auth = App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are
+> **ignored** — every request uses a freshly minted GitHub App installation token instead. See
+> [GitHub App setup](github-app.md) for creating the app, its permissions, and the install step.
 
 ## Choosing an AI provider
 

@@ -70,9 +70,13 @@ Three projects with a strict, deliberate dependency direction:
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
 findings' severity/confidence (the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
-The git-API token is resolved **per request** from the review's `ProjectId` via `IGitTokenProvider`
-(per-project override, else the global token) — set on each `HttpRequestMessage`, not as a static default
-header; see `docs/configuration.md#per-project-tokens`.
+`PostReviewAsync` now carries that derived `ReviewVerdict` as a parameter (the only Core type crossing
+the seam); actually **posting** it as a real, blocking review state is opt-in via `Naudit:GitHub:PostVerdict`
+/ `Naudit:GitLab:PostVerdict` (default `false` = today's behaviour: GitHub `event="COMMENT"`, GitLab posts
+no approve/unapprove call). The git-API token is resolved **per request** from the review's `ProjectId` via
+`IGitTokenProvider` (async — `ResolveTokenAsync`, since minting can be I/O) (per-project override, else the
+global token) — set on each `HttpRequestMessage`, not as a static default header; see
+`docs/configuration.md#per-project-tokens`.
 
 ### Extension points (do not break the Core rule)
 
@@ -81,11 +85,11 @@ header; see `docs/configuration.md#per-project-tokens`.
   `Endpoint` — no dedicated adapter. Selection is config-only via `Naudit:Ai:Provider`.
 - **GitHub platform (implemented):** `src/Naudit.Infrastructure/Git/GitHub/` contains
   `GitHubPlatform` (`IGitPlatform` impl), `GitHubWebhook` (payload mapping + action filter),
-  `GitHubDtos` (JSON DTOs), and `GitHubOptions` (`BaseUrl`, `Token`, `WebhookSecret`, `ProjectTokens`).
-  Selection is config-only via `Naudit:Git:Platform` (`GitLab` | `GitHub`; default `GitLab`) —
-  one platform is active per deployment; only its webhook endpoint is mapped. The GitHub endpoint
-  (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over the raw
-  body (fail-closed). No change to Core.
+  `GitHubDtos` (JSON DTOs), and `GitHubOptions` (`BaseUrl`, `Token`, `WebhookSecret`, `ProjectTokens`,
+  `Auth`, `App`, `PostVerdict`). Selection is config-only via `Naudit:Git:Platform` (`GitLab` | `GitHub`;
+  default `GitLab`) — one platform is active per deployment; only its webhook endpoint is mapped. The
+  GitHub endpoint (`/webhook/github`) verifies the `X-Hub-Signature-256` HMAC-SHA256 signature over
+  the raw body (fail-closed). No change to Core.
 - **New SAST/SCA analyzer:** implement `ISastAnalyzer` in
   `src/Naudit.Infrastructure/Sast/`, map the tool's output to `ScanFinding`, and
   add a `case` in the analyzer-selection `switch` in `DependencyInjection.cs`.
@@ -102,12 +106,21 @@ header; see `docs/configuration.md#per-project-tokens`.
   swaps in `NullPromptRedactor` (no-op). Seam for a future Presidio/LLM redactor. See
   `docs/redaction.md`.
 - **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
-  git-API token from the review's `ProjectId` (per-project override → global fallback). The default
-  `ConfiguredGitTokenProvider` reads a `ProjectTokens` list (a list, not a map, so `owner/repo` stays
-  in the *value* and is env-var-settable) from the active platform's config section; the platform
-  clients apply it **per request** (GitHub `Authorization: Bearer`, GitLab `PRIVATE-TOKEN`). Seam for
-  a future secret-store provider (Vault/Key Vault/DB) — just a second impl + registration. No change to
-  Core (tokens are an Infrastructure concern). See `docs/configuration.md#per-project-tokens`.
+  git-API token from the review's `ProjectId` (per-project override → global fallback) via
+  `ResolveTokenAsync` (async — implementations may mint tokens over HTTP, not just look them up).
+  The default `ConfiguredGitTokenProvider` reads a `ProjectTokens` list (a list, not a map, so
+  `owner/repo` stays in the *value* and is env-var-settable) from the active platform's config
+  section; the platform clients apply it **per request** (GitHub `Authorization: Bearer`, GitLab
+  `PRIVATE-TOKEN`). No change to Core (tokens are an Infrastructure concern). See
+  `docs/configuration.md#per-project-tokens`.
+- **GitHub App auth (second `IGitTokenProvider` impl):** `GitHubAppTokenProvider`
+  (`src/Naudit.Infrastructure/Git/GitHub/GitHubAppTokenProvider.cs`) mints short-lived GitHub App
+  installation tokens (App-JWT RS256 → `GET .../installation` lookup → `POST .../access_tokens`),
+  cached until ~5 min before expiry. Selected config-only via `Naudit:GitHub:Auth = Pat | App`
+  (default `Pat` = `ConfiguredGitTokenProvider`, today's behaviour) in the `AddNauditInfrastructure`
+  GitHub branch, which fails fast at startup if `Auth=App` is set without `App:AppId`/`App:PrivateKey`.
+  Same seam as the per-project provider above — a further secret-store-backed `IGitTokenProvider`
+  (Vault/Key Vault/DB) is just another impl + registration. See `docs/github-app.md`.
 
 ### CI/CD & container
 
