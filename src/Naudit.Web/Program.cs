@@ -227,6 +227,7 @@ if (uiConfig.Enabled)
 {
     app.MapAuthEndpoints(uiConfig);
     app.MapAdminEndpoints();
+    app.MapDataEndpoints();
 }
 
 // Konstant-zeitlicher Vergleich; leeres Secret oder leerer Token ⇒ false (fail-closed).

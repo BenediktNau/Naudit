@@ -1,0 +1,121 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc.Testing.Handlers;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Naudit.Infrastructure.Data;
+using Xunit;
+
+namespace Naudit.Tests;
+
+public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private readonly WebApplicationFactory<Program> _factory;
+    public DataEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+
+    private async Task<(HttpClient Client, WebApplicationFactory<Program> Factory)> AdminApp()
+    {
+        var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-data-{Guid.NewGuid():N}.db")}";
+        var factory = _factory.WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Naudit:Git:Platform", "GitHub");
+            b.UseSetting("Naudit:GitHub:WebhookSecret", "s");
+            b.UseSetting("Naudit:Ai:Provider", "Ollama");
+            b.UseSetting("Naudit:Ai:Model", "llama3.1");
+            b.UseSetting("Naudit:Ui:Enabled", "true");
+            b.UseSetting("Naudit:Ui:Db", db);
+            b.UseSetting("Naudit:Ui:Admin:Username", "root");
+            b.UseSetting("Naudit:Ui:Admin:InitialPassword", "passwort123");
+        });
+        var client = factory.CreateDefaultClient(new CookieContainerHandler());
+        await client.PostAsJsonAsync("/auth/login", new { username = "root", password = "passwort123" });
+        return (client, factory);
+    }
+
+    /// <summary>Projekt + 1 Review direkt in die DB legen (schneller als über den Sink).</summary>
+    private static async Task<int> SeedReview(WebApplicationFactory<Program> factory, string project, long tokens)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+        var p = await db.Projects.SingleOrDefaultAsync(x => x.PlatformProjectId == project)
+            ?? db.Projects.Add(new ProjectEntity { PlatformProjectId = project, FirstReviewedAt = DateTime.UtcNow, LastReviewedAt = DateTime.UtcNow }).Entity;
+        var r = new ReviewEntity
+        {
+            Project = p, PrNumber = 1, Title = "T", Verdict = "approve", Summary = "S",
+            InputTokens = tokens, OutputTokens = 0, Model = "m", CreatedAt = DateTime.UtcNow,
+            Findings = { new ReviewFindingEntity { Severity = "High", Confidence = "High", File = "a.cs", Line = 1, Text = "f" } },
+        };
+        db.Reviews.Add(r);
+        await db.SaveChangesAsync();
+        return r.Id;
+    }
+
+    [Fact]
+    public async Task Dashboard_aggregatesTokensAndProjects()
+    {
+        var (client, factory) = await AdminApp();
+        await SeedReview(factory, "owner/repo-a", 1000);
+        await SeedReview(factory, "owner/repo-b", 500);
+
+        var dash = await client.GetFromJsonAsync<JsonElement>("/api/dashboard");
+
+        Assert.Equal(1500, dash.GetProperty("tokensMonth").GetInt64());
+        Assert.Equal(2, dash.GetProperty("reviewsTotal").GetInt32());
+        Assert.Equal(2, dash.GetProperty("projectsTotal").GetInt32());
+        Assert.Equal(30, dash.GetProperty("tokensPerDay").GetArrayLength());
+        Assert.Equal(2, dash.GetProperty("projects").GetArrayLength());
+        Assert.Equal(2, dash.GetProperty("recentReviews").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ReviewDetail_returnsFindings_and404ForUnknown()
+    {
+        var (client, factory) = await AdminApp();
+        var id = await SeedReview(factory, "owner/repo", 100);
+
+        var detail = await client.GetFromJsonAsync<JsonElement>($"/api/reviews/{id}");
+        Assert.Equal("owner/repo", detail.GetProperty("project").GetString());
+        Assert.Equal(1, detail.GetProperty("findings").GetArrayLength());
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/reviews/9999")).StatusCode);
+    }
+
+    [Fact]
+    public async Task MeUsage_returnsSixMonths()
+    {
+        var (client, factory) = await AdminApp();
+        await SeedReview(factory, "owner/repo", 2000);
+        var usage = await client.GetFromJsonAsync<JsonElement>("/api/me/usage");
+        Assert.Equal(6, usage.GetProperty("monthly").GetArrayLength());
+        Assert.Equal(1, usage.GetProperty("reviewsTotal").GetInt32());
+    }
+
+    [Fact]
+    public async Task Settings_readOnly_masked_adminOnly()
+    {
+        var (client, _) = await AdminApp();
+        var settings = await client.GetFromJsonAsync<JsonElement>("/api/settings");
+
+        Assert.Equal("Ollama", settings.GetProperty("ai").GetProperty("provider").GetString());
+        Assert.Equal("GitHub", settings.GetProperty("git").GetProperty("platform").GetString());
+        Assert.Equal("built-in default", settings.GetProperty("systemPrompt").GetString());
+        // Kein Secret irgendwo im Payload:
+        Assert.DoesNotContain("ApiKey", settings.GetRawText(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task DataEndpoints_require401ForAnonymous()
+    {
+        var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-data-{Guid.NewGuid():N}.db")}";
+        var client = _factory.WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Naudit:Git:Platform", "GitLab");
+            b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
+            b.UseSetting("Naudit:Ui:Enabled", "true");
+            b.UseSetting("Naudit:Ui:Db", db);
+        }).CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/dashboard")).StatusCode);
+    }
+}

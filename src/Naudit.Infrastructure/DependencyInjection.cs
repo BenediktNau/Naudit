@@ -26,6 +26,7 @@ public static class DependencyInjection
         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
+        services.AddSingleton(aiOptions); // für die read-only Settings-Anzeige im WebUI
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
