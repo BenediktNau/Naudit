@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,12 +9,14 @@ using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Context;
+using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
 using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
+using Naudit.Infrastructure.Ui;
 
 namespace Naudit.Infrastructure;
 
@@ -23,6 +27,7 @@ public static class DependencyInjection
         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
+        services.AddSingleton(aiOptions); // für die read-only Settings-Anzeige im WebUI
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
@@ -144,6 +149,41 @@ public static class DependencyInjection
         services.AddSingleton<IPromptRedactor>(redactionOptions.Enabled
             ? new PatternRedactor(redactionOptions)
             : new NullPromptRedactor());
+
+        // WebUI (Naudit:Ui): Gate + Audit-Sink + DbContext nur bei Enabled — sonst No-Ops
+        // (= exakt heutiges Verhalten, keine DB-Datei nötig). UiOptions immer registrieren,
+        // damit Program.cs/Endpoints sie lesen können.
+        var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
+        services.AddSingleton(uiOptions);
+        if (uiOptions.Enabled)
+        {
+            // Backend per Config; dieselbe (provider-neutrale) Migration läuft auf beiden.
+            services.AddDbContext<NauditDbContext>(o =>
+            {
+                switch (uiOptions.DbProvider)
+                {
+                    case UiDbProvider.Postgres:
+                        o.UseNpgsql(uiOptions.Db);
+                        // Der committete Model-Snapshot ist SQLite-geprägt (Migrations werden gegen
+                        // SQLite geschrieben); auf Postgres zeigt EFs Pending-Changes-Prüfung deshalb
+                        // einen gutartigen, konventionsbedingten Diff (Identity-Strategie). Nur hier
+                        // unterdrücken — auf SQLite bleibt die Warnung als „Migration vergessen?"-Netz aktiv.
+                        o.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+                        break;
+                    default:
+                        o.UseSqlite(uiOptions.Db);
+                        break;
+                }
+            });
+            services.AddScoped<IAccessGate, EfAccessGate>();
+            services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
+            services.AddScoped<AccountService>();
+        }
+        else
+        {
+            services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
+            services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());
+        }
 
         services.AddScoped<ReviewService>();
         return services;

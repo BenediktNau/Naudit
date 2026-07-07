@@ -1,0 +1,42 @@
+using Microsoft.EntityFrameworkCore;
+
+namespace Naudit.Infrastructure.Data;
+
+public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options) : DbContext(options)
+{
+    public DbSet<AccountEntity> Accounts => Set<AccountEntity>();
+    public DbSet<GitHubLinkEntity> GitHubLinks => Set<GitHubLinkEntity>();
+    public DbSet<ProjectEntity> Projects => Set<ProjectEntity>();
+    public DbSet<ReviewEntity> Reviews => Set<ReviewEntity>();
+    public DbSet<ReviewFindingEntity> ReviewFindings => Set<ReviewFindingEntity>();
+
+    protected override void OnModelCreating(ModelBuilder b)
+    {
+        b.Entity<AccountEntity>(e =>
+        {
+            e.HasIndex(x => x.Username).IsUnique();
+            // Externe Identität eindeutig: verhindert doppelte Accounts bei parallelen OAuth/OIDC-Callbacks.
+            // ExternalId ist bei lokalen Accounts null; NULLs gelten (SQLite wie Postgres) als verschieden,
+            // mehrere lokale Accounts kollidieren also nicht.
+            e.HasIndex(x => new { x.Provider, x.ExternalId }).IsUnique();
+            e.Property(x => x.Status).HasConversion<string>();     // lesbare Werte in SQLite
+            e.Property(x => x.Provider).HasConversion<string>();
+        });
+        b.Entity<GitHubLinkEntity>(e =>
+        {
+            e.HasIndex(x => new { x.AccountId, x.Login }).IsUnique();
+            e.HasOne(x => x.Account).WithMany(a => a.GitHubLinks)
+                .HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<ProjectEntity>(e => e.HasIndex(x => x.PlatformProjectId).IsUnique());
+        b.Entity<ReviewEntity>(e =>
+        {
+            e.HasIndex(x => x.CreatedAt);                          // Dashboard-Zeitreihen
+            e.HasOne(x => x.Project).WithMany(p => p.Reviews)
+                .HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<ReviewFindingEntity>(e =>
+            e.HasOne(x => x.Review).WithMany(r => r.Findings)
+                .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade));
+    }
+}

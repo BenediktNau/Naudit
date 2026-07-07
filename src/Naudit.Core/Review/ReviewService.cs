@@ -14,7 +14,8 @@ public sealed class ReviewService(
     IEnumerable<ISastAnalyzer> analyzers,
     IFindingReducer findingReducer,
     IPromptRedactor redactor,
-    IContextCollector contextCollector)
+    IContextCollector contextCollector,
+    IReviewAuditSink auditSink)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -83,7 +84,34 @@ public sealed class ReviewService(
         var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
         await gitPlatform.PostReviewAsync(request, summary, inline, verdict, ct);
+        await RecordAuditAsync(request, verdict, summary, inline, orphans, response, ct);
         return new ReviewResult(summary, verdict);
+    }
+
+    // Audit ist Best-Effort: der Review ist zu diesem Zeitpunkt bereits gepostet — ein
+    // Sink-Fehler (DB weg, Platte voll) darf das Ergebnis nicht mehr kippen.
+    private async Task RecordAuditAsync(
+        ReviewRequest request, ReviewVerdict verdict, string summary,
+        IReadOnlyList<InlineComment> inline, IReadOnlyList<OrphanComment> orphans,
+        ChatResponse response, CancellationToken ct)
+    {
+        try
+        {
+            var findings = new List<AuditFinding>(inline.Count + orphans.Count);
+            foreach (var i in inline)
+                findings.Add(new AuditFinding(i.Severity, i.Confidence, i.FilePath, i.NewLine, i.Body));
+            foreach (var o in orphans)
+                findings.Add(new AuditFinding(o.Severity, o.Confidence, o.File, null, o.Body));
+
+            var audit = new ReviewAudit(request.ProjectId, request.MergeRequestIid, request.Title,
+                verdict, summary, findings,
+                response.Usage?.InputTokenCount, response.Usage?.OutputTokenCount, response.ModelId);
+            await auditSink.RecordAsync(audit, ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            // bewusst geschluckt — Begründung siehe oben
+        }
     }
 
     // Ein Checkout für beide Grounding-Quellen: SAST-Analyzer UND Kontext-Sammler. Checkout nur,

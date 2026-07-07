@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* Design-Tokens aus "Naudit WebUI.dc.html" (Claude Design) — dark-only. */
+@theme {
+  --color-bg: #0d1117;
+  --color-surface: #141a22;
+  --color-elev: #1a222c;
+  --color-border: #242d38;
+  --color-hairline: #1b232d;
+  --color-ink: #e6edf3;
+  --color-ink2: #98a5b3;
+  --color-ink3: #5f6b78;
+  --color-acc: #4ade80;
+  --color-acc2: #22c55e;
+  --color-accink: #06170c;
+  --color-teal: #53d3d1;
+  --color-warn: #e3b341;
+  --color-danger: #f47067;
+  --font-sans: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}

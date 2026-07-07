@@ -64,3 +64,6 @@ nunit-*.xml
 ngrok
 ngrok-*.tgz
 ngrok-*.zip
+
+# WebUI: gebautes SPA landet nur im Container in wwwroot (SPA-Hosting-Task)
+src/Naudit.Web/wwwroot/

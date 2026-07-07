@@ -50,7 +50,30 @@ Naudit__Ai__ApiKey=<anthropic-key>    # 🔒 secret  (for Anthropic / OpenAIComp
 
 # ── Review (optional) ───────────────────────────────────────────────
 # Naudit__Review__SystemPrompt=       # empty = built-in default prompt
+
+# ── WebUI (optional — access gate + dashboard, see docs/webui.md) ───
+# Naudit__Ui__Enabled=true
+# Naudit__Ui__DbProvider=Sqlite                  # Sqlite (default) | Postgres
+# Naudit__Ui__Db="Data Source=/data/naudit.db"   # SQLite: mount a persistent volume at /data!
+# Postgres instead (no /data volume needed):
+# Naudit__Ui__DbProvider=Postgres
+# Naudit__Ui__Db="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
+# Naudit__Ui__DataProtectionKeysDir=/data/dp-keys  # Postgres: put session keys on a volume (else sessions drop on restart)
+# Naudit__Ui__Admin__Username=admin
+# Naudit__Ui__Admin__InitialPassword=<secret>    # 🔒 seed admin (first start, empty DB)
+# Naudit__Ui__Auth__GitHub__Enabled=false        # optional self-service sign-in
+# Naudit__Ui__Auth__GitHub__ClientId=
+# Naudit__Ui__Auth__GitHub__ClientSecret=        # 🔒
+# Naudit__Ui__Auth__Oidc__Enabled=false
+# Naudit__Ui__Auth__Oidc__Authority=
+# Naudit__Ui__Auth__Oidc__ClientId=
+# Naudit__Ui__Auth__Oidc__ClientSecret=          # 🔒
 ```
+
+> **WebUI volume:** with `Naudit__Ui__Enabled=true` and the default **SQLite** backend, add a
+> persistent storage mount at `/data` in Coolify — the SQLite DB (accounts, review history,
+> token usage) lives there. With `Naudit__Ui__DbProvider=Postgres` the data lives in your
+> external database instead and no volume is needed.
 
 **AI variants** (instead of the Anthropic block):
 
