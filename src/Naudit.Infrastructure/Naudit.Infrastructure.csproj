@@ -15,11 +15,11 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="10.0.9" />
-    <!-- Transitive-Bump: EF Sqlite 10.0.9 zieht SQLitePCLRaw.lib.e_sqlite3 2.1.11
-         (GHSA-2m69-gcr7-jv3q, HIGH — verwundbare native SQLite-Lib); die 2.1.x-Linie hat
-         keinen Patch, Fix erst in der 3.x-Linie. Nur das lib-Paket pinnen (trägt die native
-         .so, C-API stabil) — sonst failt das Trivy-/Audit-Gate. -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <!-- Transitive-Bump: EF Sqlite 10.0.9 zieht SQLitePCLRaw 2.1.11, dessen native Lib
+         GHSA-2m69-gcr7-jv3q (HIGH) hat; die 2.1.x-Linie ist ungepatcht. Die GESAMTE Chain auf
+         3.x heben (bundle zieht core/provider/config + SourceGear.sqlite3 konsistent nach) —
+         statt nur die native Lib zu pinnen (das mischte 3.x-native mit 2.1.x-core = Version-Skew). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.9" />
     <PackageReference Include="OllamaSharp" Version="5.4.25" />
