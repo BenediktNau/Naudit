@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
@@ -30,7 +31,13 @@ if (uiConfig.Enabled)
             o.Cookie.Name = "naudit.session";
             o.Cookie.HttpOnly = true;
             o.Cookie.SameSite = SameSiteMode.Lax;
-            o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            // Produktion: Always — hinter einem TLS-terminierenden Reverse-Proxy (Coolify/nginx) erreicht
+            // die App plain HTTP, der Browser spricht aber HTTPS; das Session-Cookie darf nie ohne
+            // Secure-Flag raus. Development (lokales http-Dev / TestServer): SameAsRequest, sonst käme das
+            // Secure-Cookie über http nie zurück.
+            o.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+                ? CookieSecurePolicy.SameAsRequest
+                : CookieSecurePolicy.Always;
             o.SlidingExpiration = true;
             o.ExpireTimeSpan = TimeSpan.FromDays(7);
             // SPA-Kontrakt: kein Redirect auf eine Login-SEITE — 401/403 sprechen für sich.
@@ -38,6 +45,16 @@ if (uiConfig.Enabled)
             o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
         });
     builder.Services.AddAuthorization();
+
+    // Data-Protection-Keys persistieren, sonst werden Session-Cookies bei jedem Container-Neustart
+    // ungültig (Keys sonst nur In-Memory). Verzeichnis: explizit gesetzt oder bei SQLite neben die
+    // DB-Datei aufs Volume abgeleitet; bei Postgres ohne Angabe In-Memory (= bisheriges Verhalten).
+    var dpKeysDir = uiConfig.ResolveDataProtectionKeysDir();
+    if (dpKeysDir is not null)
+    {
+        Directory.CreateDirectory(dpKeysDir);
+        builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(dpKeysDir));
+    }
 
     if (uiConfig.Auth.GitHub.Enabled)
     {
@@ -85,16 +102,24 @@ if (uiConfig.Enabled)
             {
                 OnTicketReceived = async ctx =>
                 {
-                    // Keycloak: preferred_username; Fallbacks für andere IdPs. sub = stabile ExternalId.
+                    // sub (NameIdentifier) = stabile, opake ExternalId. Ohne sub KEINE kollisionssichere
+                    // Identität — dann Anmeldung ablehnen, statt auf den mutablen Username auszuweichen
+                    // (zwei IdP-Nutzer mit gleichem preferred_username teilten sonst einen Account).
+                    var externalId = ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                    if (string.IsNullOrEmpty(externalId))
+                    {
+                        ctx.Fail("OIDC-Token ohne 'sub' (NameIdentifier)-Claim — Anmeldung abgelehnt.");
+                        return;
+                    }
+                    // Keycloak: preferred_username; Fallbacks für andere IdPs. Nur Anzeigename, nie Identität.
                     var username = ctx.Principal?.FindFirst("preferred_username")?.Value
                         ?? ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
-                        ?? ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                        ?? "oidc-user";
-                    var externalId = ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? username;
+                        ?? externalId;
 
                     var accounts = ctx.HttpContext.RequestServices.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>();
                     var acct = await accounts.MaterializeExternalAsync(
-                        Naudit.Infrastructure.Data.AccountProvider.Oidc, externalId, username, gitHubLogin: null);
+                        Naudit.Infrastructure.Data.AccountProvider.Oidc, externalId, username, gitHubLogin: null,
+                        ctx.HttpContext.RequestAborted);
                     ctx.Principal = Naudit.Web.Endpoints.AuthEndpoints.BuildPrincipal(acct);
                 },
             };
@@ -110,7 +135,7 @@ if (uiOptions.Enabled)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
-    db.Database.Migrate();
+    await db.Database.MigrateAsync(); // async im async-Startup — kein Thread-Pool-Blocking
     await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
 }
 

@@ -58,6 +58,7 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Ui:Enabled` | WebUI + access gate + persistence — **default `false`** = exactly today's behaviour (see [WebUI](webui.md)) |
 | `Naudit:Ui:DbProvider` | `Sqlite` (default) \| `Postgres` — persistence backend (same schema/migration for both) |
 | `Naudit:Ui:Db` | Connection string for the chosen backend: SQLite `Data Source=/data/naudit.db` (default — mount a volume!) or Postgres `Host=…;Database=…;Username=…;Password=…` |
+| `Naudit:Ui:DataProtectionKeysDir` | Directory for the session-cookie signing keys. Empty (default) = auto: next to the SQLite file (persists on the volume); for Postgres set a path on a persistent volume, else keys are in-memory and sessions drop on restart |
 | `Naudit:Ui:Admin:Username` / `:InitialPassword` | Seed admin, created once on first start with an empty DB (secret!) |
 | `Naudit:Ui:Admins` | Usernames that get the admin role on (external) sign-in |
 | `Naudit:Ui:Auth:GitHub:Enabled` / `:ClientId` / `:ClientSecret` | GitHub-OAuth self-service sign-in (opt-in; secret!) |

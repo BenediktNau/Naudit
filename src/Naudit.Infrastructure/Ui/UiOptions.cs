@@ -18,6 +18,30 @@ public sealed class UiOptions
     /// Postgres <c>Host=…;Database=…;Username=…;Password=…</c>.</summary>
     public string Db { get; set; } = "Data Source=/data/naudit.db";
 
+    /// <summary>Verzeichnis für die Data-Protection-Keys (Session-Cookie-Signatur). Leer = automatisch:
+    /// bei SQLite neben die DB-Datei (liegt auf dem Volume), bei Postgres In-Memory.</summary>
+    public string DataProtectionKeysDir { get; set; } = "";
+
+    /// <summary>Effektives Keys-Verzeichnis: explizit gesetzt gewinnt; sonst bei SQLite aus dem
+    /// DB-Pfad abgeleitet (…/dp-keys neben der Datei); sonst null (⇒ In-Memory = heutiges Verhalten).</summary>
+    public string? ResolveDataProtectionKeysDir()
+    {
+        if (!string.IsNullOrWhiteSpace(DataProtectionKeysDir))
+            return DataProtectionKeysDir;
+        if (DbProvider == UiDbProvider.Sqlite)
+        {
+            try
+            {
+                var dataSource = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(Db).DataSource;
+                var dir = Path.GetDirectoryName(Path.GetFullPath(dataSource));
+                if (!string.IsNullOrEmpty(dir))
+                    return Path.Combine(dir, "dp-keys");
+            }
+            catch { /* unparsebarer ConnectionString ⇒ In-Memory-Fallback */ }
+        }
+        return null;
+    }
+
     /// <summary>Seed-Admin: wird beim Start angelegt, wenn die Accounts-Tabelle leer ist.</summary>
     public SeedAdminOptions Admin { get; set; } = new();
 

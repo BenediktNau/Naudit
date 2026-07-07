@@ -28,11 +28,12 @@ const chevron = (open: boolean) => (
 );
 
 export function DashboardPage() {
-  const { data, isLoading } = useDashboard();
+  const { data, isLoading, isError } = useDashboard();
   const [openProject, setOpenProject] = useState<number | null>(null);
   const [openReview, setOpenReview] = useState<number | null>(null);
 
-  if (isLoading || !data) return <div className="p-8 font-mono text-ink3">loading…</div>;
+  if (isLoading) return <div className="p-8 font-mono text-ink3">loading…</div>;
+  if (isError || !data) return <div className="p-8 font-mono text-danger">failed to load dashboard</div>;
 
   return (
     <div className="flex flex-col gap-5 px-7 py-6">

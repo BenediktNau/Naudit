@@ -58,6 +58,7 @@ Naudit__Ai__ApiKey=<anthropic-key>    # 🔒 secret  (for Anthropic / OpenAIComp
 # Postgres instead (no /data volume needed):
 # Naudit__Ui__DbProvider=Postgres
 # Naudit__Ui__Db="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
+# Naudit__Ui__DataProtectionKeysDir=/data/dp-keys  # Postgres: put session keys on a volume (else sessions drop on restart)
 # Naudit__Ui__Admin__Username=admin
 # Naudit__Ui__Admin__InitialPassword=<secret>    # 🔒 seed admin (first start, empty DB)
 # Naudit__Ui__Auth__GitHub__Enabled=false        # optional self-service sign-in

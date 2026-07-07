@@ -15,6 +15,10 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options) :
         b.Entity<AccountEntity>(e =>
         {
             e.HasIndex(x => x.Username).IsUnique();
+            // Externe Identität eindeutig: verhindert doppelte Accounts bei parallelen OAuth/OIDC-Callbacks.
+            // ExternalId ist bei lokalen Accounts null; NULLs gelten (SQLite wie Postgres) als verschieden,
+            // mehrere lokale Accounts kollidieren also nicht.
+            e.HasIndex(x => new { x.Provider, x.ExternalId }).IsUnique();
             e.Property(x => x.Status).HasConversion<string>();     // lesbare Werte in SQLite
             e.Property(x => x.Provider).HasConversion<string>();
         });

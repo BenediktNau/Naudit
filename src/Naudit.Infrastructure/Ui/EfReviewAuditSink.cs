@@ -23,6 +23,18 @@ public sealed class EfReviewAuditSink(NauditDbContext db, ILogger<EfReviewAuditS
                 .FirstOrDefaultAsync(ct);
             project = new ProjectEntity { PlatformProjectId = audit.ProjectId, AccountId = accountId, FirstReviewedAt = now };
             db.Projects.Add(project);
+            // Projekt-Insert isoliert speichern: bei zwei parallelen Reviews desselben neuen Projekts
+            // gewinnt einer den Unique-Index auf PlatformProjectId — der andere lädt die bestehende
+            // Zeile nach, statt am Duplikat zu scheitern (sonst ginge ein Audit still verloren).
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                db.Entry(project).State = EntityState.Detached;
+                project = await db.Projects.SingleAsync(p => p.PlatformProjectId == audit.ProjectId, ct);
+            }
         }
         project.LastReviewedAt = now;
 

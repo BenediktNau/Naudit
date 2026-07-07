@@ -139,6 +139,12 @@ namespace Naudit.Infrastructure.Data.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_Accounts_Provider_ExternalId",
+                table: "Accounts",
+                columns: new[] { "Provider", "ExternalId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_GitHubLinks_AccountId_Login",
                 table: "GitHubLinks",
                 columns: new[] { "AccountId", "Login" },

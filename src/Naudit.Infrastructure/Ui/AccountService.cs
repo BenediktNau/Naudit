@@ -44,8 +44,16 @@ public sealed class AccountService(NauditDbContext db, UiOptions options)
             a => a.Username == username && a.Provider == AccountProvider.Local, ct);
         if (acct?.PasswordHash is null || acct.Status != AccountStatus.Active)
             return null;
-        return Hasher.VerifyHashedPassword(acct, acct.PasswordHash, password) == PasswordVerificationResult.Failed
-            ? null : acct;
+        var result = Hasher.VerifyHashedPassword(acct, acct.PasswordHash, password);
+        if (result == PasswordVerificationResult.Failed)
+            return null;
+        if (result == PasswordVerificationResult.SuccessRehashNeeded)
+        {
+            // Hash mit veraltetem Format verifiziert — auf das aktuelle (stärkere) Format heben.
+            acct.PasswordHash = Hasher.HashPassword(acct, password);
+            await db.SaveChangesAsync(ct);
+        }
+        return acct;
     }
 
     public async Task<AccountEntity> MaterializeExternalAsync(
@@ -74,8 +82,21 @@ public sealed class AccountService(NauditDbContext db, UiOptions options)
             acct.GitHubLinks.Add(new GitHubLinkEntity { Login = gitHubLogin.Trim().ToLowerInvariant() });
 
         db.Accounts.Add(acct);
-        await db.SaveChangesAsync(ct);
-        return acct;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return acct;
+        }
+        catch (DbUpdateException)
+        {
+            // Paralleler OAuth-Callback hat denselben (Provider, ExternalId) zuerst angelegt
+            // (Unique-Index greift): eigenen Insert verwerfen und den existierenden Account zurückgeben,
+            // statt einen zweiten anzulegen.
+            foreach (var link in acct.GitHubLinks) db.Entry(link).State = EntityState.Detached;
+            db.Entry(acct).State = EntityState.Detached;
+            return await db.Accounts.Include(a => a.GitHubLinks)
+                .SingleAsync(a => a.Provider == provider && a.ExternalId == externalId, ct);
+        }
     }
 
     public async Task<bool> SetStatusAsync(int id, AccountStatus status, CancellationToken ct = default)

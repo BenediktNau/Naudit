@@ -58,6 +58,29 @@ public class AccountServiceTests
     }
 
     [Fact]
+    public async Task Accounts_providerExternalId_isUnique()
+    {
+        // DB-Netz gegen doppelte externe Identitäten (paralleler OAuth-Callback): ein zweiter
+        // Insert mit gleichem (Provider, ExternalId) muss scheitern.
+        await using var db = NewDb();
+        db.Accounts.Add(new AccountEntity { Username = "a", Provider = AccountProvider.GitHub, ExternalId = "42", Status = AccountStatus.Pending, CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        db.Accounts.Add(new AccountEntity { Username = "b", Provider = AccountProvider.GitHub, ExternalId = "42", Status = AccountStatus.Pending, CreatedAt = DateTime.UtcNow });
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Accounts_localWithNullExternalId_doNotCollide()
+    {
+        // NULL-ExternalId (lokale Accounts) gilt als verschieden — mehrere lokale Accounts sind ok.
+        await using var db = NewDb();
+        var svc = NewService(db);
+        await svc.CreateLocalAsync("u1", "passwort123", false, []);
+        await svc.CreateLocalAsync("u2", "passwort123", false, []);
+        Assert.Equal(2, await db.Accounts.CountAsync());
+    }
+
+    [Fact]
     public async Task MaterializeExternal_adminListGrantsAdmin()
     {
         await using var db = NewDb();

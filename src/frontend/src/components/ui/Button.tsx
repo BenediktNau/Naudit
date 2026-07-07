@@ -16,7 +16,7 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   return (
     <button
-      className={`cursor-pointer rounded-lg px-4 py-2 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-teal disabled:opacity-50 ${styles[variant]} ${className}`}
+      className={`cursor-pointer rounded-lg px-4 py-2 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-teal disabled:opacity-50 ${styles[variant]} ${className}`}
       {...props}
     />
   );

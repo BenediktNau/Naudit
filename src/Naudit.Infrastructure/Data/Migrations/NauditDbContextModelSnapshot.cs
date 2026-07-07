@@ -52,6 +52,9 @@ namespace Naudit.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Provider", "ExternalId")
+                        .IsUnique();
+
                     b.HasIndex("Username")
                         .IsUnique();
 

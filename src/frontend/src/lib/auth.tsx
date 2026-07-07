@@ -22,9 +22,17 @@ export function useAuth(): AuthState {
  *  pending/rejected ⇒ PendingPage, aktiv ⇒ App. 401 mid-use ⇒ zurück zum Login (via refresh). */
 export function AuthGate({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeDto | null>(null);
+  const [error, setError] = useState(false);
 
   const refresh = useCallback(async () => {
-    setMe(await api<MeDto>("/api/me"));
+    // Fehler abfangen: /api/me kann bei Netzwerk-/5xx-Fehlern werfen. refresh() wird u. a.
+    // fire-and-forget aus dem 401-Fänger aufgerufen — ohne catch gäbe das eine unhandled rejection.
+    try {
+      setError(false);
+      setMe(await api<MeDto>("/api/me"));
+    } catch {
+      setError(true);
+    }
   }, []);
 
   const logout = useCallback(async () => {
@@ -34,7 +42,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // setState nur im Promise-Callback (nie synchron im Effect) — react-hooks/set-state-in-effect.
-    api<MeDto>("/api/me").then(setMe, () => setMe(null));
+    api<MeDto>("/api/me").then(setMe, () => setError(true));
   }, []);
 
   // Globaler 401-Fänger: Session mid-use abgelaufen ⇒ /api/me neu klären ⇒ LoginPage.
@@ -51,6 +59,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
     };
   }, [refresh]);
 
+  if (error) {
+    return (
+      <div className="grid h-full place-items-center gap-3 text-center font-mono text-sm text-ink3">
+        <span className="text-danger">couldn’t reach the server</span>
+        <button
+          className="cursor-pointer rounded-lg border border-border px-4 py-2 text-ink hover:border-ink3 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-teal"
+          onClick={() => void refresh()}
+        >
+          retry
+        </button>
+      </div>
+    );
+  }
   if (me === null) {
     return <div className="grid h-full place-items-center font-mono text-ink3">loading…</div>;
   }

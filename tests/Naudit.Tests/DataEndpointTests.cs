@@ -106,6 +106,39 @@ public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task Revoke_activeAdmin_isRejected_toPreventLockout()
+    {
+        var (client, factory) = await AdminApp();
+        int rootId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+            rootId = (await db.Accounts.SingleAsync(a => a.Username == "root")).Id;
+        }
+
+        var res = await client.PostAsync($"/api/accounts/{rootId}/revoke", null);
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+            Assert.Equal(AccountStatus.Active, (await db.Accounts.SingleAsync(a => a.Username == "root")).Status);
+        }
+    }
+
+    [Fact]
+    public async Task Revoke_normalActiveUser_succeeds()
+    {
+        var (client, _) = await AdminApp();
+        var created = await client.PostAsJsonAsync("/api/accounts",
+            new { username = "worker", password = "passwort123", isAdmin = false });
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        var res = await client.PostAsync($"/api/accounts/{id}/revoke", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
     public async Task DataEndpoints_require401ForAnonymous()
     {
         var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-data-{Guid.NewGuid():N}.db")}";

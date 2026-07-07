@@ -71,6 +71,15 @@ public static class AdminEndpoints
     private static async Task<IResult> Transition(HttpContext ctx, NauditDbContext db, AccountService svc, int id, AccountStatus status)
     {
         if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+        if (status == AccountStatus.Rejected)
+        {
+            // Kein aktiver Admin darf entzogen werden (auch nicht der Aufrufer selbst) — sonst Total-Lockout.
+            // Ein pending Admin-Signup darf hingegen abgelehnt werden.
+            var target = await db.Accounts.FindAsync([id], ctx.RequestAborted);
+            if (target is null) return Results.NotFound();
+            if (target is { IsAdmin: true, Status: AccountStatus.Active })
+                return Results.Conflict(new { error = "Active admin accounts cannot be revoked." });
+        }
         return await svc.SetStatusAsync(id, status, ctx.RequestAborted) ? Results.Ok() : Results.NotFound();
     }
 
