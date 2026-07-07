@@ -38,8 +38,68 @@ if (uiConfig.Enabled)
             o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
         });
     builder.Services.AddAuthorization();
-    // Task 6 registriert hier GitHub-OAuth/OIDC an `auth`, wenn per Config aktiviert.
-    _ = auth;
+
+    if (uiConfig.Auth.GitHub.Enabled)
+    {
+        auth.AddOAuth("GitHub", o =>
+        {
+            o.SignInScheme = Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme;
+            o.ClientId = uiConfig.Auth.GitHub.ClientId;
+            o.ClientSecret = uiConfig.Auth.GitHub.ClientSecret;
+            o.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
+            o.TokenEndpoint = "https://github.com/login/oauth/access_token";
+            o.UserInformationEndpoint = "https://api.github.com/user";
+            o.CallbackPath = "/auth/callback/github";
+            o.Events.OnCreatingTicket = async ctx =>
+            {
+                // GitHub-User holen und in einen Naudit-Account materialisieren (Self-Service ⇒ pending).
+                using var req = new HttpRequestMessage(HttpMethod.Get, ctx.Options.UserInformationEndpoint);
+                req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ctx.AccessToken);
+                req.Headers.UserAgent.ParseAdd("Naudit");
+                using var res = await ctx.Backchannel.SendAsync(req, ctx.HttpContext.RequestAborted);
+                res.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ctx.HttpContext.RequestAborted));
+                var login = doc.RootElement.GetProperty("login").GetString()!;
+                var externalId = doc.RootElement.GetProperty("id").GetInt64().ToString();
+
+                var accounts = ctx.HttpContext.RequestServices.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>();
+                var acct = await accounts.MaterializeExternalAsync(
+                    Naudit.Infrastructure.Data.AccountProvider.GitHub, externalId, login, login, ctx.HttpContext.RequestAborted);
+                ctx.Principal = Naudit.Web.Endpoints.AuthEndpoints.BuildPrincipal(acct); // eigene Claims statt GitHub-Claims
+            };
+        });
+    }
+    if (uiConfig.Auth.Oidc.Enabled)
+    {
+        auth.AddOpenIdConnect("Oidc", o =>
+        {
+            o.SignInScheme = Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme;
+            o.Authority = uiConfig.Auth.Oidc.Authority;
+            o.ClientId = uiConfig.Auth.Oidc.ClientId;
+            o.ClientSecret = uiConfig.Auth.Oidc.ClientSecret;
+            o.ResponseType = "code";
+            o.CallbackPath = "/auth/callback/oidc";
+            o.GetClaimsFromUserInfoEndpoint = true;
+            o.SaveTokens = false;
+            o.Events = new Microsoft.AspNetCore.Authentication.OpenIdConnect.OpenIdConnectEvents
+            {
+                OnTicketReceived = async ctx =>
+                {
+                    // Keycloak: preferred_username; Fallbacks für andere IdPs. sub = stabile ExternalId.
+                    var username = ctx.Principal?.FindFirst("preferred_username")?.Value
+                        ?? ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
+                        ?? ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                        ?? "oidc-user";
+                    var externalId = ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? username;
+
+                    var accounts = ctx.HttpContext.RequestServices.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>();
+                    var acct = await accounts.MaterializeExternalAsync(
+                        Naudit.Infrastructure.Data.AccountProvider.Oidc, externalId, username, gitHubLogin: null);
+                    ctx.Principal = Naudit.Web.Endpoints.AuthEndpoints.BuildPrincipal(acct);
+                },
+            };
+        });
+    }
 }
 
 var app = builder.Build();

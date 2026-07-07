@@ -27,6 +27,14 @@ public static class AuthEndpoints
             return Results.Ok();
         });
 
+        // Externe Provider: nur mappen, wenn aktiviert — abgeschaltet ⇒ 404, Button existiert im SPA nicht.
+        if (ui.Auth.GitHub.Enabled)
+            app.MapGet("/auth/login/github", () =>
+                Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, ["GitHub"]));
+        if (ui.Auth.Oidc.Enabled)
+            app.MapGet("/auth/login/oidc", () =>
+                Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, ["Oidc"]));
+
         app.MapGet("/api/me", async (HttpContext ctx, NauditDbContext db) =>
         {
             var providers = new { local = true, gitHub = ui.Auth.GitHub.Enabled, oidc = ui.Auth.Oidc.Enabled };
