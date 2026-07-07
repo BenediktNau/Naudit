@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -156,7 +157,24 @@ public static class DependencyInjection
         services.AddSingleton(uiOptions);
         if (uiOptions.Enabled)
         {
-            services.AddDbContext<NauditDbContext>(o => o.UseSqlite(uiOptions.Db));
+            // Backend per Config; dieselbe (provider-neutrale) Migration läuft auf beiden.
+            services.AddDbContext<NauditDbContext>(o =>
+            {
+                switch (uiOptions.DbProvider)
+                {
+                    case UiDbProvider.Postgres:
+                        o.UseNpgsql(uiOptions.Db);
+                        // Der committete Model-Snapshot ist SQLite-geprägt (Migrations werden gegen
+                        // SQLite geschrieben); auf Postgres zeigt EFs Pending-Changes-Prüfung deshalb
+                        // einen gutartigen, konventionsbedingten Diff (Identity-Strategie). Nur hier
+                        // unterdrücken — auf SQLite bleibt die Warnung als „Migration vergessen?"-Netz aktiv.
+                        o.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+                        break;
+                    default:
+                        o.UseSqlite(uiOptions.Db);
+                        break;
+                }
+            });
             services.AddScoped<IAccessGate, EfAccessGate>();
             services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
             services.AddScoped<AccountService>();

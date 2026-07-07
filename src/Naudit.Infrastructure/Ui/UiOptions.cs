@@ -1,12 +1,21 @@
 namespace Naudit.Infrastructure.Ui;
 
+/// <summary>DB-Backend der Persistenz. Ein gemeinsames Schema/eine Migration für beide
+/// (die InitialUi-Migration ist provider-neutral gehalten).</summary>
+public enum UiDbProvider { Sqlite, Postgres }
+
 /// <summary>Config-Section Naudit:Ui — WebUI, Zugangsschranke und Persistenz. Alles opt-in:
 /// Enabled=false (Default) ⇒ exakt heutiges Verhalten (kein Gate, keine DB, keine UI-Endpoints).</summary>
 public sealed class UiOptions
 {
     public bool Enabled { get; set; }
 
-    /// <summary>SQLite-ConnectionString; /data liegt im Deployment auf einem Volume.</summary>
+    /// <summary>DB-Backend: SQLite (Default, /data-Volume) oder Postgres (externe DB).</summary>
+    public UiDbProvider DbProvider { get; set; } = UiDbProvider.Sqlite;
+
+    /// <summary>Connection-String für das gewählte Backend:
+    /// SQLite <c>Data Source=/data/naudit.db</c> (Default; /data liegt auf einem Volume) bzw.
+    /// Postgres <c>Host=…;Database=…;Username=…;Password=…</c>.</summary>
     public string Db { get; set; } = "Data Source=/data/naudit.db";
 
     /// <summary>Seed-Admin: wird beim Start angelegt, wenn die Accounts-Tabelle leer ist.</summary>

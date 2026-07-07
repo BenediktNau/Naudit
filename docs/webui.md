@@ -21,7 +21,8 @@ Space Grotesk + Space Mono, one green accent (`#4ADE80`).
 
 ```bash
 Naudit__Ui__Enabled=true
-Naudit__Ui__Db="Data Source=/data/naudit.db"     # /data = persistent volume!
+Naudit__Ui__DbProvider=Sqlite                    # Sqlite (default) | Postgres
+Naudit__Ui__Db="Data Source=/data/naudit.db"     # SQLite: /data = persistent volume!
 Naudit__Ui__Admin__Username=admin                # seed admin (created on first start, empty DB)
 Naudit__Ui__Admin__InitialPassword=<secret>      # 🔒
 
@@ -38,8 +39,22 @@ Naudit__Ui__Auth__Oidc__ClientSecret=<secret>    # 🔒
 # Naudit__Ui__Admins__0=BenediktNau
 ```
 
-**Important:** mount a persistent volume at `/data` — the SQLite database lives there.
-Without it, accounts and review history are lost on every redeploy.
+**Important (SQLite):** mount a persistent volume at `/data` — the SQLite database lives
+there. Without it, accounts and review history are lost on every redeploy.
+
+### Postgres instead of SQLite
+
+For a shared/managed database, set `Naudit:Ui:DbProvider=Postgres` and point `Naudit:Ui:Db`
+at a Npgsql connection string — no `/data` volume needed then:
+
+```bash
+Naudit__Ui__DbProvider=Postgres
+Naudit__Ui__Db="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
+```
+
+Both backends share **one** schema and the same startup `Database.Migrate()` — the initial
+migration is kept provider-neutral, so switching is config-only (a fresh database is created
+and migrated on first start). Nothing else changes.
 
 ## Access model
 
@@ -93,7 +108,12 @@ the stable external id.
 - **Frontend** lives in `src/frontend` (Vite + React + TS + Tailwind 4, NauAssist layout);
   the container build compiles it into `wwwroot/`. For local dev: `dotnet run` (port 5290)
   + `npm run dev` (proxies `/api` and `/auth`).
-- **Persistence** is EF Core + SQLite (`src/Naudit.Infrastructure/Data/`); the schema is
-  applied via `Database.Migrate()` at startup (only when the UI is enabled).
+- **Persistence** is EF Core (`src/Naudit.Infrastructure/Data/`) on **SQLite (default) or
+  Postgres** (`Naudit:Ui:DbProvider`); the schema is applied via `Database.Migrate()` at
+  startup (only when the UI is enabled). The `InitialUi` migration is hand-kept
+  provider-neutral (no explicit column types, both identity strategies annotated) so a single
+  migration runs on either backend; on Postgres EF's pending-changes check is suppressed
+  (the committed model snapshot is SQLite-flavoured). A Postgres round-trip is covered by the
+  opt-in `NauditDbContextPostgresTests` (runs only when `NAUDIT_TEST_POSTGRES` is set).
 - **Core seams:** `IAccessGate` (gate check) and `IReviewAuditSink` (review + token-usage
   recording) — both no-ops when the UI is off. Sink failures never fail a review.

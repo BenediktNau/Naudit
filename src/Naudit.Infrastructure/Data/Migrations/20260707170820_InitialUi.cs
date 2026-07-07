@@ -1,5 +1,6 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -8,6 +9,14 @@ namespace Naudit.Infrastructure.Data.Migrations
     /// <inheritdoc />
     public partial class InitialUi : Migration
     {
+        // HINWEIS: Diese Migration ist bewusst PROVIDER-NEUTRAL handgepflegt, damit dasselbe
+        // Schema auf SQLite UND Postgres läuft (Naudit:Ui:DbProvider). Konkret:
+        //  - keine expliziten `type:` (jeder Provider wählt seinen Default: TEXT→text,
+        //    INTEGER→integer/bigint/boolean, DateTime→timestamptz);
+        //  - auf jeder PK-Id BEIDE Identity-Strategien annotiert — jeder Provider nutzt seine
+        //    und ignoriert die des anderen.
+        // Bei einem künftigen `dotnet ef migrations add` re-baked EF wieder provider-spezifisch;
+        // die neue Migration dann analog neutralisieren.
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -15,16 +24,17 @@ namespace Naudit.Infrastructure.Data.Migrations
                 name: "Accounts",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    Username = table.Column<string>(type: "TEXT", nullable: false),
-                    PasswordHash = table.Column<string>(type: "TEXT", nullable: true),
-                    Provider = table.Column<string>(type: "TEXT", nullable: false),
-                    ExternalId = table.Column<string>(type: "TEXT", nullable: true),
-                    DisplayName = table.Column<string>(type: "TEXT", nullable: true),
-                    Status = table.Column<string>(type: "TEXT", nullable: false),
-                    IsAdmin = table.Column<bool>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Username = table.Column<string>(nullable: false),
+                    PasswordHash = table.Column<string>(nullable: true),
+                    Provider = table.Column<string>(nullable: false),
+                    ExternalId = table.Column<string>(nullable: true),
+                    DisplayName = table.Column<string>(nullable: true),
+                    Status = table.Column<string>(nullable: false),
+                    IsAdmin = table.Column<bool>(nullable: false),
+                    CreatedAt = table.Column<DateTime>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -35,12 +45,13 @@ namespace Naudit.Infrastructure.Data.Migrations
                 name: "Projects",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    PlatformProjectId = table.Column<string>(type: "TEXT", nullable: false),
-                    AccountId = table.Column<int>(type: "INTEGER", nullable: true),
-                    FirstReviewedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    LastReviewedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    PlatformProjectId = table.Column<string>(nullable: false),
+                    AccountId = table.Column<int>(nullable: true),
+                    FirstReviewedAt = table.Column<DateTime>(nullable: false),
+                    LastReviewedAt = table.Column<DateTime>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -51,10 +62,11 @@ namespace Naudit.Infrastructure.Data.Migrations
                 name: "GitHubLinks",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    AccountId = table.Column<int>(type: "INTEGER", nullable: false),
-                    Login = table.Column<string>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    AccountId = table.Column<int>(nullable: false),
+                    Login = table.Column<string>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -71,17 +83,18 @@ namespace Naudit.Infrastructure.Data.Migrations
                 name: "Reviews",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    ProjectId = table.Column<int>(type: "INTEGER", nullable: false),
-                    PrNumber = table.Column<int>(type: "INTEGER", nullable: false),
-                    Title = table.Column<string>(type: "TEXT", nullable: false),
-                    Verdict = table.Column<string>(type: "TEXT", nullable: false),
-                    Summary = table.Column<string>(type: "TEXT", nullable: false),
-                    InputTokens = table.Column<long>(type: "INTEGER", nullable: true),
-                    OutputTokens = table.Column<long>(type: "INTEGER", nullable: true),
-                    Model = table.Column<string>(type: "TEXT", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    ProjectId = table.Column<int>(nullable: false),
+                    PrNumber = table.Column<int>(nullable: false),
+                    Title = table.Column<string>(nullable: false),
+                    Verdict = table.Column<string>(nullable: false),
+                    Summary = table.Column<string>(nullable: false),
+                    InputTokens = table.Column<long>(nullable: true),
+                    OutputTokens = table.Column<long>(nullable: true),
+                    Model = table.Column<string>(nullable: true),
+                    CreatedAt = table.Column<DateTime>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -98,14 +111,15 @@ namespace Naudit.Infrastructure.Data.Migrations
                 name: "ReviewFindings",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    ReviewId = table.Column<int>(type: "INTEGER", nullable: false),
-                    Severity = table.Column<string>(type: "TEXT", nullable: false),
-                    Confidence = table.Column<string>(type: "TEXT", nullable: false),
-                    File = table.Column<string>(type: "TEXT", nullable: true),
-                    Line = table.Column<int>(type: "INTEGER", nullable: true),
-                    Text = table.Column<string>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    ReviewId = table.Column<int>(nullable: false),
+                    Severity = table.Column<string>(nullable: false),
+                    Confidence = table.Column<string>(nullable: false),
+                    File = table.Column<string>(nullable: true),
+                    Line = table.Column<int>(nullable: true),
+                    Text = table.Column<string>(nullable: false)
                 },
                 constraints: table =>
                 {

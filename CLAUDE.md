@@ -126,7 +126,13 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   review). Implementations in `src/Naudit.Infrastructure/Ui/` (`EfAccessGate`,
   `EfReviewAuditSink`, `AccountService` — local users active immediately, self-service
   GitHub-OAuth/OIDC sign-ups start pending), persistence in `src/Naudit.Infrastructure/Data/`
-  (EF Core + SQLite, migration via `Database.Migrate()` at startup). BFF-auth + JSON API in
+  (EF Core on **SQLite (default) or Postgres** via `Naudit:Ui:DbProvider`, migration via
+  `Database.Migrate()` at startup — the single `InitialUi` migration is hand-kept provider-neutral:
+  no explicit column types, both `Sqlite:Autoincrement` and `Npgsql:ValueGenerationStrategy`
+  annotated in `Up()` **and** the Designer's `BuildTargetModel`; on Postgres the
+  `PendingModelChangesWarning` is suppressed. A future `dotnet ef migrations add` re-bakes SQLite
+  types into both files — re-neutralize them. Postgres round-trip: opt-in
+  `NauditDbContextPostgresTests`, gated on `NAUDIT_TEST_POSTGRES`). BFF-auth + JSON API in
   `src/Naudit.Web/Endpoints/` (cookie session, 401 instead of redirects); the React SPA in
   `src/frontend/` is compiled into `wwwroot/` by the container build. The Settings API/page
   is **read-only** by design (config stays env-only). See `docs/webui.md`.
