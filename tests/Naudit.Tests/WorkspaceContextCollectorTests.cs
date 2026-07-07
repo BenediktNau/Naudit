@@ -99,4 +99,55 @@ public class WorkspaceContextCollectorTests
 
         Assert.Empty(ctx.Environments);
     }
+
+    [Fact]
+    public async Task Collect_findsCallSites_ofNewlyDeclaredSymbol_excludingDeclaringFile()
+    {
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "service.py", "def process_order(order):\n    return order\n");
+        WriteFile(root, "caller.py", "def main():\n    result = process_order(o)\n    return result\n");
+        // Änderung deklariert process_order in service.py.
+        var changes = new[] { new CodeChange("service.py", "@@ -1,0 +1,1 @@\n+def process_order(order):") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        var usage = Assert.Single(ctx.Usages);
+        Assert.Equal("process_order", usage.Symbol);
+        Assert.Equal("caller.py", usage.FilePath);       // Deklarationsdatei ausgeschlossen
+        Assert.Equal(2, usage.Line);
+        Assert.Contains("process_order(o)", usage.Snippet);
+    }
+
+    [Fact]
+    public async Task Collect_capsUsagesPerSymbol()
+    {
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "svc.py", "def widget(x):\n    return x\n");
+        // Fünf Aufrufe, MaxUsagesPerSymbol=2 ⇒ höchstens 2 Fundstellen.
+        WriteFile(root, "a.py", "widget(1)\nwidget(2)\nwidget(3)\nwidget(4)\nwidget(5)\n");
+        var changes = new[] { new CodeChange("svc.py", "@@ -1,0 +1,1 @@\n+def widget(x):") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions { MaxUsagesPerSymbol = 2 });
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.Equal(2, ctx.Usages.Count);
+    }
+
+    [Fact]
+    public async Task Collect_ignoresVendorDirs()
+    {
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "svc.py", "def gadget(x):\n    return x\n");
+        WriteFile(root, "node_modules/dep.py", "gadget(99)\n");   // in Vendor-Dir -> ignoriert
+        var changes = new[] { new CodeChange("svc.py", "@@ -1,0 +1,1 @@\n+def gadget(x):") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.Empty(ctx.Usages);
+    }
 }

@@ -26,8 +26,9 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
         var root = workspace.RootPath;
 
         var environments = CollectEnvironments(root, changes);
+        var usages = CollectUsages(root, changes);
 
-        var ctx = new ReviewContext(environments, [], null);
+        var ctx = new ReviewContext(environments, usages, null);
         return Task.FromResult(ctx);
     }
 
@@ -137,6 +138,120 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
         R(@"\b(?:class|interface|struct|record|enum|trait)\s+(?<name>[A-Za-z_]\w*)"),
         R(@"^[\w\s,<>\[\]\.\?]*?\b(?<name>[A-Za-z_]\w*)\s*\([^;]*\)\s*\{?\s*$"),
     ];
+
+    // ---- Call-Sites -------------------------------------------------------
+    private static readonly HashSet<string> Keywords = new(StringComparer.Ordinal)
+    {
+        "if", "for", "while", "switch", "catch", "using", "foreach", "lock",
+        "return", "new", "else", "do", "try", "finally", "await", "throw",
+    };
+
+    private static readonly HashSet<string> ExcludedDirs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", "bin", "obj", "node_modules", "dist", "build", "target",
+        "vendor", "packages", ".vs", ".idea",
+    };
+
+    private const long MaxFileBytes = 512 * 1024;
+
+    private IReadOnlyList<SymbolUsage> CollectUsages(string root, IReadOnlyList<CodeChange> changes)
+    {
+        var symbols = ExtractSymbols(changes);
+        if (symbols.Count == 0) return [];
+
+        var declaringFiles = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in changes)
+        {
+            var abs = SafeResolve(root, c.FilePath);
+            if (abs is not null) declaringFiles.Add(abs);
+        }
+
+        var files = EnumerateSourceFiles(root).ToList();     // deterministisch sortiert
+        var usages = new List<SymbolUsage>();
+
+        foreach (var symbol in symbols)
+        {
+            var rx = R($@"\b{Regex.Escape(symbol)}\b");
+            int found = 0;
+            foreach (var abs in files)
+            {
+                if (found >= options.MaxUsagesPerSymbol) break;
+                if (declaringFiles.Contains(abs)) continue;   // Deklarationsdatei überspringen
+
+                string[] lines;
+                try { lines = File.ReadAllLines(abs); }
+                catch { continue; }
+
+                for (int i = 0; i < lines.Length && found < options.MaxUsagesPerSymbol; i++)
+                {
+                    if (!rx.IsMatch(lines[i])) continue;
+                    int lo = Math.Max(0, i - options.UsageSnippetLines);
+                    int hi = Math.Min(lines.Length - 1, i + options.UsageSnippetLines);
+                    var snippet = string.Join('\n', lines[lo..(hi + 1)]);
+                    var rel = Path.GetRelativePath(root, abs).Replace('\\', '/');
+                    usages.Add(new SymbolUsage(symbol, rel, i + 1, snippet));
+                    found++;
+                }
+            }
+        }
+
+        return usages;
+    }
+
+    // Zieht Bezeichner aus hinzugefügten (+) Diff-Zeilen über den Deklarations-Regex-Katalog.
+    private static IReadOnlyList<string> ExtractSymbols(IReadOnlyList<CodeChange> changes)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var change in changes)
+        {
+            foreach (var raw in change.Diff.Split('\n'))
+            {
+                var line = raw.TrimEnd('\r');
+                if (line.Length == 0 || line[0] != '+' || line.StartsWith("+++", StringComparison.Ordinal))
+                    continue;
+                var added = line[1..];
+                foreach (var rx in DeclarationPatterns)
+                {
+                    var m = rx.Match(added);
+                    if (!m.Success) continue;
+                    var name = m.Groups["name"].Value;
+                    if (name.Length >= 3 && !Keywords.Contains(name))
+                        names.Add(name);
+                }
+            }
+        }
+        return names.ToList();
+    }
+
+    // Rekursiver, deterministisch sortierter Datei-Walk unter Auslassung von Vendor-/Build-Dirs
+    // und zu großer/binärer Dateien.
+    private static IEnumerable<string> EnumerateSourceFiles(string root)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            List<string> subdirs, files;
+            try
+            {
+                subdirs = Directory.EnumerateDirectories(dir)
+                    .Where(d => !ExcludedDirs.Contains(Path.GetFileName(d)))
+                    .OrderByDescending(Path.GetFileName, StringComparer.Ordinal).ToList();  // Stack ⇒ absteigend rein = aufsteigend raus
+                files = Directory.EnumerateFiles(dir)
+                    .OrderBy(Path.GetFileName, StringComparer.Ordinal).ToList();
+            }
+            catch { continue; }
+
+            foreach (var sub in subdirs) stack.Push(sub);
+            foreach (var f in files)
+            {
+                long len;
+                try { len = new FileInfo(f).Length; } catch { continue; }
+                if (len > 0 && len <= MaxFileBytes) yield return f;
+            }
+        }
+    }
 
     // ---- Pfad-Sicherheit --------------------------------------------------
     // Verhindert Ausbruch aus dem Checkout (z. B. "../../etc/passwd" im Diff-Pfad).
