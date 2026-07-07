@@ -13,7 +13,8 @@ public sealed class ReviewService(
     IWorkspaceProvider workspaceProvider,
     IEnumerable<ISastAnalyzer> analyzers,
     IFindingReducer findingReducer,
-    IPromptRedactor redactor)
+    IPromptRedactor redactor,
+    IContextCollector contextCollector)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -25,8 +26,8 @@ public sealed class ReviewService(
         if (changes.Count == 0)
             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
 
-        // SAST/SCA-Grounding vor dem Prompt-Aufbau einsammeln (leer, wenn Feature aus).
-        var findings = await CollectFindingsAsync(request, changes, ct);
+        // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext (je leer, wenn Feature aus).
+        var (findings, context) = await GatherGroundingAsync(request, changes, ct);
 
         // Redaction: Secrets/IPs/E-Mails maskieren, BEVOR irgendetwas das LLM erreicht.
         // No-Op-Redactor (Feature aus) ⇒ identischer Prompt wie früher.
@@ -39,8 +40,9 @@ public sealed class ReviewService(
             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
 
         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
+        var redContext = await RedactContextAsync(context, ct);
 
-        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings);
+        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
@@ -84,13 +86,14 @@ public sealed class ReviewService(
         return new ReviewResult(summary, verdict);
     }
 
-    // SAST/SCA-Grounding. Ohne Analyzer (Feature aus) sofort leer → exakt diff-only wie früher.
-    // Checkout-Fehler degradiert auf diff-only; ein einzelner Analyzer-Fehler kippt den Review nicht.
-    private async Task<IReadOnlyList<ScanFinding>> CollectFindingsAsync(
+    // Ein Checkout für beide Grounding-Quellen: SAST-Analyzer UND Kontext-Sammler. Checkout nur,
+    // wenn mindestens eine Quelle aktiv ist. Checkout-Fehler ⇒ diff-only (Infrastructure hat geloggt).
+    private async Task<(IReadOnlyList<ScanFinding> Findings, ReviewContext Context)> GatherGroundingAsync(
         ReviewRequest request, IReadOnlyList<CodeChange> changes, CancellationToken ct)
     {
-        if (_analyzers.Count == 0)
-            return [];
+        var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
+        if (!needCheckout)
+            return ([], ReviewContext.Empty);
 
         IReviewWorkspace workspace;
         try
@@ -99,21 +102,61 @@ public sealed class ReviewService(
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
-            return []; // Checkout fehlgeschlagen → diff-only (Infrastructure hat geloggt)
+            return ([], ReviewContext.Empty); // Checkout fehlgeschlagen → diff-only
         }
 
         await using (workspace)
         {
-            var results = await Task.WhenAll(_analyzers.Select(a => SafeAnalyzeAsync(a, workspace, changes, ct)));
+            var findings = _analyzers.Count > 0
+                ? await RunAnalyzersAsync(workspace, changes, ct)
+                : Array.Empty<ScanFinding>();
 
-            var changed = new HashSet<string>(changes.Select(c => c.FilePath));
-            var annotated = results
-                .SelectMany(r => r)
-                .Select(f => f.FilePath is not null && changed.Contains(f.FilePath) ? f with { InDiff = true } : f)
-                .ToList();
+            var context = options.Context.Enabled
+                ? await SafeCollectContextAsync(workspace, changes, ct)
+                : ReviewContext.Empty;
 
-            return await findingReducer.ReduceAsync(annotated, changes, ct);
+            return (findings, context);
         }
+    }
+
+    private async Task<IReadOnlyList<ScanFinding>> RunAnalyzersAsync(
+        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+    {
+        var results = await Task.WhenAll(_analyzers.Select(a => SafeAnalyzeAsync(a, workspace, changes, ct)));
+
+        var changed = new HashSet<string>(changes.Select(c => c.FilePath));
+        var annotated = results
+            .SelectMany(r => r)
+            .Select(f => f.FilePath is not null && changed.Contains(f.FilePath) ? f with { InDiff = true } : f)
+            .ToList();
+
+        return await findingReducer.ReduceAsync(annotated, changes, ct);
+    }
+
+    // Ein Sammler-Fehler kippt den Review nicht: degradiert auf leeren Kontext (diff-only-Prompt).
+    private async Task<ReviewContext> SafeCollectContextAsync(
+        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+    {
+        try { return await contextCollector.CollectAsync(workspace, changes, ct); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return ReviewContext.Empty; }
+    }
+
+    // Kontext läuft — wie Diff/Finding/Titel — vor dem Prompt durch den Redactor.
+    private async Task<ReviewContext> RedactContextAsync(ReviewContext ctx, CancellationToken ct)
+    {
+        if (ctx.Environments.Count == 0 && ctx.Usages.Count == 0 && ctx.Overview is null)
+            return ReviewContext.Empty;
+
+        var envs = new List<FileEnvironment>(ctx.Environments.Count);
+        foreach (var e in ctx.Environments)
+            envs.Add(e with { Content = await redactor.RedactAsync(e.Content, ct) });
+
+        var usages = new List<SymbolUsage>(ctx.Usages.Count);
+        foreach (var u in ctx.Usages)
+            usages.Add(u with { Snippet = await redactor.RedactAsync(u.Snippet, ct) });
+
+        var overview = ctx.Overview is null ? null : await redactor.RedactAsync(ctx.Overview, ct);
+        return new ReviewContext(envs, usages, overview);
     }
 
     private static async Task<IReadOnlyList<ScanFinding>> SafeAnalyzeAsync(

@@ -130,4 +130,86 @@ public class PromptBuilderTests
         Assert.Contains("do NOT flag", PromptBuilder.DefaultSystemPrompt);
         Assert.Contains("grounding", PromptBuilder.DefaultSystemPrompt);
     }
+
+    [Fact]
+    public void Build_rendersContextSection_whenPresent()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        var context = new ReviewContext(
+            new[] { new FileEnvironment("src/Foo.cs", 1, "class Foo { }", IsFullFile: true) },
+            new[] { new SymbolUsage("DoThing", "src/Bar.cs", 42, "  DoThing();") },
+            "Directory tree (depth ≤ 3):\nsrc/");
+
+        var text = PromptBuilder.Build("SYS", request, changes, null, context)[1].Text!;
+
+        Assert.Contains("# Repository context", text);
+        Assert.Contains("## Surrounding code", text);
+        Assert.Contains("src/Foo.cs (full file)", text);
+        Assert.Contains("class Foo { }", text);
+        Assert.Contains("## Usages of changed symbols", text);
+        Assert.Contains("`DoThing` — src/Bar.cs:42", text);
+        Assert.Contains("## Repository overview", text);
+        Assert.Contains("Directory tree", text);
+    }
+
+    [Fact]
+    public void Build_blockEnvironment_showsStartLine()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        var context = new ReviewContext(
+            new[] { new FileEnvironment("src/Big.cs", 120, "void M() { }", IsFullFile: false) },
+            Array.Empty<SymbolUsage>(), null);
+
+        var text = PromptBuilder.Build("SYS", request, changes, null, context)[1].Text!;
+
+        Assert.Contains("src/Big.cs (from line 120)", text);
+    }
+
+    [Fact]
+    public void Build_contextContentWithBackticks_usesLongerFence()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        // Umgebung enthält selbst einen ```-Codeblock (z. B. eine geänderte Markdown-Datei).
+        var context = new ReviewContext(
+            new[] { new FileEnvironment("README.md", 1, "text\n```\ncode\n```\nmore", IsFullFile: true) },
+            Array.Empty<SymbolUsage>(), null);
+
+        var text = PromptBuilder.Build("SYS", request, changes, null, context)[1].Text!;
+
+        // Umschließender Fence muss länger sein als der längste ```-Lauf im Inhalt.
+        Assert.Contains("````", text);
+        // Inhalt bleibt vollständig (nichts läuft aus dem Block).
+        Assert.Contains("more", text);
+    }
+
+    [Fact]
+    public void Build_withoutContext_rendersNoContextSection()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+
+        var text = PromptBuilder.Build("SYS", request, changes)[1].Text!;
+
+        Assert.DoesNotContain("# Repository context", text);
+    }
+
+    [Fact]
+    public void Build_emptyContext_rendersNoContextSection()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+
+        var text = PromptBuilder.Build("SYS", request, changes, null, ReviewContext.Empty)[1].Text!;
+
+        Assert.DoesNotContain("# Repository context", text);
+    }
+
+    [Fact]
+    public void DefaultSystemPrompt_mentionsRepositoryContext()
+    {
+        Assert.Contains("Repository context", PromptBuilder.DefaultSystemPrompt);
+    }
 }

@@ -65,7 +65,7 @@ Three projects with a strict, deliberate dependency direction:
 ### Request flow
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
-→ ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding) →
+→ ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding **and** repo-context enrichment, one shared checkout) →
 `IPromptRedactor.RedactAsync` (mask secrets/IPs/e-mails in diff + findings + title, **before** the prompt) →
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
@@ -105,6 +105,14 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   masks secrets/IPs/e-mails **before** `PromptBuilder.Build`; `Naudit:Redaction:Enabled=false`
   swaps in `NullPromptRedactor` (no-op). Seam for a future Presidio/LLM redactor. See
   `docs/redaction.md`.
+- **Repo-context collector:** `IContextCollector` (Core `Abstractions`) cuts surrounding
+  code, call-sites of changed symbols, and a repo overview from the shared workspace
+  checkout; the default `WorkspaceContextCollector`
+  (`src/Naudit.Infrastructure/Context/`) is language-agnostic (regex + indentation).
+  Collected context is redacted like the diff and rendered by `PromptBuilder` as a
+  read-only "Repository context" section. On by default; `Naudit:Review:Context:Enabled=false`
+  restores the diff-only prompt. Seam for a future Roslyn/tree-sitter or cached "repo map"
+  collector — just another impl + registration. See `docs/review-context.md`.
 - **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
   git-API token from the review's `ProjectId` (per-project override → global fallback) via
   `ResolveTokenAsync` (async — implementations may mint tokens over HTTP, not just look them up).

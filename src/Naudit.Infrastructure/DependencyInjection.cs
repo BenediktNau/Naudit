@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
+using Naudit.Infrastructure.Context;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
@@ -90,6 +91,9 @@ public static class DependencyInjection
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
         services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(sastOptions.MaxFindingsPerGroup));
         services.AddScoped<IWorkspaceProvider, GitWorkspaceProvider>();
+
+        // Kontext-Anreicherung: aus demselben Checkout wie SAST, gesteuert über reviewOptions.Context.
+        services.AddScoped<IContextCollector>(_ => new WorkspaceContextCollector(reviewOptions.Context));
 
         if (sastOptions.Enabled)
         {
