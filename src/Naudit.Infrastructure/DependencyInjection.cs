@@ -156,11 +156,9 @@ public static class DependencyInjection
         if (uiOptions.Enabled)
         {
             services.AddDbContext<NauditDbContext>(o => o.UseSqlite(uiOptions.Db));
-            // Task 3: services.AddScoped<IAccessGate, EfAccessGate>();
-            // Task 3: services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
-            // Task 3: services.AddScoped<AccountService>();
-            services.AddSingleton<IAccessGate>(new AllowAllAccessGate());        // Task 3 ersetzt
-            services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());  // Task 3 ersetzt
+            services.AddScoped<IAccessGate, EfAccessGate>();
+            services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
+            services.AddScoped<AccountService>();
         }
         else
         {
