@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="279" height="88" viewBox="0 4 279 88" role="img" aria-label="naudit">
+  <svg x="0" y="8" width="80" height="80" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#0D1117"/>
+    <line x1="16" y1="17" x2="16" y2="46" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"/>
+    <path d="M16 31 C16 23.5 22.5 21 27.5 21 C34.5 21 38 25.5 38 31.5 L38 46" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"/>
+    <rect x="45" y="35.5" width="9" height="12" rx="1.5" fill="#4ADE80"/>
+  </svg>
+  <text x="102" y="48" dominant-baseline="central" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="52" letter-spacing="-2" fill="#FFFFFF">naudit</text>
+</svg>

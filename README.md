@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/naudit-logo-white.png">
+    <img src="assets/naudit-logo.png" alt="Naudit" width="360">
+  </picture>
+</p>
+
 # Naudit
 
 **Naudit** is a self-hosted code-review bot written in .NET. It reacts to
