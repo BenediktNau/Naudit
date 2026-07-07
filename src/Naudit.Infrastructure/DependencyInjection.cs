@@ -13,6 +13,7 @@ using Naudit.Infrastructure.Git.GitLab;
 using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
+using Naudit.Infrastructure.Ui;
 
 namespace Naudit.Infrastructure;
 
@@ -144,6 +145,10 @@ public static class DependencyInjection
         services.AddSingleton<IPromptRedactor>(redactionOptions.Enabled
             ? new PatternRedactor(redactionOptions)
             : new NullPromptRedactor());
+
+        // WebUI-Seams: vorerst immer No-Op — Task "UiOptions + EF" registriert die echten Implementierungen konditional.
+        services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
+        services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());
 
         services.AddScoped<ReviewService>();
         return services;

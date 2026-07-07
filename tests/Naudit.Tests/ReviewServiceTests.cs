@@ -23,7 +23,8 @@ public class ReviewServiceTests
             analyzers ?? Array.Empty<ISastAnalyzer>(),
             new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
-            contextCollector ?? new FakeContextCollector());
+            contextCollector ?? new FakeContextCollector(),
+            new FakeReviewAuditSink());
 
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
