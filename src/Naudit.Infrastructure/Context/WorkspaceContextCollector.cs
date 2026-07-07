@@ -150,7 +150,17 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
     private static readonly HashSet<string> ExcludedDirs = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", "bin", "obj", "node_modules", "dist", "build", "target",
-        "vendor", "packages", ".vs", ".idea",
+        "vendor", "packages", ".vs", ".idea", ".superpowers",
+    };
+
+    // Nicht-Code-Textdateien für die Symbol-Suche: Diffs/Patches/Logs/Lockfiles enthalten code-artigen
+    // Text, und in Prosa (Markdown/rst/txt) wird ein Symbol *erwähnt*, nicht *verwendet* — beides
+    // würde sonst das Symbol-Budget mit Rauschen füllen und echte Call-Sites verdrängen. Prosa-Kontext
+    // trägt ohnehin die README im Überblick.
+    private static readonly HashSet<string> ExcludedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".diff", ".patch", ".lock", ".log", ".map", ".svg", ".min", ".sum",
+        ".md", ".markdown", ".rst", ".txt", ".adoc",
     };
 
     private const long MaxFileBytes = 512 * 1024;
@@ -247,11 +257,23 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
             foreach (var sub in subdirs) stack.Push(sub);
             foreach (var f in files)
             {
+                if (IsNoiseFile(f)) continue;
                 long len;
                 try { len = new FileInfo(f).Length; } catch { continue; }
                 if (len > 0 && len <= MaxFileBytes) yield return f;
             }
         }
+    }
+
+    // Nicht-Code-Rauschen für die Symbol-Suche: Diff-/Patch-/Log-Dateien und Lockfiles der
+    // verschiedenen Ökosysteme (package-lock.json, packages.lock.json, yarn.lock, Cargo.lock …).
+    private static bool IsNoiseFile(string path)
+    {
+        if (ExcludedExtensions.Contains(Path.GetExtension(path)))
+            return true;
+        var name = Path.GetFileName(path);
+        return name.Contains(".lock", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("-lock.json", StringComparison.OrdinalIgnoreCase);
     }
 
     // ---- Überblick --------------------------------------------------------

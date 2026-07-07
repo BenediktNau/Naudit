@@ -12,9 +12,11 @@ repository — the context is derived per review and thrown away with the checko
    `FullFileMaxLines` lines; otherwise the enclosing block around each changed hunk
    (indentation heuristic, with a `BlockPadLines` fallback window).
 2. **Usages of changed symbols** — symbol names declared on added (`+`) diff lines
-   (functions, types, C-family signatures) searched across the checkout (excluding the
-   declaring files and vendor/build directories), up to `MaxUsagesPerSymbol` call-sites
-   with `UsageSnippetLines` of surrounding context each.
+   (functions, types, C-family signatures) searched across the checkout, up to
+   `MaxUsagesPerSymbol` call-sites with `UsageSnippetLines` of surrounding context each.
+   The search skips the declaring files, vendor/build directories, and non-code noise
+   (diffs, patches, lockfiles, and prose like `.md`/`.rst`/`.txt`) so the budget is spent
+   on real call-sites, not on files that merely *mention* the symbol.
 3. **Repository overview** — a directory tree (depth ≤ `MaxTreeDepth`) plus the first
    `ReadmeMaxLines` of a root `README.*`.
 

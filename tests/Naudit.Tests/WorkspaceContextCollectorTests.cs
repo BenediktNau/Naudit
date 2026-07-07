@@ -152,6 +152,25 @@ public class WorkspaceContextCollectorTests
     }
 
     [Fact]
+    public async Task Collect_ignoresNoiseFileTypes_forUsages()
+    {
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "svc.py", "def sprocket(x):\n    return x\n");
+        // Symbol steht nur in Nicht-Code-Rauschen (Diff-/Patch-/Lock-Artefakte + Prosa) -> keine echte Call-Site.
+        WriteFile(root, "review.diff", "+    sprocket(1)\n");
+        WriteFile(root, "changes.patch", "+    sprocket(2)\n");
+        WriteFile(root, "packages.lock.json", "sprocket 3\n");
+        WriteFile(root, "docs/notes.md", "We call sprocket(x) somewhere.\n");
+        var changes = new[] { new CodeChange("svc.py", "@@ -1,0 +1,1 @@\n+def sprocket(x):") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.Empty(ctx.Usages);
+    }
+
+    [Fact]
     public async Task Collect_overview_hasTree_andReadmeHead()
     {
         var root = NewTempDir();
