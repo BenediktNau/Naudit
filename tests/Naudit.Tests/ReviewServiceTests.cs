@@ -16,12 +16,14 @@ public class ReviewServiceTests
         ReviewOptions options,
         IEnumerable<ISastAnalyzer>? analyzers = null,
         FakeWorkspaceProvider? workspace = null,
-        IPromptRedactor? redactor = null)
+        IPromptRedactor? redactor = null,
+        IContextCollector? contextCollector = null)
         => new(chat, git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
             new FakeFindingReducer(),
-            redactor ?? new NullPromptRedactor());
+            redactor ?? new NullPromptRedactor(),
+            contextCollector ?? new FakeContextCollector());
 
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
@@ -336,15 +338,87 @@ public class ReviewServiceTests
     }
 
     [Fact]
-    public async Task ReviewAsync_noAnalyzers_doesNotCheckout()
+    public async Task ReviewAsync_noAnalyzers_andContextDisabled_doesNotCheckout()
     {
-        var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
         var ws = new FakeWorkspaceProvider();
-        var service = CreateService(chat, git, new ReviewOptions(), analyzers: null, workspace: ws);
+        var options = new ReviewOptions();
+        options.Context.Enabled = false;
+        var service = CreateService(chat, git, options, analyzers: null, workspace: ws);
 
         await service.ReviewAsync(Request);
 
         Assert.False(ws.CheckoutCalled);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_contextEnabled_noAnalyzers_checksOut_andCollects()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var ws = new FakeWorkspaceProvider();
+        var collector = new FakeContextCollector();   // Context.Enabled default true
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: null, workspace: ws, contextCollector: collector);
+
+        await service.ReviewAsync(Request);
+
+        Assert.True(ws.CheckoutCalled);
+        Assert.True(collector.Called);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_groundsContext_inPrompt()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var ctx = new ReviewContext(
+            new[] { new FileEnvironment("src/Foo.cs", 1, "class Foo { }", IsFullFile: true) },
+            Array.Empty<SymbolUsage>(), null);
+        var collector = new FakeContextCollector(ctx);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            contextCollector: collector);
+
+        await service.ReviewAsync(Request);
+
+        var userText = chat.LastMessages![1].Text!;
+        Assert.Contains("# Repository context", userText);
+        Assert.Contains("class Foo { }", userText);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_redactsContext_beforePrompt()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var ctx = new ReviewContext(
+            new[] { new FileEnvironment("src/Foo.cs", 1, "var k = \"SECRET\";", IsFullFile: true) },
+            Array.Empty<SymbolUsage>(), null);
+        var redactor = new FakePromptRedactor("SECRET");
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            redactor: redactor, contextCollector: new FakeContextCollector(ctx));
+
+        await service.ReviewAsync(Request);
+
+        var userText = chat.LastMessages![1].Text!;
+        Assert.DoesNotContain("SECRET", userText);   // Kontext läuft durch den Redactor
+        Assert.Contains("«red»", userText);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_contextCollectorThrows_stillReviews_diffOnly()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var collector = new FakeContextCollector(throws: true);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            contextCollector: collector);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+        Assert.Equal(1, git.PostCallCount);
+        Assert.DoesNotContain("# Repository context", chat.LastMessages![1].Text!);
     }
 }

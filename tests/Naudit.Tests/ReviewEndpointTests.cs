@@ -51,6 +51,7 @@ public class ReviewEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             {
                 b.UseSetting("Naudit:Git:Platform", "GitLab");
                 b.UseSetting("Naudit:GitLab:WebhookSecret", "test-secret");
+                b.UseSetting("Naudit:Review:Context:Enabled", "false");
                 b.ConfigureServices(services =>
                 {
                     services.RemoveAll<IChatClient>();
