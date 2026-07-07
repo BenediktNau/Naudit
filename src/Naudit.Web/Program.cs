@@ -228,6 +228,13 @@ if (uiConfig.Enabled)
     app.MapAuthEndpoints(uiConfig);
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
+
+    // SPA: index.html + Assets aus wwwroot (im Container aus src/frontend gebaut).
+    // Fallback-Reihenfolge: echte Endpoints > /api-404 (nie HTML für API-Tippfehler) > index.html.
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+    app.MapFallback("/api/{**rest}", () => Results.NotFound());
+    app.MapFallbackToFile("index.html");
 }
 
 // Konstant-zeitlicher Vergleich; leeres Secret oder leerer Token ⇒ false (fail-closed).
