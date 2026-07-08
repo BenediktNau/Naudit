@@ -150,20 +150,23 @@ public static class DependencyInjection
             ? new PatternRedactor(redactionOptions)
             : new NullPromptRedactor());
 
-        // WebUI (Naudit:Ui): Gate + Audit-Sink + DbContext nur bei Enabled — sonst No-Ops
-        // (= exakt heutiges Verhalten, keine DB-Datei nötig). UiOptions immer registrieren,
-        // damit Program.cs/Endpoints sie lesen können.
+        // Persistenz (Naudit:Db): eigenständiger Belang — DbContext + Zugangsschranke + Audit-Sink
+        // nur bei Enabled, sonst No-Ops (= Verhalten ohne DB, keine DB-Datei nötig).
+        // Beide Options immer registrieren, damit Program.cs/Endpoints sie lesen können.
+        var dbOptions = configuration.GetSection("Naudit:Db").Get<DatabaseOptions>() ?? new DatabaseOptions();
+        services.AddSingleton(dbOptions);
         var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
         services.AddSingleton(uiOptions);
-        if (uiOptions.Enabled)
+
+        if (dbOptions.Enabled)
         {
-            // Backend per Config; dieselbe (provider-neutrale) Migration läuft auf beiden.
+            // Backend per Config; dieselbe (provider-neutrale) Migrationskette läuft auf beiden.
             services.AddDbContext<NauditDbContext>(o =>
             {
-                switch (uiOptions.DbProvider)
+                switch (dbOptions.Provider)
                 {
-                    case UiDbProvider.Postgres:
-                        o.UseNpgsql(uiOptions.Db);
+                    case DbProvider.Postgres:
+                        o.UseNpgsql(dbOptions.ConnectionString);
                         // Der committete Model-Snapshot ist SQLite-geprägt (Migrations werden gegen
                         // SQLite geschrieben); auf Postgres zeigt EFs Pending-Changes-Prüfung deshalb
                         // einen gutartigen, konventionsbedingten Diff (Identity-Strategie). Nur hier
@@ -171,18 +174,23 @@ public static class DependencyInjection
                         o.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
                         break;
                     default:
-                        o.UseSqlite(uiOptions.Db);
+                        o.UseSqlite(dbOptions.ConnectionString);
                         break;
                 }
             });
             services.AddScoped<IAccessGate, EfAccessGate>();
             services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
-            services.AddScoped<AccountService>();
         }
         else
         {
             services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
             services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());
+        }
+
+        // WebUI (Naudit:Ui): nur Accounts/Dashboard-Belange — braucht die DB (UI ⇒ DB).
+        if (uiOptions.Enabled)
+        {
+            services.AddScoped<AccountService>();
         }
 
         services.AddScoped<ReviewService>();

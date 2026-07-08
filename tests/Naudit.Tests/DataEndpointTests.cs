@@ -25,7 +25,8 @@ public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("Naudit:Ai:Provider", "Ollama");
             b.UseSetting("Naudit:Ai:Model", "llama3.1");
             b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Ui:Db", db);
+            b.UseSetting("Naudit:Db:Enabled", "true");
+            b.UseSetting("Naudit:Db:ConnectionString", db);
             b.UseSetting("Naudit:Ui:Admin:Username", "root");
             b.UseSetting("Naudit:Ui:Admin:InitialPassword", "passwort123");
         });
@@ -147,7 +148,8 @@ public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
             b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Ui:Db", db);
+            b.UseSetting("Naudit:Db:Enabled", "true");
+            b.UseSetting("Naudit:Db:ConnectionString", db);
         }).CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/dashboard")).StatusCode);
     }

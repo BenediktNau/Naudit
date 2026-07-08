@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
@@ -45,16 +44,6 @@ if (uiConfig.Enabled)
             o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
         });
     builder.Services.AddAuthorization();
-
-    // Data-Protection-Keys persistieren, sonst werden Session-Cookies bei jedem Container-Neustart
-    // ungültig (Keys sonst nur In-Memory). Verzeichnis: explizit gesetzt oder bei SQLite neben die
-    // DB-Datei aufs Volume abgeleitet; bei Postgres ohne Angabe In-Memory (= bisheriges Verhalten).
-    var dpKeysDir = uiConfig.ResolveDataProtectionKeysDir();
-    if (dpKeysDir is not null)
-    {
-        Directory.CreateDirectory(dpKeysDir);
-        builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(dpKeysDir));
-    }
 
     if (uiConfig.Auth.GitHub.Enabled)
     {
@@ -129,14 +118,15 @@ if (uiConfig.Enabled)
 
 var app = builder.Build();
 
-// UI-Persistenz: Migration + Seed-Admin beim Start (nur bei aktiviertem UI).
-var uiOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Ui.UiOptions>();
-if (uiOptions.Enabled)
+// Persistenz: Migration immer, wenn die DB an ist; Seed-Admin nur mit UI (Accounts = UI-Belang).
+var dbOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Data.DatabaseOptions>();
+if (dbOptions.Enabled)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
     await db.Database.MigrateAsync(); // async im async-Startup — kein Thread-Pool-Blocking
-    await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
+    if (uiConfig.Enabled)
+        await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
 }
 
 if (uiConfig.Enabled)

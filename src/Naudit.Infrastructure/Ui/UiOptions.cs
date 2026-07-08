@@ -1,46 +1,11 @@
 namespace Naudit.Infrastructure.Ui;
 
-/// <summary>DB-Backend der Persistenz. Ein gemeinsames Schema/eine Migration für beide
-/// (die InitialUi-Migration ist provider-neutral gehalten).</summary>
-public enum UiDbProvider { Sqlite, Postgres }
-
-/// <summary>Config-Section Naudit:Ui — WebUI, Zugangsschranke und Persistenz. Alles opt-in:
-/// Enabled=false (Default) ⇒ exakt heutiges Verhalten (kein Gate, keine DB, keine UI-Endpoints).</summary>
+/// <summary>Config-Section Naudit:Ui — WebUI (Dashboard, Auth, Accounts). Opt-in:
+/// Enabled=false (Default) ⇒ keine UI-Endpoints, kein Auth. Setzt die DB voraus
+/// (Naudit:Db:Enabled — UI ⇒ DB, s. DependencyInjection).</summary>
 public sealed class UiOptions
 {
     public bool Enabled { get; set; }
-
-    /// <summary>DB-Backend: SQLite (Default, /data-Volume) oder Postgres (externe DB).</summary>
-    public UiDbProvider DbProvider { get; set; } = UiDbProvider.Sqlite;
-
-    /// <summary>Connection-String für das gewählte Backend:
-    /// SQLite <c>Data Source=/data/naudit.db</c> (Default; /data liegt auf einem Volume) bzw.
-    /// Postgres <c>Host=…;Database=…;Username=…;Password=…</c>.</summary>
-    public string Db { get; set; } = "Data Source=/data/naudit.db";
-
-    /// <summary>Verzeichnis für die Data-Protection-Keys (Session-Cookie-Signatur). Leer = automatisch:
-    /// bei SQLite neben die DB-Datei (liegt auf dem Volume), bei Postgres In-Memory.</summary>
-    public string DataProtectionKeysDir { get; set; } = "";
-
-    /// <summary>Effektives Keys-Verzeichnis: explizit gesetzt gewinnt; sonst bei SQLite aus dem
-    /// DB-Pfad abgeleitet (…/dp-keys neben der Datei); sonst null (⇒ In-Memory = heutiges Verhalten).</summary>
-    public string? ResolveDataProtectionKeysDir()
-    {
-        if (!string.IsNullOrWhiteSpace(DataProtectionKeysDir))
-            return DataProtectionKeysDir;
-        if (DbProvider == UiDbProvider.Sqlite)
-        {
-            try
-            {
-                var dataSource = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(Db).DataSource;
-                var dir = Path.GetDirectoryName(Path.GetFullPath(dataSource));
-                if (!string.IsNullOrEmpty(dir))
-                    return Path.Combine(dir, "dp-keys");
-            }
-            catch { /* unparsebarer ConnectionString ⇒ In-Memory-Fallback */ }
-        }
-        return null;
-    }
 
     /// <summary>Seed-Admin: wird beim Start angelegt, wenn die Accounts-Tabelle leer ist.</summary>
     public SeedAdminOptions Admin { get; set; } = new();

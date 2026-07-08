@@ -19,7 +19,8 @@ public class SpaHostingTests : IClassFixture<WebApplicationFactory<Program>>
             if (uiEnabled)
             {
                 b.UseSetting("Naudit:Ui:Enabled", "true");
-                b.UseSetting("Naudit:Ui:Db", db);
+                b.UseSetting("Naudit:Db:Enabled", "true");
+                b.UseSetting("Naudit:Db:ConnectionString", db);
             }
         }).CreateClient();
     }
