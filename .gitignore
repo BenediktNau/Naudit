@@ -67,3 +67,6 @@ ngrok-*.zip
 
 # WebUI: gebautes SPA landet nur im Container in wwwroot (SPA-Hosting-Task)
 src/Naudit.Web/wwwroot/
+
+# Claude-Code-Arbeitsverzeichnis (lokale Worktrees/Session-Dateien)
+.claude/
