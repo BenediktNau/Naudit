@@ -26,7 +26,10 @@ while (true)
         await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
     restarter.Attach(app.Lifetime);
     await app.RunAsync();
-    if (!restarter.ConsumeRestartRequest()) break;
+    // Restart-Entscheidung lesen, BEVOR die ausgehende Instanz entsorgt wird — danach ist sie tot.
+    var restartRequested = restarter.ConsumeRestartRequest();
+    await app.DisposeAsync(); // sonst leckt pro Neustart ein kompletter DI-Container (DbContext, HttpClients, ...).
+    if (!restartRequested) break;
 }
 
 static WebApplication BuildApp(string[] args, AppRestarter restarter)
@@ -327,6 +330,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     app.MapAuthEndpoints(uiConfig);
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
+    app.MapSettingsEndpoints();
 
     // SPA: index.html + Assets aus wwwroot (im Container aus src/frontend gebaut).
     // Fallback-Reihenfolge: echte Endpoints > /api-404 (nie HTML für API-Tippfehler) > index.html.

@@ -1,16 +1,10 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using Naudit.Core.Review;
-using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Data;
-using Naudit.Infrastructure.Git;
-using Naudit.Infrastructure.Git.GitHub;
-using Naudit.Infrastructure.Ui;
 
 namespace Naudit.Web.Endpoints;
 
-/// <summary>Lese-API fürs Dashboard/Profil + read-only Settings. Nicht-Admins sehen nur
-/// Projekte, deren Owner in den eigenen GitHub-Links liegt.</summary>
+/// <summary>Lese-API fürs Dashboard/Profil. Nicht-Admins sehen nur Projekte, deren Owner
+/// in den eigenen GitHub-Links liegt.</summary>
 public static class DataEndpoints
 {
     public static void MapDataEndpoints(this WebApplication app)
@@ -139,25 +133,6 @@ public static class DataEndpoints
                     .Select(p => new { name = p.PlatformProjectId, tokens = p.Reviews.Where(r => r.CreatedAt >= monthStart).Sum(Tokens) })
                     .Where(x => x.tokens > 0)
                     .OrderByDescending(x => x.tokens),
-            });
-        });
-
-        // Read-only per Design-Entscheidung: zeigt effektive Config, ändert NICHTS, maskiert alles Geheime.
-        api.MapGet("/settings", async (HttpContext ctx, NauditDbContext db, AiOptions ai, GitOptions git,
-            ReviewOptions review, UiOptions ui, IOptions<GitHubOptions> gitHub) =>
-        {
-            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
-            return Results.Ok(new
-            {
-                ai = new { provider = ai.Provider.ToString(), model = ai.Model },
-                git = new
-                {
-                    platform = git.Platform.ToString(),
-                    auth = git.Platform == GitPlatformKind.GitHub ? gitHub.Value.Auth.ToString() : null,
-                    postVerdict = git.Platform == GitPlatformKind.GitHub && gitHub.Value.PostVerdict,
-                },
-                authMethods = new { local = true, gitHub = ui.Auth.GitHub.Enabled, oidc = ui.Auth.Oidc.Enabled },
-                systemPrompt = review.SystemPrompt == PromptBuilder.DefaultSystemPrompt ? "built-in default" : "custom (configured)",
             });
         });
     }

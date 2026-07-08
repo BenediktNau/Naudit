@@ -93,19 +93,6 @@ public class DataEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
-    public async Task Settings_readOnly_masked_adminOnly()
-    {
-        var (client, _) = await AdminApp();
-        var settings = await client.GetFromJsonAsync<JsonElement>("/api/settings");
-
-        Assert.Equal("Ollama", settings.GetProperty("ai").GetProperty("provider").GetString());
-        Assert.Equal("GitHub", settings.GetProperty("git").GetProperty("platform").GetString());
-        Assert.Equal("built-in default", settings.GetProperty("systemPrompt").GetString());
-        // Kein Secret irgendwo im Payload:
-        Assert.DoesNotContain("ApiKey", settings.GetRawText(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public async Task Revoke_activeAdmin_isRejected_toPreventLockout()
     {
         var (client, factory) = await AdminApp();
