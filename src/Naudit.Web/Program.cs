@@ -354,6 +354,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
     app.MapSettingsEndpoints();
+    app.MapSetupEndpoints(setup);
 
     // SPA: index.html + Assets aus wwwroot (im Container aus src/frontend gebaut).
     // Fallback-Reihenfolge: echte Endpoints > /api-404 (nie HTML für API-Tippfehler) > index.html.
