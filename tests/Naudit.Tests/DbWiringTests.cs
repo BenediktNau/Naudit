@@ -63,4 +63,15 @@ public class DbWiringTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/auth/logout", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode); // Host läuft & DB migriert
     }
+
+    [Fact]
+    public void UiOn_dbOff_failsFastAtStartup()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => Build(new()
+        {
+            ["Naudit:Ui:Enabled"] = "true",
+            // Naudit:Db:Enabled fehlt absichtlich
+        }));
+        Assert.Contains("Naudit:Db:Enabled", ex.Message);
+    }
 }

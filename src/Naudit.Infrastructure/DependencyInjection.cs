@@ -158,6 +158,12 @@ public static class DependencyInjection
         var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
         services.AddSingleton(uiOptions);
 
+        // UI ⇒ DB: ohne DbContext gäbe es erst beim ersten Request kryptische DI-Fehler —
+        // lieber sofort beim Start scheitern (gleiches Muster wie Auth=App ohne AppId).
+        if (uiOptions.Enabled && !dbOptions.Enabled)
+            throw new InvalidOperationException(
+                "Naudit:Ui:Enabled=true verlangt Naudit:Db:Enabled=true (die UI braucht Naudits Datenbank).");
+
         if (dbOptions.Enabled)
         {
             // Backend per Config; dieselbe (provider-neutrale) Migrationskette läuft auf beiden.
