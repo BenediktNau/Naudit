@@ -10,8 +10,11 @@ Naudit ships an optional web UI that serves two purposes:
    on their first review), recently reviewed PRs with per-finding detail, an admin
    approvals view and a per-user profile.
 
-Everything sits behind **`Naudit:Ui:Enabled` (default `false`)** — switched off, Naudit
-behaves exactly as before: no gate, no database, no UI endpoints.
+Two switches control all of this: **`Naudit:Db:Enabled` (default `false`)** turns on the
+database with the access gate and the review audit log, and **`Naudit:Ui:Enabled`
+(default `false`)** adds the dashboard/auth on top (it requires the database — startup
+fails fast otherwise). Both off = exactly the pre-WebUI behaviour: no gate, no database,
+no UI endpoints.
 
 Screens: login, dashboard, approvals (admin), settings (admin, **read-only**), profile.
 UI design source of truth: `Naudit WebUI.dc.html` (Claude Design project). Dark-only,
@@ -24,7 +27,7 @@ Naudit__Ui__Enabled=true
 Naudit__Db__Enabled=true                                    # the UI requires the database (fails fast otherwise)
 Naudit__Db__Provider=Sqlite                                 # Sqlite (default) | Postgres
 Naudit__Db__ConnectionString="Data Source=/data/naudit.db"  # SQLite: /data = persistent volume!
-Naudit__Ui__Admin__Username=admin
+Naudit__Ui__Admin__Username=admin                # seed admin (created on first start, empty DB)
 Naudit__Ui__Admin__InitialPassword=<secret>      # 🔒
 
 # Optional self-service sign-in (both default off — local login always works):
