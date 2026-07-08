@@ -6,11 +6,10 @@ namespace Naudit.Tests;
 public class DatabaseOptionsTests
 {
     [Fact]
-    public void Defaults_disabled_sqlite_volumeDbPath()
+    public void Defaults_sqlite_relativeDbPath()
     {
         var o = new DatabaseOptions();
-        Assert.False(o.Enabled);
         Assert.Equal(DbProvider.Sqlite, o.Provider);
-        Assert.Equal("Data Source=/data/naudit.db", o.ConnectionString);
+        Assert.Equal("Data Source=data/naudit.db", o.ConnectionString);
     }
 }

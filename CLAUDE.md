@@ -117,31 +117,75 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   read-only "Repository context" section. On by default; `Naudit:Review:Context:Enabled=false`
   restores the diff-only prompt. Seam for a future Roslyn/tree-sitter or cached "repo map"
   collector — just another impl + registration. See `docs/review-context.md`.
-- **DB (first-class concern) + WebUI on top (both opt-in):** the database is its own config
-  section `Naudit:Db` (`Enabled` default `false`, `Provider` = `Sqlite`|`Postgres`,
-  `ConnectionString`), decoupled from the UI. `Naudit:Db:Enabled` switches
-  `NauditDbContext` + `EfAccessGate` + `EfReviewAuditSink` (off ⇒ `AllowAllAccessGate` +
-  `NullReviewAuditSink` = pre-WebUI behaviour); `Naudit:Ui:Enabled` switches
-  dashboard/BFF-auth/`AccountService` and **requires the DB — fail-fast at startup
-  otherwise** (UI ⇒ DB; gate + audit log work headless without the dashboard). Two Core
-  seams in the `IPromptRedactor` pattern: `IAccessGate` (checked in both webhook endpoints
-  before enqueue — silent drop with 200 — and in `POST /review` — 403) and
-  `IReviewAuditSink` (called after `PostReviewAsync` with verdict/findings/token usage from
-  MEAI `ChatResponse.Usage`; failures never fail the review). Implementations in
-  `src/Naudit.Infrastructure/Ui/`, persistence in `src/Naudit.Infrastructure/Data/` (EF
-  Core, migration via `Database.Migrate()` at startup whenever the DB is on). ASP.NET
+- **DB + WebUI, always on; config lives in the DB:** the `Naudit:Db:Enabled`/
+  `Naudit:Ui:Enabled` switches are gone — `NauditDbContext`, the access gate, the review
+  audit log, and the WebUI/BFF-auth are unconditional. What used to gate the access check
+  is now an explicit `Naudit:AccessGate:Mode` (`Open` default — every project with a valid
+  webhook secret is reviewed, the pre-WebUI behaviour; `Registered` — `EfAccessGate`, only
+  projects of active accounts), selected in `DependencyInjection.cs` between
+  `AllowAllAccessGate` and `EfAccessGate`. `IReviewAuditSink` has one impl now
+  (`EfReviewAuditSink`, called after `PostReviewAsync` with verdict/findings/token usage
+  from MEAI `ChatResponse.Usage`; failures never fail the review) — both are still the
+  `IPromptRedactor`-pattern Core seams (`IAccessGate` checked in both webhook endpoints
+  before enqueue — silent drop with 200 — and in `POST /review` — 403).
+
+  **Config model:** most `Naudit:*` keys are now DB-managed — a whitelist in
+  `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs` (`SettingDefinition(Key,
+  IsSecret)`; list-shaped keys like `ProjectTokens`/`Ui:Admins` and the admin seed stay
+  env-only on purpose). `SettingsService` writes/removes rows in the new `Settings` table,
+  encrypting `IsSecret` values with Data Protection (purpose `"Naudit.Settings"`).
+  `DbSettingsLoader.Load` runs **before the host is built**: it builds its own throwaway
+  `ServiceProvider` (DbContext + Data Protection on the same DB), runs
+  `Database.Migrate()`, reads and decrypts the `Settings` rows (an undecryptable secret —
+  keyring gone — is treated as missing, not a crash) and hands back a plain
+  `Dictionary<string,string?>`. `NauditConfig.InsertDbSettings` inserts that dictionary as
+  a `MemoryConfigurationSource` right after the last `appsettings*.json` source and returns
+  the sources still above it as `EnvOverrides` (used by the Settings API to tell "set via
+  env, locked" from "set via DB"): `appsettings.json < DB-Settings < user-secrets/env/
+  command-line`. `AddNauditInfrastructure` and all `*Options` classes are unchanged — they
+  still just read `IConfiguration` and don't know a value came from the DB. The bootstrap
+  loader and the host share one fixed Data-Protection application name
+  (`DbSettingsLoader.DataProtectionAppName = "Naudit"`, `SetApplicationName`) so values
+  encrypted by one are decryptable by the other — **this is a breaking one-time change**:
+  it invalidates pre-existing WebUI session cookies on upgrade.
+
+  **Host restart loop:** `Program.cs` wraps host build+run in a `while(true)` loop around
+  a single `AppRestarter` (`IAppRestarter`: `RequestRestart` stops the current host via
+  `IHostApplicationLifetime`, `MarkRestartPending`/`RestartPending` drive the Settings
+  page's "restart required" banner). After `RunAsync` returns, the loop reads
+  `ConsumeRestartRequest()`, disposes the outgoing `WebApplication` (else a DI container
+  leaks per restart), and either rebuilds (config changes from the DB now apply) or exits.
+  `PUT /api/settings` writes to the DB and marks a pending restart;
+  `POST /api/settings/restart` triggers it — no container/orchestrator restart needed.
+
+  **Recovery mode:** the host build probes `AddNauditInfrastructure` against a throwaway
+  `ServiceCollection` first; if that throws (e.g. `GitHub:Auth=App` without a private key),
+  the real host still comes up but with the review pipeline registrations, the webhook
+  endpoints, and `POST /review` skipped — only `/health` and the always-mapped WebUI
+  (login, Settings, showing the error via `StartupState.RecoveryError`) stay live, so an
+  admin can fix the config and restart instead of crash-looping.
+
+  Persistence lives in `src/Naudit.Infrastructure/Data/` (EF Core; `Database.Migrate()`
+  now runs inside `DbSettingsLoader`, before the host, not in `Program.cs`). ASP.NET
   Data-Protection keys are persisted **in the DB** (`NauditDbContext` implements
-  `IDataProtectionKeyContext`, `PersistKeysToDbContext` in `Program.cs`) — sessions survive
-  restarts on both backends. The migrations (`InitialUi`, `AddDataProtectionKeys`) are
-  hand-kept provider-neutral: no explicit column types, both `Sqlite:Autoincrement` and
-  `Npgsql:ValueGenerationStrategy` annotated in `Up()`, no `HasColumnType` in the
-  Designers; on Postgres the `PendingModelChangesWarning` is suppressed. A future `dotnet
-  ef migrations add` re-bakes SQLite types — re-neutralize the new migration + Designer
-  (snapshot stays SQLite-baked). Postgres round-trip: opt-in `NauditDbContextPostgresTests`,
-  gated on `NAUDIT_TEST_POSTGRES`. BFF-auth + JSON API in `src/Naudit.Web/Endpoints/`
-  (cookie session, 401 instead of redirects); the React SPA in `src/frontend/` is compiled
-  into `wwwroot/` by the container build. The Settings API/page is **read-only** by design
-  (config stays env-only). See `docs/webui.md`.
+  `IDataProtectionKeyContext`) — sessions survive restarts on both backends. The
+  migrations (`InitialUi`, `AddDataProtectionKeys`, and the new `Settings`/`SetupDraft`
+  tables) are hand-kept provider-neutral: no explicit column types, both
+  `Sqlite:Autoincrement` and `Npgsql:ValueGenerationStrategy` annotated in `Up()`, no
+  `HasColumnType` in the Designers; on Postgres the `PendingModelChangesWarning` is
+  suppressed. A future `dotnet ef migrations add` re-bakes SQLite types — re-neutralize
+  the new migration + Designer (snapshot stays SQLite-baked). Postgres round-trip: opt-in
+  `NauditDbContextPostgresTests`, gated on `NAUDIT_TEST_POSTGRES`. BFF-auth + JSON API in
+  `src/Naudit.Web/Endpoints/` (cookie session, 401 instead of redirects; `SettingsEndpoints`
+  is the editable Settings API — GET returns catalog+source+lock state, PUT validates
+  then writes, secrets never round-trip); the React SPA in `src/frontend/` is compiled
+  into `wwwroot/` by the container build. See `docs/webui.md` and `docs/configuration.md`.
+
+  This (DB Pflicht, config-in-DB, restart loop, recovery mode, `AccessGate:Mode`) is the
+  "Fundament" slice of a larger design — a first-run setup wizard and platform automation
+  (GitHub App manifest flow, GitLab webhook creation) are a **separate, not-yet-built**
+  follow-up PR; see `docs/superpowers/specs/2026-07-08-setup-wizard-design.md` for the
+  full plan.
 - **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
   git-API token from the review's `ProjectId` (per-project override → global fallback) via
   `ResolveTokenAsync` (async — implementations may mint tokens over HTTP, not just look them up).

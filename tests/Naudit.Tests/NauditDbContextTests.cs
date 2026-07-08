@@ -59,4 +59,24 @@ public class NauditDbContextTests
         await db.SaveChangesAsync();
         Assert.Equal("<key id=\"1\" />", (await db.DataProtectionKeys.SingleAsync()).Xml);
     }
+
+    [Fact]
+    public async Task Settings_roundtrip_persistiertKeyValueSecretFlag()
+    {
+        await using var db = CreateDb();
+        db.Settings.Add(new SettingEntity
+        {
+            Key = "Naudit:Ai:Provider",
+            Value = "Anthropic",
+            IsSecret = false,
+            UpdatedAtUtc = DateTime.UtcNow,
+        });
+        db.SetupDrafts.Add(new SetupDraftEntity { Id = 1, Json = "{}", UpdatedAtUtc = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        var setting = await db.Settings.SingleAsync(s => s.Key == "Naudit:Ai:Provider");
+        Assert.Equal("Anthropic", setting.Value);
+        Assert.False(setting.IsSecret);
+        Assert.Equal("{}", (await db.SetupDrafts.SingleAsync(d => d.Id == 1)).Json);
+    }
 }

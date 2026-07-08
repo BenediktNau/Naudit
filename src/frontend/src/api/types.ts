@@ -97,11 +97,20 @@ export interface UsageDto {
   perProject: { name: string; tokens: number }[];
 }
 
+export interface SettingItem {
+  key: string;
+  isSecret: boolean;
+  isSet: boolean;
+  source: "db" | "env" | "default";
+  editable: boolean;
+  value: string | null;
+}
+
 export interface SettingsDto {
-  ai: { provider: string; model: string };
-  git: { platform: string; auth: string | null; postVerdict: boolean };
-  authMethods: AuthProviders;
-  systemPrompt: string;
+  recoveryError: string | null;
+  warnings: string[];
+  restartPending: boolean;
+  settings: SettingItem[];
 }
 
 export interface GitHubAppAccount {

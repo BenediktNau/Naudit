@@ -6,14 +6,15 @@ using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Naudit.Infrastructure.Data;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class DataEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public DataEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public DataEndpointTests(TestAppFactory factory) => _factory = factory;
 
     private async Task<(HttpClient Client, WebApplicationFactory<Program> Factory)> AdminApp()
     {
@@ -24,8 +25,6 @@ public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("Naudit:GitHub:WebhookSecret", "s");
             b.UseSetting("Naudit:Ai:Provider", "Ollama");
             b.UseSetting("Naudit:Ai:Model", "llama3.1");
-            b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Db:Enabled", "true");
             b.UseSetting("Naudit:Db:ConnectionString", db);
             b.UseSetting("Naudit:Ui:Admin:Username", "root");
             b.UseSetting("Naudit:Ui:Admin:InitialPassword", "passwort123");
@@ -94,19 +93,6 @@ public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task Settings_readOnly_masked_adminOnly()
-    {
-        var (client, _) = await AdminApp();
-        var settings = await client.GetFromJsonAsync<JsonElement>("/api/settings");
-
-        Assert.Equal("Ollama", settings.GetProperty("ai").GetProperty("provider").GetString());
-        Assert.Equal("GitHub", settings.GetProperty("git").GetProperty("platform").GetString());
-        Assert.Equal("built-in default", settings.GetProperty("systemPrompt").GetString());
-        // Kein Secret irgendwo im Payload:
-        Assert.DoesNotContain("ApiKey", settings.GetRawText(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public async Task Revoke_activeAdmin_isRejected_toPreventLockout()
     {
         var (client, factory) = await AdminApp();
@@ -147,8 +133,6 @@ public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         {
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-            b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Db:Enabled", "true");
             b.UseSetting("Naudit:Db:ConnectionString", db);
         }).CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/dashboard")).StatusCode);

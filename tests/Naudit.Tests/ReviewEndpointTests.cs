@@ -11,11 +11,11 @@ using Xunit;
 
 namespace Naudit.Tests;
 
-public class ReviewEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class ReviewEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly TestAppFactory _factory;
 
-    public ReviewEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public ReviewEndpointTests(TestAppFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Review_withWrongToken_returnsUnauthorized()

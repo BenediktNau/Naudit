@@ -1,13 +1,14 @@
 using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class ExternalAuthTests : IClassFixture<WebApplicationFactory<Program>>
+public class ExternalAuthTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public ExternalAuthTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public ExternalAuthTests(TestAppFactory factory) => _factory = factory;
 
     private HttpClient CreateClient(bool gitHubEnabled)
     {
@@ -16,8 +17,6 @@ public class ExternalAuthTests : IClassFixture<WebApplicationFactory<Program>>
         {
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-            b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Db:Enabled", "true");
             b.UseSetting("Naudit:Db:ConnectionString", db);
             if (gitHubEnabled)
             {

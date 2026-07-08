@@ -1,34 +1,41 @@
 # WebUI — access gate & dashboard
 
-Naudit ships an optional web UI that serves two purposes:
+Naudit's database and web UI are **always on** — they are also where configuration
+itself lives now (see [Configuration › Where configuration lives](configuration.md#where-configuration-lives)).
+The UI serves three purposes:
 
-1. **Access gate.** Reviews only run for projects that belong to an *active* account.
-   Webhooks from anyone else are silently dropped (HTTP 200 to the platform, a log line
-   inside). This makes it safe to make the GitHub App **public** without strangers burning
-   your LLM tokens. The synchronous `POST /review` endpoint returns an honest `403` instead.
+1. **Access gate.** With `Naudit:AccessGate:Mode=Registered`, reviews only run for
+   projects that belong to an *active* account. Webhooks from anyone else are silently
+   dropped (HTTP 200 to the platform, a log line inside). This makes it safe to make the
+   GitHub App **public** without strangers burning your LLM tokens. The synchronous
+   `POST /review` endpoint returns an honest `403` instead. The default mode, `Open`,
+   reviews every project with a valid webhook secret (the pre-WebUI behaviour) — see
+   [Access model](#access-model) below.
 2. **Dashboard.** Token usage (from MEAI `ChatResponse.Usage`), projects (auto-registered
    on their first review), recently reviewed PRs with per-finding detail, an admin
    approvals view and a per-user profile.
+3. **Settings.** An admin can view and edit the DB-managed configuration (platform, AI
+   provider, review/gate tuning, sign-in providers, access-gate mode) without a redeploy
+   — see [Settings are editable](#settings-are-editable) below.
 
-Two switches control all of this: **`Naudit:Db:Enabled` (default `false`)** turns on the
-database with the access gate and the review audit log, and **`Naudit:Ui:Enabled`
-(default `false`)** adds the dashboard/auth on top (it requires the database — startup
-fails fast otherwise). Both off = exactly the pre-WebUI behaviour: no gate, no database,
-no UI endpoints.
-
-Screens: login, dashboard, approvals (admin), settings (admin, **read-only**), profile.
+Screens: login, dashboard, approvals (admin), settings (admin, editable), profile.
 UI design source of truth: `Naudit WebUI.dc.html` (Claude Design project). Dark-only,
 Space Grotesk + Space Mono, one green accent (`#4ADE80`).
 
 ## Enabling (Coolify / environment)
 
+The database and UI need no switch anymore — only the bootstrap keys below are required;
+everything else (including the access-gate mode and sign-in providers) can instead be
+left unset here and configured on the Settings page after first start.
+
 ```bash
-Naudit__Ui__Enabled=true
-Naudit__Db__Enabled=true                                    # the UI requires the database (fails fast otherwise)
 Naudit__Db__Provider=Sqlite                                 # Sqlite (default) | Postgres
 Naudit__Db__ConnectionString="Data Source=/data/naudit.db"  # SQLite: /data = persistent volume!
 Naudit__Ui__Admin__Username=admin                # seed admin (created on first start, empty DB)
 Naudit__Ui__Admin__InitialPassword=<secret>      # 🔒
+
+# Optional: only needed to restrict reviews to registered accounts (default is Open)
+# Naudit__AccessGate__Mode=Registered
 
 # Optional self-service sign-in (both default off — local login always works):
 Naudit__Ui__Auth__GitHub__Enabled=true
@@ -44,7 +51,7 @@ Naudit__Ui__Auth__Oidc__ClientSecret=<secret>    # 🔒
 ```
 
 **Important (SQLite):** mount a persistent volume at `/data` — the SQLite database lives
-there. Without it, accounts and review history are lost on every redeploy.
+there. Without it, settings, accounts and review history are lost on every redeploy.
 
 ### Postgres instead of SQLite
 
@@ -59,18 +66,21 @@ Both backends share **one** schema and the same startup `Database.Migrate()` —
 migration is kept provider-neutral, so switching is config-only (a fresh database is created
 and migrated on first start). Nothing else changes.
 
-### Database without the dashboard
+### Running without ever touching the UI
 
-The database is its own concern (`Naudit:Db:Enabled`), the UI merely depends on it. With
-`Naudit__Db__Enabled=true` and the UI off, the access gate and the review audit log are
-active without any UI endpoints — useful for a headless deployment (accounts/links are then
-managed directly in the database). The reverse is invalid: enabling the UI without the
-database fails fast at startup.
+The database and the dashboard endpoints are always there, but nothing forces you to use
+them: with the default `Naudit:AccessGate:Mode=Open`, every project with a valid webhook
+secret is reviewed and the review audit log fills up in the background — you never need
+to sign in. Switching to `Registered` (or wanting the dashboard/token-usage view) is when
+an admin account and the Settings/Approvals screens become relevant.
 
 Session-cookie signing keys (ASP.NET Data Protection) are stored **in the database** on
 both backends, so sessions survive container restarts — no key directory or extra volume.
 
 ## Access model
+
+Only relevant when `Naudit:AccessGate:Mode=Registered` (the default, `Open`, reviews
+every project with a valid webhook secret and ignores accounts/links entirely).
 
 | Path | Status after sign-in | Who approves |
 | --- | --- | --- |
@@ -78,8 +88,9 @@ both backends, so sessions survive container restarts — no key directory or ex
 | **GitHub OAuth** (self-service, opt-in) | `Pending` | admin approves in *Approvals* |
 | **OIDC/Keycloak** (self-service, opt-in) | `Pending` | admin approves in *Approvals* |
 
-The gate matches the **owner** part of a project id (`owner/repo` → `owner`; GitLab
-numeric project ids match as a whole) against the **GitHub links** of active accounts:
+In `Registered` mode, the gate matches the **owner** part of a project id (`owner/repo` →
+`owner`; GitLab numeric project ids match as a whole) against the **GitHub links** of
+active accounts:
 
 - GitHub OAuth sign-in fills the user's own login automatically.
 - For local and OIDC accounts the admin maintains the links (*Approvals → Links*).
@@ -94,12 +105,28 @@ installation state and clears itself once the app is installed.
 
 Unauthorized webhooks are dropped silently; the project simply gets no review comment.
 
-## Settings are read-only
+## Settings are editable
 
-The Settings screen shows the *effective* configuration (AI provider/model, git platform,
-bot identity, PostVerdict, sign-in methods, whether a custom system prompt is configured) —
-**it never edits anything and returns no secrets**. Configuration stays env/appsettings-only
-by design; see [Configuration](configuration.md).
+The Settings screen shows every DB-managed key (platform, AI provider/model, review/gate
+tuning, access-gate mode, sign-in methods — the whitelist in
+[`SettingsCatalog.cs`](../src/Naudit.Infrastructure/Settings/SettingsCatalog.cs)) and lets
+an **admin** change them:
+
+- **Environment always wins.** A key set via user-secrets/environment shows up **locked**
+  ("via environment") and cannot be edited here — that deployment's env value keeps
+  applying regardless of what the Settings page shows.
+- **Changes apply after a restart.** Saving writes to the database and shows a
+  "restart required" banner with a "Restart now" button (`IAppRestarter` — an in-process
+  restart, no container/orchestrator restart needed, a couple of seconds of downtime).
+- **Secrets are write-only.** The API never returns a secret's value, only whether it is
+  set; a new value overwrites, an empty value clears it back to the default. Secrets are
+  encrypted at rest (ASP.NET Data Protection) — see
+  [Configuration › Where configuration lives](configuration.md#where-configuration-lives)
+  for the honest caveat on what that protects against.
+- A broken configuration (e.g. `Auth=App` without a private key) does not crash-loop the
+  container — the host starts in a **recovery mode** instead: webhooks and `POST /review`
+  are disabled, the error is shown on the Settings page, and login/UI stay available so an
+  admin can fix it and restart.
 
 ## Provider setup
 
@@ -135,13 +162,23 @@ the stable external id.
   the container build compiles it into `wwwroot/`. For local dev: `dotnet run` (port 5290)
   + `npm run dev` (proxies `/api` and `/auth`).
 - **Persistence** is EF Core (`src/Naudit.Infrastructure/Data/`) on **SQLite (default) or
-  Postgres** (`Naudit:Db:Provider`), enabled via `Naudit:Db:Enabled` (independently of the
-  UI); the schema is applied via `Database.Migrate()` at startup whenever the DB is on. The
-  migrations (`InitialUi`, `AddDataProtectionKeys`) are hand-kept provider-neutral (no
-  explicit column types, both identity strategies annotated) so a single migration chain
-  runs on either backend; on Postgres EF's pending-changes check is suppressed (the
-  committed model snapshot is SQLite-flavoured). Data-Protection keys live in the
-  `DataProtectionKeys` table (`PersistKeysToDbContext`). A Postgres round-trip is covered
-  by the opt-in `NauditDbContextPostgresTests` (runs only when `NAUDIT_TEST_POSTGRES` is set).
-- **Core seams:** `IAccessGate` (gate check) and `IReviewAuditSink` (review + token-usage
-  recording) — both no-ops when the DB is off. Sink failures never fail a review.
+  Postgres** (`Naudit:Db:Provider`) and is always on; the schema is applied via
+  `Database.Migrate()` at startup (run once, in the `DbSettingsLoader` bootstrap, before
+  the host itself is built). The migrations (`InitialUi`, `AddDataProtectionKeys`, `AddSettingsAndSetupDraft`,
+  which adds the `Settings` and `SetupDraft` tables) are hand-kept
+  provider-neutral (no explicit column types, both identity strategies annotated) so a
+  single migration chain runs on either backend; on Postgres EF's pending-changes check
+  is suppressed (the committed model snapshot is SQLite-flavoured). Data-Protection keys
+  live in the `DataProtectionKeys` table (`PersistKeysToDbContext`) under a fixed
+  application name (`"Naudit"`) shared by the bootstrap loader and the host, so settings
+  encrypted by one are readable by the other. A Postgres round-trip is covered by the
+  opt-in `NauditDbContextPostgresTests` (runs only when `NAUDIT_TEST_POSTGRES` is set).
+- **Core seams:** `IAccessGate` (gate check — `AllowAllAccessGate` in `Open` mode,
+  `EfAccessGate` in `Registered` mode) and `IReviewAuditSink` (`EfReviewAuditSink`; review
+  + token-usage recording). Sink failures never fail a review.
+- **Config model:** the database is also a `IConfiguration` source (`NauditConfig.InsertDbSettings`,
+  inserted right after `appsettings.json` and below user-secrets/env — see
+  [Configuration › Where configuration lives](configuration.md#where-configuration-lives)),
+  loaded and decrypted at bootstrap by `DbSettingsLoader` before the host is built. A
+  `Program.cs` host loop (`IAppRestarter`) rebuilds the host in-process when the Settings
+  page requests a restart, so DB config changes apply without a container restart.

@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,12 +21,25 @@ namespace Naudit.Infrastructure;
 
 public static class DependencyInjection
 {
+    /// <summary>DB-Basis (immer an): Options, DbContext, Settings- und Account-Service.
+    /// Getrennt von AddNauditInfrastructure, damit der Recovery-Modus (kaputte Review-Config)
+    /// die DB/UI-Basis trotzdem bekommt.</summary>
+    public static IServiceCollection AddNauditDatabase(this IServiceCollection services, IConfiguration configuration)
+    {
+        var dbOptions = configuration.GetSection("Naudit:Db").Get<DatabaseOptions>() ?? new DatabaseOptions();
+        services.AddSingleton(dbOptions);
+        services.AddDbContext<NauditDbContext>(o => DatabaseOptions.ConfigureDbContext(o, dbOptions));
+        services.AddScoped<Settings.SettingsService>();
+        services.AddScoped<AccountService>();
+        return services;
+    }
+
     public static IServiceCollection AddNauditInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
-        services.AddSingleton(aiOptions); // für die read-only Settings-Anzeige im WebUI
+        services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
@@ -159,54 +171,17 @@ public static class DependencyInjection
             ? new PatternRedactor(redactionOptions)
             : new NullPromptRedactor());
 
-        // Persistenz (Naudit:Db): eigenständiger Belang — DbContext + Zugangsschranke + Audit-Sink
-        // nur bei Enabled, sonst No-Ops (= Verhalten ohne DB, keine DB-Datei nötig).
-        // Beide Options immer registrieren, damit Program.cs/Endpoints sie lesen können.
-        var dbOptions = configuration.GetSection("Naudit:Db").Get<DatabaseOptions>() ?? new DatabaseOptions();
-        services.AddSingleton(dbOptions);
         var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
         services.AddSingleton(uiOptions);
 
-        // UI ⇒ DB: ohne DbContext gäbe es erst beim ersten Request kryptische DI-Fehler —
-        // lieber sofort beim Start scheitern (gleiches Muster wie Auth=App ohne AppId).
-        if (uiOptions.Enabled && !dbOptions.Enabled)
-            throw new InvalidOperationException(
-                "Naudit:Ui:Enabled=true verlangt Naudit:Db:Enabled=true (die UI braucht Naudits Datenbank).");
-
-        if (dbOptions.Enabled)
-        {
-            // Backend per Config; dieselbe (provider-neutrale) Migrationskette läuft auf beiden.
-            services.AddDbContext<NauditDbContext>(o =>
-            {
-                switch (dbOptions.Provider)
-                {
-                    case DbProvider.Postgres:
-                        o.UseNpgsql(dbOptions.ConnectionString);
-                        // Der committete Model-Snapshot ist SQLite-geprägt (Migrations werden gegen
-                        // SQLite geschrieben); auf Postgres zeigt EFs Pending-Changes-Prüfung deshalb
-                        // einen gutartigen, konventionsbedingten Diff (Identity-Strategie). Nur hier
-                        // unterdrücken — auf SQLite bleibt die Warnung als „Migration vergessen?"-Netz aktiv.
-                        o.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
-                        break;
-                    default:
-                        o.UseSqlite(dbOptions.ConnectionString);
-                        break;
-                }
-            });
+        // Zugangsschranke: explizite Betriebsart statt (wie früher) implizit an der DB zu hängen.
+        var gateOptions = configuration.GetSection("Naudit:AccessGate").Get<AccessGateOptions>() ?? new AccessGateOptions();
+        services.AddSingleton(gateOptions);
+        if (gateOptions.Mode == AccessGateMode.Registered)
             services.AddScoped<IAccessGate, EfAccessGate>();
-            services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
-        }
         else
-        {
             services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
-            services.AddSingleton<IReviewAuditSink>(new NullReviewAuditSink());
-        }
-
-        // WebUI (Naudit:Ui): nur Accounts/Dashboard-Belange — braucht die DB (UI ⇒ DB).
-        if (uiOptions.Enabled)
-        {
-            services.AddScoped<AccountService>();
-        }
+        services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
 
         services.AddScoped<ReviewService>();
         return services;
