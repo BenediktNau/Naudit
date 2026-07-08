@@ -118,4 +118,26 @@ public class GitHubAppInstallationCheckerTests
         // Fehler wurde NICHT gecached ⇒ erneuter Probe-Call, jetzt installiert.
         Assert.True(Assert.Single((await checker.GetStatusAsync(["octocat"])).Accounts).Installed);
     }
+
+    [Fact]
+    public async Task GetStatusAsync_malformedSlugResponse_failsQuiet_emptyInstallUrl()
+    {
+        // /app liefert 200, aber keinen JSON-Body ⇒ JsonException. Fail-quiet: nicht werfen,
+        // installUrl leer, Login-Status trotzdem ermittelt.
+        var stub = new StubHttpMessageHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path == "/app") return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("<not json>", System.Text.Encoding.UTF8, "application/json"),
+            };
+            return path.StartsWith("/users/") ? Json(HttpStatusCode.OK, """{"id":1}""") : new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        var checker = Checker(stub, new FakeTime(T0));
+
+        var status = await checker.GetStatusAsync(["octocat"]);
+
+        Assert.Equal("", status.InstallUrl);
+        Assert.True(Assert.Single(status.Accounts).Installed);
+    }
 }

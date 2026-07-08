@@ -87,7 +87,9 @@ public sealed class GitHubAppInstallationChecker(
             if (!string.IsNullOrEmpty(slug)) _slug = slug;
             return _slug;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        // Bewusst breit: auch kaputtes/nicht-JSON /app-200 (JsonException) darf nicht werfen — Fail-quiet.
+        // Cancellation bleibt ausgenommen, damit ein echter Abbruch weiterhin propagiert.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "GitHub-App-Slug konnte nicht geladen werden.");
             return null;
