@@ -67,3 +67,22 @@ public sealed class ReviewFindingEntity
     public int? Line { get; set; }
     public required string Text { get; set; }
 }
+
+/// <summary>Ein verwalteter Konfigurationswert (Key in Doppelpunkt-Notation, z. B. "Naudit:Ai:Provider").
+/// Secrets liegen Data-Protection-verschlüsselt in Value (Purpose "Naudit.Settings").</summary>
+public sealed class SettingEntity
+{
+    public required string Key { get; set; }
+    public required string Value { get; set; }
+    public bool IsSecret { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+/// <summary>Zwischenstand des Setup-Wizards (genau eine Zeile, Id=1) — JSON-Blob,
+/// DP-verschlüsselt. Wird erst beim "Übernehmen" in echte Settings umgesetzt.</summary>
+public sealed class SetupDraftEntity
+{
+    public int Id { get; set; }
+    public required string Json { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}

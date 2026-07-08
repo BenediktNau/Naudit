@@ -11,6 +11,8 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
     public DbSet<ProjectEntity> Projects => Set<ProjectEntity>();
     public DbSet<ReviewEntity> Reviews => Set<ReviewEntity>();
     public DbSet<ReviewFindingEntity> ReviewFindings => Set<ReviewFindingEntity>();
+    public DbSet<SettingEntity> Settings => Set<SettingEntity>();
+    public DbSet<SetupDraftEntity> SetupDrafts => Set<SetupDraftEntity>();
 
     /// <summary>Data-Protection-Keys (Session-Cookie-Signatur) — in der DB statt im Dateisystem,
     /// damit Sessions Container-Neustarts auf beiden Backends überleben.</summary>
@@ -44,5 +46,8 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
         b.Entity<ReviewFindingEntity>(e =>
             e.HasOne(x => x.Review).WithMany(r => r.Findings)
                 .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade));
+        b.Entity<SettingEntity>(e => e.HasKey(x => x.Key));
+        // Id wird von der App gesetzt (immer 1) — kein Autoincrement, hält die Migration provider-neutral.
+        b.Entity<SetupDraftEntity>(e => e.Property(x => x.Id).ValueGeneratedNever());
     }
 }
