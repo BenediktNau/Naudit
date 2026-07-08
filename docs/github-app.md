@@ -42,6 +42,7 @@ Either way, configure:
 | **Permissions → Contents** | Read-only |
 | **Permissions → Metadata** | Read-only (mandatory default) |
 | **Subscribe to events** | `Pull request` |
+| **Setup URL** (optional) | `https://<your-host>/` — after "Install app", GitHub sends the user back to the Naudit dashboard; the install banner clears itself once the fresh state is read (cached a few minutes — see below) |
 
 Then **generate a private key** for the app (app settings page, "Private keys" section) and
 download the `.pem` file — this becomes `Naudit:GitHub:App:PrivateKey`.
@@ -88,6 +89,44 @@ Naudit__GitHub__PostVerdict=true                        # optional
 
 With `Auth=App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are **ignored** — every
 API call and every checkout clone uses a freshly minted installation token instead.
+
+## Install from the Naudit WebUI
+
+Once `Naudit:GitHub:Auth=App` and the WebUI (`Naudit:Ui:Enabled=true`) are both on, a signed-in
+user whose GitHub account/org does not yet have the app installed sees an **install banner** on
+the dashboard (and on the pending screen, while they wait for admin approval). The banner links
+straight to the app's install page; after installing, GitHub returns them to the Naudit dashboard
+(the **Setup URL** above). Naudit re-checks the installation state against GitHub
+(`GET /users/{login}/installation`, org fallback), so the banner clears once the fresh state is
+read and a later uninstall makes it reappear. The result is cached in memory for a few minutes per
+login (so dashboard reloads don't hammer the GitHub API) — a reload in the first minutes right
+after installing may therefore still briefly show the banner. The Profile page shows the same
+status per linked GitHub login.
+
+This needs no extra configuration beyond `Auth=App`: Naudit derives the install link from the
+app's own slug (`GET /app`).
+
+## One app for both bot identity and WebUI login (recommended)
+
+A GitHub App also carries an OAuth **client id/secret**, so the *same* app can power the WebUI
+"Sign in with GitHub" — no separate OAuth App needed. In the app settings:
+
+- Note the **Client ID** and generate a **client secret** (app settings → "Client secrets").
+- Add the callback URL **`https://<your-host>/auth/callback/github`** (app settings →
+  "Callback URL").
+- Enable "Request user authorization (OAuth) during installation" **only if** you want the
+  install page to double as sign-in; leave it off to keep the Setup-URL return trip described
+  above.
+
+Then point the WebUI login at those credentials:
+
+```bash
+dotnet user-secrets set "Naudit:Ui:Auth:GitHub:Enabled"      "true"        --project src/Naudit.Web
+dotnet user-secrets set "Naudit:Ui:Auth:GitHub:ClientId"     "<app-client-id>"     --project src/Naudit.Web
+dotnet user-secrets set "Naudit:Ui:Auth:GitHub:ClientSecret" "<app-client-secret>" --project src/Naudit.Web
+```
+
+See [WebUI](webui.md) for the login/approval flow.
 
 ## 3. Install the app
 

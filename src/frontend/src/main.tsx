@@ -11,7 +11,9 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+  // staleTime: Tab-Wechsel refetchen nicht bei jedem Klick (kein Flackern); Frische nach
+  // Aktionen kommt aus den gezielten invalidateQueries in hooks/mutations.ts.
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 30_000 } },
 });
 
 createRoot(document.getElementById("root")!).render(

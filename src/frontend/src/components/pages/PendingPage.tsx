@@ -2,6 +2,7 @@ import type { MeDto } from "@/api/types";
 import { Button } from "@/components/ui/Button";
 import { Logo } from "@/components/ui/Logo";
 import { Pill } from "@/components/ui/Pill";
+import { InstallAppBanner } from "@/components/InstallAppBanner";
 
 /** Eingeloggt, aber (noch) nicht freigeschaltet — pending oder rejected. */
 export function PendingPage({ me, onLogout }: { me: MeDto; onLogout: () => Promise<void> }) {
@@ -19,6 +20,11 @@ export function PendingPage({ me, onLogout }: { me: MeDto; onLogout: () => Promi
             ? "Your access has been revoked. Contact the administrator if you think this is a mistake."
             : "Your account is waiting for an admin to approve it. Reviews for your repositories start running once you are approved."}
         </p>
+        {!rejected && (
+          <div className="mt-6 w-full text-left">
+            <InstallAppBanner />
+          </div>
+        )}
         <Button variant="secondary" className="mt-7" onClick={() => void onLogout()}>
           Sign out
         </Button>

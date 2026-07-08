@@ -70,6 +70,15 @@ public static class DependencyInjection
                         sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
                         gitHubOptions.App,
                         sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>()));
+
+                    // Installations-Checker fürs WebUI-Onboarding: eigener App-JWT (gleiche Basis wie
+                    // der Token-Provider), gleicher named Client. Singleton, weil Slug/Ergebnisse gecached werden.
+                    var appJwt = new GitHubAppJwt(gitHubOptions.App.AppId, gitHubOptions.App.PrivateKey);
+                    services.AddSingleton(appJwt);
+                    services.AddSingleton<IGitHubAppInstallationChecker>(sp => new GitHubAppInstallationChecker(
+                        sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
+                        appJwt,
+                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppInstallationChecker>()));
                 }
                 else
                 {

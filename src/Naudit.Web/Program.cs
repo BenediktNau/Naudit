@@ -317,6 +317,13 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
             var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";
             return Results.Ok(new { verdict });
         });
+
+        // GitHub-App-Installations-Status fürs Onboarding-Banner — mappt sich selbst nur bei
+        // Platform=GitHub & Auth=App. Gehört in den Gesund-Block: GitOptions/GitHubOptions und der
+        // Installations-Checker kommen erst aus AddNauditInfrastructure (im Recovery-Modus nicht da).
+        app.MapGitHubAppEndpoints(
+            app.Services.GetRequiredService<GitOptions>(),
+            app.Services.GetRequiredService<IOptions<GitHubOptions>>().Value);
     }
     else
     {

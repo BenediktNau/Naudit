@@ -62,7 +62,17 @@ public sealed class AccountService(NauditDbContext db, UiOptions options)
         var acct = await db.Accounts.Include(a => a.GitHubLinks)
             .SingleOrDefaultAsync(a => a.Provider == provider && a.ExternalId == externalId, ct);
         if (acct is not null)
+        {
+            // Ein zuvor abgelehnter/entzogener Account, der sich erneut anmeldet, landet wieder in
+            // Pending — sonst könnte der Admin ihn nie wieder freigeben (Rejected ist im Dashboard
+            // unsichtbar). Active/Pending bleiben unangetastet (ein Freigegebener wird NICHT zurückgesetzt).
+            if (acct.Status == AccountStatus.Rejected)
+            {
+                acct.Status = AccountStatus.Pending;
+                await db.SaveChangesAsync(ct);
+            }
             return acct;
+        }
 
         // Username-Kollision mit anderem Account: eindeutig machen statt scheitern.
         var name = username;

@@ -112,3 +112,13 @@ export interface SettingsDto {
   restartPending: boolean;
   settings: SettingItem[];
 }
+
+export interface GitHubAppAccount {
+  login: string;
+  installed: boolean | null;
+}
+
+export interface GitHubAppDto {
+  installUrl: string;
+  accounts: GitHubAppAccount[];
+}
