@@ -112,6 +112,12 @@ by design; see [Configuration](configuration.md).
 | Valid redirect URIs | `https://<your-host>/auth/callback/oidc` |
 | Client authentication | On (client secret → `Oidc:ClientSecret`) |
 
+> **HTTPS behind a reverse proxy.** The callback URLs are served over HTTPS by your proxy.
+> Naudit trusts `X-Forwarded-Proto`, so the generated `redirect_uri` matches the registered
+> `https://…` URL out of the box (Coolify/Traefik, nginx). If login fails with a `redirect_uri`
+> mismatch, check that the proxy forwards that header — see
+> [Deployment › Reverse proxy](deployment.md#reverse-proxy--https).
+
 Naudit reads Keycloak's `preferred_username` as the account name and the `sub` claim as
 the stable external id.
 

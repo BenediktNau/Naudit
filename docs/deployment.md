@@ -107,6 +107,22 @@ CLAUDE_CODE_OAUTH_TOKEN=<claude-setup-token>   # 🔒 secret — needs the deriv
 After deploying, point the platform webhook at `https://<your-coolify-domain>/webhook/github`
 (or `/webhook/gitlab`) — see [Platform setup](platform-setup.md).
 
+## Reverse proxy / HTTPS
+
+Coolify (Traefik) — like nginx — terminates TLS and forwards plain HTTP to the container.
+Naudit honours `X-Forwarded-Proto`, so `Request.Scheme` is `https` again and the WebUI's
+GitHub/OIDC login builds its OAuth `redirect_uri` as `https://…` (matching the registered
+callback URL). No configuration needed — most proxies forward `X-Forwarded-Proto` by default.
+
+By default Naudit trusts forwarded headers from **any** source (empty proxy allow-list — the
+right default for containers with a dynamic proxy IP). To restrict which sources may set
+`X-Forwarded-*`, pin the proxy address or subnet (empty = trust all):
+
+```bash
+Naudit__ForwardedHeaders__KnownProxies__0=10.0.0.5        # trusted proxy IP(s)
+Naudit__ForwardedHeaders__KnownNetworks__0=10.0.0.0/8     # or trusted CIDR network(s)
+```
+
 ## Claude Code CLI provider (subscription)
 
 The `ClaudeCode` AI provider does not call an HTTP API — it shells out to the `claude`
