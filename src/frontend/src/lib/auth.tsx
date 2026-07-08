@@ -37,12 +37,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(async () => {
-    await api("/auth/logout", { method: "POST" });
-    // Query-Cache leeren, damit keine Daten des vorigen Users beim nächsten Login flackern.
+  // Query-Cache leeren und /api/me neu klären — geteilt von logout UND dem 401-Fänger, damit nach
+  // Session-Ablauf keine Daten des vorigen Users im Cache überleben (staleTime würde sie sonst bis
+  // zu 30s als „frisch" an den nächsten Login servieren).
+  const clearCacheAndRefresh = useCallback(async () => {
     queryClient.clear();
     await refresh();
   }, [refresh, queryClient]);
+
+  const logout = useCallback(async () => {
+    await api("/auth/logout", { method: "POST" });
+    await clearCacheAndRefresh();
+  }, [clearCacheAndRefresh]);
 
   useEffect(() => {
     // setState nur im Promise-Callback (nie synchron im Effect) — react-hooks/set-state-in-effect.
@@ -55,13 +61,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     window.fetch = async (input, init) => {
       const res = await original(input, init);
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (res.status === 401 && url.includes("/api/") && !url.endsWith("/api/me")) void refresh();
+      if (res.status === 401 && url.includes("/api/") && !url.endsWith("/api/me")) void clearCacheAndRefresh();
       return res;
     };
     return () => {
       window.fetch = original;
     };
-  }, [refresh]);
+  }, [clearCacheAndRefresh]);
 
   if (error) {
     return (
