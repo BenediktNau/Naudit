@@ -45,6 +45,10 @@ public static class SettingsEndpoints
         {
             if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
 
+            // Fehlendes/leeres 'changes' ({} oder {"changes":null}) ⇒ 400 statt NRE/500 in der Schleife.
+            if (body.Changes is null)
+                return Results.BadRequest(new { error = "'changes' is required." });
+
             // Erst komplett validieren, dann schreiben — keine halb angewendeten Batches.
             foreach (var change in body.Changes)
             {

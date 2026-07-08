@@ -21,14 +21,23 @@ var restarter = new AppRestarter();
 while (true)
 {
     var app = BuildApp(args, restarter);
-    // Seed läuft immer (auch Recovery): der Admin muss sich einloggen können, um zu reparieren.
-    using (var scope = app.Services.CreateScope())
-        await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
-    restarter.Attach(app.Lifetime);
-    await app.RunAsync();
-    // Restart-Entscheidung lesen, BEVOR die ausgehende Instanz entsorgt wird — danach ist sie tot.
+    try
+    {
+        // Seed läuft immer (auch Recovery): der Admin muss sich einloggen können, um zu reparieren.
+        using (var scope = app.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
+        restarter.Attach(app.Lifetime);
+        await app.RunAsync();
+    }
+    finally
+    {
+        // Immer entsorgen — auch wenn Seed/Run wirft: sonst leckt pro Neustart ein kompletter
+        // DI-Container (DbContext, HttpClients, ...).
+        await app.DisposeAsync();
+    }
+    // Restart-Entscheidung nach dem Dispose lesen: der restarter lebt außerhalb der Schleife,
+    // das Entsorgen des Hosts berührt ihn nicht.
     var restartRequested = restarter.ConsumeRestartRequest();
-    await app.DisposeAsync(); // sonst leckt pro Neustart ein kompletter DI-Container (DbContext, HttpClients, ...).
     if (!restartRequested) break;
 }
 
@@ -252,7 +261,8 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
             {
                 var secret = gitLabOptions.Value.WebhookSecret;
                 var token = context.Request.Headers["X-Gitlab-Token"].ToString();
-                if (string.IsNullOrEmpty(secret) || token != secret)
+                // Konstant-zeitlicher Vergleich wie beim /review-Endpoint — kein Timing-Leak des Secrets.
+                if (!IsValidNauditToken(secret, token))
                     return Results.Unauthorized();
 
                 var payload = await context.Request.ReadFromJsonAsync<GitLabWebhookPayload>();

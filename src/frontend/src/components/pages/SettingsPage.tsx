@@ -113,6 +113,16 @@ export function SettingsPage() {
           </Button>
         </div>
       )}
+      {save.isError && (
+        <div className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+          Couldn't save settings: {save.error?.message ?? "unknown error"}
+        </div>
+      )}
+      {restart.isError && (
+        <div className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+          Restart failed: {restart.error?.message ?? "unknown error"}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
         {GROUPS.map((g) => (

@@ -17,9 +17,10 @@ the Settings page; the page is for the keys you *haven't* pinned via env. The ex
 of DB-managed keys is the whitelist in
 [`SettingsCatalog.cs`](../src/Naudit.Infrastructure/Settings/SettingsCatalog.cs) — it
 covers platform/AI/review/access-gate/sign-in settings, but not list-shaped config
-(`ProjectTokens`, `Ui:Admins`), the admin seed (`Ui:Admin:Username`/`InitialPassword`),
-or the redaction/review-context tuning knobs, which stay user-secrets/environment-only
-for now.
+(`ProjectTokens`, `Ui:Admins`), the admin seed (`Ui:Admin:Username`/`InitialPassword` —
+**required on first start** to create the initial local admin, unless you sign in through
+an external provider whose username is in `Ui:Admins`), or the redaction/review-context
+tuning knobs, which stay user-secrets/environment-only for now.
 
 A small set of **bootstrap keys** must stay environment-only, full stop — they are
 needed *before* the database can be opened, or they configure the transport itself, so

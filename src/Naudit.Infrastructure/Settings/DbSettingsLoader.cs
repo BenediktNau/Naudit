@@ -37,6 +37,13 @@ public static class DbSettingsLoader
         var warnings = new List<string>();
         foreach (var row in db.Settings.AsNoTracking().ToList())
         {
+            // Nur Katalog-Keys aus der DB honorieren: die DB ist eine niedrigere Vertrauensstufe als
+            // env. Manuell/stale eingefügte Zeilen für env-only Keys (z. B. Naudit:Ui:Admins) oder
+            // entfernte Keys werden ignoriert — sonst könnten sie sich unter env in die Config schummeln.
+            if (!SettingsCatalog.TryGet(row.Key, out _)) continue;
+            // IsSecret bleibt das Zeilen-Flag, nicht der Katalog: es sagt, WIE der Wert gespeichert
+            // wurde (ver-/entschlüsselt). SettingsService hält es beim Schreiben synchron zum Katalog;
+            // ein späterer Katalog-Flip darf eine korrekt gespeicherte Zeile nicht falsch dekodieren.
             if (!row.IsSecret) { settings[row.Key] = row.Value; continue; }
             try { settings[row.Key] = protector.Unprotect(row.Value); }
             catch (CryptographicException)
