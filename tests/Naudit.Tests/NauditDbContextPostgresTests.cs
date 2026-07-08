@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Naudit.Infrastructure.Data;
@@ -52,6 +53,11 @@ public class NauditDbContextPostgresTests
         await db.SaveChangesAsync();
 
         Assert.True(account.Id > 0); // Identity/Auto-Increment muss auf Postgres greifen
+
+        // Neue DataProtectionKeys-Tabelle (Migration AddDataProtectionKeys) muss auf Postgres greifen.
+        db.DataProtectionKeys.Add(new DataProtectionKey { FriendlyName = "key-1", Xml = "<key id=\"1\" />" });
+        await db.SaveChangesAsync();
+        Assert.Equal("<key id=\"1\" />", (await db.DataProtectionKeys.SingleAsync()).Xml);
 
         var loaded = await db.Projects.Include(p => p.Reviews).ThenInclude(r => r.Findings).SingleAsync();
         Assert.Single(loaded.Reviews);

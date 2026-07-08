@@ -1,14 +1,20 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Naudit.Infrastructure.Data;
 
-public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options) : DbContext(options)
+public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
+    : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<AccountEntity> Accounts => Set<AccountEntity>();
     public DbSet<GitHubLinkEntity> GitHubLinks => Set<GitHubLinkEntity>();
     public DbSet<ProjectEntity> Projects => Set<ProjectEntity>();
     public DbSet<ReviewEntity> Reviews => Set<ReviewEntity>();
     public DbSet<ReviewFindingEntity> ReviewFindings => Set<ReviewFindingEntity>();
+
+    /// <summary>Data-Protection-Keys (Session-Cookie-Signatur) — in der DB statt im Dateisystem,
+    /// damit Sessions Container-Neustarts auf beiden Backends überleben.</summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {

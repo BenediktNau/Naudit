@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
@@ -44,6 +45,11 @@ if (uiConfig.Enabled)
             o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
         });
     builder.Services.AddAuthorization();
+
+    // Data-Protection-Keys (Session-Cookie-Signatur) in die DB: überleben Container-Neustarts
+    // auf beiden Backends, kein Key-Verzeichnis/Volume nötig. UI ⇒ DB garantiert den DbContext.
+    builder.Services.AddDataProtection()
+        .PersistKeysToDbContext<Naudit.Infrastructure.Data.NauditDbContext>();
 
     if (uiConfig.Auth.GitHub.Enabled)
     {
