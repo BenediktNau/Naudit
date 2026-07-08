@@ -49,7 +49,8 @@ public class AccessGateEndpointTests : IClassFixture<WebApplicationFactory<Progr
             b.UseSetting("Naudit:Git:Platform", "GitHub");
             b.UseSetting("Naudit:GitHub:WebhookSecret", "hook-secret");
             b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Ui:Db", db);
+            b.UseSetting("Naudit:Db:Enabled", "true");
+            b.UseSetting("Naudit:Db:ConnectionString", db);
             b.ConfigureServices(s =>
             {
                 s.RemoveAll<IReviewQueue>();

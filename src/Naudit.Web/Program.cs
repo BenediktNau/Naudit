@@ -47,15 +47,10 @@ if (uiConfig.Enabled)
         });
     builder.Services.AddAuthorization();
 
-    // Data-Protection-Keys persistieren, sonst werden Session-Cookies bei jedem Container-Neustart
-    // ungültig (Keys sonst nur In-Memory). Verzeichnis: explizit gesetzt oder bei SQLite neben die
-    // DB-Datei aufs Volume abgeleitet; bei Postgres ohne Angabe In-Memory (= bisheriges Verhalten).
-    var dpKeysDir = uiConfig.ResolveDataProtectionKeysDir();
-    if (dpKeysDir is not null)
-    {
-        Directory.CreateDirectory(dpKeysDir);
-        builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(dpKeysDir));
-    }
+    // Data-Protection-Keys (Session-Cookie-Signatur) in die DB: überleben Container-Neustarts
+    // auf beiden Backends, kein Key-Verzeichnis/Volume nötig. UI ⇒ DB garantiert den DbContext.
+    builder.Services.AddDataProtection()
+        .PersistKeysToDbContext<Naudit.Infrastructure.Data.NauditDbContext>();
 
     if (uiConfig.Auth.GitHub.Enabled)
     {
@@ -151,14 +146,15 @@ foreach (var cidr in fhSection.GetSection("KnownNetworks").Get<string[]>() ?? []
     forwardedHeaders.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr));
 app.UseForwardedHeaders(forwardedHeaders);
 
-// UI-Persistenz: Migration + Seed-Admin beim Start (nur bei aktiviertem UI).
-var uiOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Ui.UiOptions>();
-if (uiOptions.Enabled)
+// Persistenz: Migration immer, wenn die DB an ist; Seed-Admin nur mit UI (Accounts = UI-Belang).
+var dbOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Data.DatabaseOptions>();
+if (dbOptions.Enabled)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
     await db.Database.MigrateAsync(); // async im async-Startup — kein Thread-Pool-Blocking
-    await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
+    if (uiConfig.Enabled)
+        await scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Ui.AccountService>().SeedAsync();
 }
 
 if (uiConfig.Enabled)

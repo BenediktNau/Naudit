@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Mvc.Testing.Handlers;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -20,7 +22,8 @@ public class AuthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
             b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Ui:Db", db);
+            b.UseSetting("Naudit:Db:Enabled", "true");
+            b.UseSetting("Naudit:Db:ConnectionString", db);
             b.UseSetting("Naudit:Ui:Admin:Username", "root");
             b.UseSetting("Naudit:Ui:Admin:InitialPassword", "passwort123");
         });
@@ -65,6 +68,20 @@ public class AuthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         await client.PostAsync("/auth/logout", null);
         var me = await client.GetFromJsonAsync<JsonElement>("/api/me");
         Assert.False(me.GetProperty("isAuthenticated").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Login_persistsDataProtectionKeys_inDatabase()
+    {
+        // Erster Login erzeugt den Key-Ring lazy — der Signatur-Key muss in der DB landen,
+        // damit Sessions Container-Neustarts überleben (beide Backends, kein Key-Verzeichnis).
+        var (client, factory) = CreateApp();
+        var ok = await client.PostAsJsonAsync("/auth/login", new { username = "root", password = "passwort123" });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
+        Assert.True(await db.DataProtectionKeys.AnyAsync());
     }
 
     [Fact]

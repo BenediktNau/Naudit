@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Naudit.Infrastructure.Data;
 using Xunit;
@@ -48,5 +49,14 @@ public class NauditDbContextTests
         await db.SaveChangesAsync();
         db.Accounts.Add(new AccountEntity { Username = "dup", Provider = AccountProvider.Local, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow });
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Migrate_createsDataProtectionKeysTable_andRoundtrips()
+    {
+        await using var db = CreateDb();
+        db.DataProtectionKeys.Add(new DataProtectionKey { FriendlyName = "key-1", Xml = "<key id=\"1\" />" });
+        await db.SaveChangesAsync();
+        Assert.Equal("<key id=\"1\" />", (await db.DataProtectionKeys.SingleAsync()).Xml);
     }
 }

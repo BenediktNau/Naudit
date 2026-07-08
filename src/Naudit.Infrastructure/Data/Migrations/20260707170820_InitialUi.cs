@@ -10,7 +10,7 @@ namespace Naudit.Infrastructure.Data.Migrations
     public partial class InitialUi : Migration
     {
         // HINWEIS: Diese Migration ist bewusst PROVIDER-NEUTRAL handgepflegt, damit dasselbe
-        // Schema auf SQLite UND Postgres läuft (Naudit:Ui:DbProvider). Konkret:
+        // Schema auf SQLite UND Postgres läuft (Naudit:Db:Provider). Konkret:
         //  - keine expliziten `type:` (jeder Provider wählt seinen Default: TEXT→text,
         //    INTEGER→integer/bigint/boolean, DateTime→timestamptz);
         //  - auf jeder PK-Id BEIDE Identity-Strategien annotiert — jeder Provider nutzt seine
