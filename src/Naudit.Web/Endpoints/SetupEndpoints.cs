@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Setup;
 using Naudit.Infrastructure.Ui;
@@ -131,6 +132,44 @@ public static class SetupEndpoints
                 return Results.Ok(new { ok = false, detail = ex.Message });
             }
         });
+
+        group.MapPost("/apply", async (HttpContext ctx, NauditDbContext db, SetupDraftService drafts,
+            Naudit.Infrastructure.Settings.SettingsService settings,
+            Naudit.Infrastructure.Settings.EnvOverrides env, IAppRestarter restarter) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+            var json = await drafts.LoadAsync(ctx.RequestAborted);
+            if (json is null)
+                return Results.BadRequest(new { error = "No setup draft to apply.", missing = Array.Empty<string>() });
+            var draft = System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json)!;
+
+            // Validierung = dieselbe Pflichtset-Logik wie beim Start: Draft-Werte unten,
+            // env-Overrides oben (env gewinnt und zaehlt als erfuellt).
+            var values = DraftToSettings(draft);
+            var effective = new ConfigurationBuilder()
+                .AddInMemoryCollection(values)
+                .AddConfiguration(env.Root)
+                .Build();
+            var check = SetupStatus.Check(effective);
+            if (check.SetupRequired)
+                return Results.BadRequest(new { error = "Setup is incomplete.", missing = check.MissingKeys });
+            if (string.IsNullOrWhiteSpace(effective["Naudit:PublicBaseUrl"]))
+                return Results.BadRequest(new { error = "Setup is incomplete.", missing = new[] { "Naudit:PublicBaseUrl" } });
+
+            // Atomar uebernehmen: alle Werte + Draft-Loeschung in EINER Transaktion.
+            await using var tx = await db.Database.BeginTransactionAsync(ctx.RequestAborted);
+            foreach (var (key, value) in values)
+            {
+                if (string.IsNullOrWhiteSpace(value)) continue;      // nicht gesetzt ⇒ nichts schreiben
+                if (env.Root[key] is not null) continue;             // env gewinnt ⇒ DB nicht anfassen
+                await settings.SetAsync(key, value, ctx.RequestAborted);
+            }
+            await drafts.ClearAsync(ctx.RequestAborted);
+            await tx.CommitAsync(ctx.RequestAborted);
+
+            restarter.RequestRestart(); // Host-Schleife baut neu — die Settings greifen danach
+            return Results.Ok(new { restarting = true });
+        });
     }
 
     /// <summary>GET-Antwort des Drafts — Secrets (GitToken/AiApiKey) werden NIE zurueckgegeben,
@@ -147,6 +186,35 @@ public static class SetupEndpoints
             hasGitToken = !string.IsNullOrEmpty(draft.GitToken),
             hasAiApiKey = !string.IsNullOrEmpty(draft.AiApiKey),
         });
+    }
+
+    /// <summary>Draft → Setting-Keys. Nur die zur gewaehlten Plattform gehoerenden Keys —
+    /// Reste der anderen Plattform landen nie in der DB.</summary>
+    private static Dictionary<string, string?> DraftToSettings(SetupDraft d)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["Naudit:PublicBaseUrl"] = d.PublicBaseUrl,
+            ["Naudit:Git:Platform"] = d.Platform,
+            ["Naudit:Ai:Provider"] = d.AiProvider,
+            ["Naudit:Ai:Model"] = d.AiModel,
+            ["Naudit:Ai:Endpoint"] = d.AiEndpoint,
+            ["Naudit:Ai:ApiKey"] = d.AiApiKey,
+            ["Naudit:AccessGate:Mode"] = d.AccessGateMode,
+        };
+        if (string.Equals(d.Platform, "GitHub", StringComparison.OrdinalIgnoreCase))
+        {
+            values["Naudit:GitHub:Auth"] = "Pat"; // PR 2 kennt nur den PAT-Pfad; App kommt mit dem Manifest-Flow (PR 3)
+            values["Naudit:GitHub:Token"] = d.GitToken;
+            values["Naudit:GitHub:WebhookSecret"] = d.WebhookSecret;
+        }
+        else if (string.Equals(d.Platform, "GitLab", StringComparison.OrdinalIgnoreCase))
+        {
+            values["Naudit:GitLab:BaseUrl"] = d.GitLabBaseUrl;
+            values["Naudit:GitLab:Token"] = d.GitToken;
+            values["Naudit:GitLab:WebhookSecret"] = d.WebhookSecret;
+        }
+        return values;
     }
 }
 

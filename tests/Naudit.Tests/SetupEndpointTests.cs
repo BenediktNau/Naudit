@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Naudit.Infrastructure.Data;
 using Naudit.Tests.Fakes;
 using Naudit.Web;
 using Xunit;
@@ -179,5 +181,101 @@ public class SetupEndpointTests
         var client = await LoggedInAsync(SetupMode(app));
         var res = await client.PostAsJsonAsync("/api/setup/test-ai", new { provider = "Skynet", model = "m" });
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    private sealed class FakeRestarter : Naudit.Web.IAppRestarter
+    {
+        public int RestartCalls;
+        public bool RestartPending { get; private set; }
+        public void RequestRestart() => RestartCalls++;
+        public void MarkRestartPending() => RestartPending = true;
+    }
+
+    [Fact]
+    public async Task Apply_ohneDraft_ist400()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        await client.DeleteAsync("/api/setup/draft");
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/api/setup/apply", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Apply_unvollstaendig_ist400MitMissing()
+    {
+        // Ohne GitHub-Baseline - sonst wuerde die WAF-Baseline (Naudit:GitHub:Token="test-token")
+        // die fehlende Draft-Angabe ueberdecken und die Validierung faelschlich durchwinken.
+        using var app = new TestAppFactory().WithoutGitHubBaseline();
+        var client = await LoggedInAsync(SetupMode(app));
+        await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            publicBaseUrl = "https://naudit.example.com", platform = "GitHub", webhookSecret = "hook-1",
+            aiProvider = "Ollama", aiModel = "m", // GitToken fehlt!
+        });
+        var res = await client.PostAsync("/api/setup/apply", null);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Contains(doc.RootElement.GetProperty("missing").EnumerateArray(),
+            m => m.GetString() == "Naudit:GitHub:Token");
+    }
+
+    [Fact]
+    public async Task Apply_vollstaendig_schreibtSettings_loeschtDraft_stoesstNeustartAn()
+    {
+        // Ohne GitHub-Baseline - der GitHub-Token muss wirklich aus dem Draft in die DB wandern;
+        // mit der WAF-Baseline gesetzt waere der Key "env-gesperrt" und wuerde nie geschrieben.
+        using var app = new TestAppFactory().WithoutGitHubBaseline();
+        var restarter = new FakeRestarter();
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton<Naudit.Web.IAppRestarter>(restarter)));
+        var client = await LoggedInAsync(factory);
+        await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            publicBaseUrl = "https://naudit.example.com", platform = "GitHub", gitToken = "ghp-geheim",
+            webhookSecret = "hook-1", aiProvider = "Anthropic", aiModel = "claude-sonnet-5",
+            aiApiKey = "sk-geheim", accessGateMode = "Registered",
+        });
+
+        var res = await client.PostAsync("/api/setup/apply", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(1, restarter.RestartCalls);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+        var settings = await db.Settings.ToListAsync();
+        Assert.Equal("GitHub", settings.Single(s => s.Key == "Naudit:Git:Platform").Value);
+        Assert.Equal("Pat", settings.Single(s => s.Key == "Naudit:GitHub:Auth").Value);
+        Assert.Equal("https://naudit.example.com", settings.Single(s => s.Key == "Naudit:PublicBaseUrl").Value);
+        Assert.Equal("Registered", settings.Single(s => s.Key == "Naudit:AccessGate:Mode").Value);
+        // Secrets liegen verschluesselt, nie im Klartext.
+        Assert.DoesNotContain(settings, s => s.Value.Contains("ghp-geheim") || s.Value.Contains("sk-geheim"));
+        Assert.True(settings.Single(s => s.Key == "Naudit:GitHub:Token").IsSecret);
+        Assert.Empty(await db.SetupDrafts.ToListAsync()); // Draft verbraucht
+        // GitLab-Keys des Drafts (leer) wurden NICHT geschrieben.
+        Assert.DoesNotContain(settings, s => s.Key.StartsWith("Naudit:GitLab:"));
+    }
+
+    [Fact]
+    public async Task Apply_envGesetzterKey_wirdNichtGeschrieben_aberZaehltAlsErfuellt()
+    {
+        // AccessGate:Mode kommt per "env" (UseSetting liegt ueber der DB-Quelle) ⇒ nicht in die DB schreiben.
+        using var app = new TestAppFactory();
+        var factory = SetupMode(app, b =>
+        {
+            b.UseSetting("Naudit:AccessGate:Mode", "Open");
+            b.ConfigureServices(s => s.AddSingleton<Naudit.Web.IAppRestarter>(new FakeRestarter()));
+        });
+        var client = await LoggedInAsync(factory);
+        await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            publicBaseUrl = "https://n.example.com", platform = "GitLab", gitLabBaseUrl = "https://gitlab.example.com",
+            gitToken = "glpat-x", webhookSecret = "hook-2", aiProvider = "Ollama", aiModel = "m",
+            accessGateMode = "Registered",
+        });
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync("/api/setup/apply", null)).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+        Assert.DoesNotContain(await db.Settings.ToListAsync(), s => s.Key == "Naudit:AccessGate:Mode");
     }
 }

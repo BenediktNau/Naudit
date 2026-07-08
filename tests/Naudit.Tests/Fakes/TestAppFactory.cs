@@ -9,6 +9,19 @@ namespace Naudit.Tests.Fakes;
 public sealed class TestAppFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbDir = Directory.CreateTempSubdirectory("naudit-test-db").FullName;
+    private bool _githubBaseline = true;
+
+    /// <summary>Schaltet die GitHub-Baseline (Token/WebhookSecret) VOR dem ersten Host-Build ab —
+    /// als Methode statt Ctor-Parameter, weil xUnits IClassFixture-Aktivierung (z. B.
+    /// ReviewEndpointTests) genau EINEN, parameterlos aufrufbaren Konstruktor verlangt. Noetig fuer
+    /// Tests, die pruefen, dass ein Wert wirklich aus Draft/DB stammt (POST /api/setup/apply):
+    /// einmal per UseSetting gesetzt, laesst sich ein Key nicht mehr "env-ungesperrt" machen — auch
+    /// UseSetting(key, "") bzw. (key, null) bleibt fuer EnvOverrides ein GESETZTER (leerer) Wert.</summary>
+    public TestAppFactory WithoutGitHubBaseline()
+    {
+        _githubBaseline = false;
+        return this;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -20,8 +33,11 @@ public sealed class TestAppFactory : WebApplicationFactory<Program>
         // ueberschreiben gezielt per UseSetting; UseSetting(key, "") macht einen Key wieder "fehlend".
         builder.UseSetting("Naudit:GitLab:Token", "test-token");
         builder.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-        builder.UseSetting("Naudit:GitHub:Token", "test-token");
-        builder.UseSetting("Naudit:GitHub:WebhookSecret", "s");
+        if (_githubBaseline)
+        {
+            builder.UseSetting("Naudit:GitHub:Token", "test-token");
+            builder.UseSetting("Naudit:GitHub:WebhookSecret", "s");
+        }
     }
 
     protected override void Dispose(bool disposing)
