@@ -1,10 +1,7 @@
-using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -20,9 +17,8 @@ public sealed class GitHubAppTokenProvider(
     private static readonly TimeSpan RefreshSkew = TimeSpan.FromMinutes(5);   // vor Ablauf erneuern
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly SemaphoreSlim _gate = new(1, 1);                          // serialisiert nur Lookup/Mint, nicht den Cache-Hit
-    // Key einmal importieren (er ändert sich nie); signiert wird nur unter _gate,
-    // weil RSA-Instanzmethoden nicht thread-safe garantiert sind.
-    private readonly RSA _rsa = ImportPrivateKey(options.PrivateKey);
+    // JWT-Signieren ist in GitHubAppJwt gekapselt (eigener Lock); der Key wird dort einmal importiert.
+    private readonly GitHubAppJwt _jwt = new(options.AppId, options.PrivateKey, time);
     private readonly ConcurrentDictionary<string, long> _installations = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<long, (string Token, DateTimeOffset ExpiresAt)> _tokens = new();
 
@@ -110,37 +106,13 @@ public sealed class GitHubAppTokenProvider(
     private async Task<HttpResponseMessage> SendWithJwtAsync(HttpMethod method, string url, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", CreateJwt());
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _jwt.Create());
         return await http.SendAsync(req, ct);
     }
 
-    // App-JWT: RS256, iat 60 s rückdatiert (Clock-Skew), exp 9 min (< GitHub-Maximum 10 min).
-    private string CreateJwt()
-    {
-        var now = _time.GetUtcNow();
-        var header = """{"alg":"RS256","typ":"JWT"}""";
-        var payload = $$"""{"iat":{{now.AddSeconds(-60).ToUnixTimeSeconds()}},"exp":{{now.AddMinutes(9).ToUnixTimeSeconds()}},"iss":"{{options.AppId}}"}""";
-        var signingInput = $"{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(header))}.{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(payload))}";
-        var signature = _rsa.SignData(Encoding.UTF8.GetBytes(signingInput), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        return $"{signingInput}.{Base64Url.EncodeToString(signature)}";
-    }
-
-    private static RSA ImportPrivateKey(string key)
-    {
-        var rsa = RSA.Create();
-        rsa.ImportFromPem(LoadPem(key));
-        return rsa;
-    }
-
-    // Env-freundlich: roher PEM-Text ODER Base64-codiertes PEM (Coolify/Docker-Env ohne Zeilenumbrüche).
-    private static string LoadPem(string key)
-        => key.Contains("-----BEGIN", StringComparison.Ordinal)
-            ? key
-            : Encoding.UTF8.GetString(Convert.FromBase64String(key));
-
     public void Dispose()
     {
-        _rsa.Dispose();
+        _jwt.Dispose();
         _gate.Dispose();
     }
 

@@ -1,4 +1,4 @@
-import { useUsage, fmtTokens } from "@/hooks/queries";
+import { useUsage, useGitHubApp, fmtTokens } from "@/hooks/queries";
 import { useAuth } from "@/lib/auth";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
@@ -6,6 +6,7 @@ import { Pill } from "@/components/ui/Pill";
 export function ProfilePage() {
   const { me } = useAuth();
   const { data, isLoading } = useUsage();
+  const gitHubApp = useGitHubApp();
   if (isLoading || !data) return <div className="p-8 font-mono text-ink3">loading…</div>;
 
   const maxMonth = Math.max(...data.monthly.map((m) => m.tokens), 1);
@@ -24,6 +25,31 @@ export function ProfilePage() {
         </div>
         <Pill kind="ok">✓ active</Pill>
       </div>
+
+      {gitHubApp.data && gitHubApp.data.accounts.length > 0 && (
+        <Panel title="GitHub App">
+          {gitHubApp.data.accounts.map((a) => (
+            <div key={a.login} className="flex items-center gap-4 border-b border-hairline px-5 py-3.5 last:border-b-0">
+              <span className="flex-1 truncate font-mono text-[13px]">{a.login}</span>
+              {a.installed === true && <Pill kind="ok">✓ installed</Pill>}
+              {a.installed === null && <Pill kind="warn">● unknown</Pill>}
+              {a.installed === false &&
+                (gitHubApp.data!.installUrl ? (
+                  <a
+                    href={gitHubApp.data!.installUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="cursor-pointer rounded-lg bg-acc px-3 py-1.5 text-xs font-bold text-accink transition-colors hover:bg-acc2 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-teal"
+                  >
+                    Install
+                  </a>
+                ) : (
+                  <Pill kind="warn">● not installed</Pill>
+                ))}
+            </div>
+          ))}
+        </Panel>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[2fr_1fr]">
         <Panel title="Tokens · last 6 months" extra={`${fmtTokens(total)} total`}>

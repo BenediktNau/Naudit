@@ -4,6 +4,7 @@ import { Panel } from "@/components/ui/Panel";
 import { StatTile } from "@/components/ui/StatTile";
 import { VerdictPill } from "@/components/ui/Pill";
 import { ReviewDetail } from "@/components/ReviewDetail";
+import { InstallAppBanner } from "@/components/InstallAppBanner";
 
 function timeAgo(iso: string): string {
   const s = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -37,6 +38,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-5 px-7 py-6">
+      <InstallAppBanner />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <StatTile
           label={`Tokens · ${new Date().toLocaleDateString("en", { month: "long" })}`}

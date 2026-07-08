@@ -271,6 +271,9 @@ if (uiConfig.Enabled)
     app.MapAuthEndpoints(uiConfig);
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
+    app.MapGitHubAppEndpoints(
+        app.Services.GetRequiredService<GitOptions>(),
+        app.Services.GetRequiredService<IOptions<GitHubOptions>>().Value);
 
     // SPA: index.html + Assets aus wwwroot (im Container aus src/frontend gebaut).
     // Fallback-Reihenfolge: echte Endpoints > /api-404 (nie HTML für API-Tippfehler) > index.html.

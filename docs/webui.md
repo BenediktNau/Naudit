@@ -86,6 +86,12 @@ numeric project ids match as a whole) against the **GitHub links** of active acc
   Accounts without any link are flagged (`no GitHub link`) — their repos are **not**
   reviewed until a link is set.
 
+On GitHub-App deployments (`Naudit:GitHub:Auth=App`), a signed-in user whose linked GitHub
+account/org has not installed the Naudit app yet sees an **install banner** on the dashboard and
+the pending screen that links to the app's install page; see
+[GitHub App setup](github-app.md#install-from-the-naudit-webui). The banner reflects the live
+installation state and clears itself once the app is installed.
+
 Unauthorized webhooks are dropped silently; the project simply gets no review comment.
 
 ## Settings are read-only
