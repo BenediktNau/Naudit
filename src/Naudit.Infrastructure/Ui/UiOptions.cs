@@ -1,12 +1,9 @@
 namespace Naudit.Infrastructure.Ui;
 
-/// <summary>Config-Section Naudit:Ui — WebUI (Dashboard, Auth, Accounts). Opt-in:
-/// Enabled=false (Default) ⇒ keine UI-Endpoints, kein Auth. Setzt die DB voraus
-/// (Naudit:Db:Enabled — UI ⇒ DB, s. DependencyInjection).</summary>
+/// <summary>Config-Section Naudit:Ui — WebUI-Belange (Seed-Admin, Admin-Liste, Sign-in-Provider).
+/// Die UI selbst ist immer an (sie ist die Konfigurationsoberfläche).</summary>
 public sealed class UiOptions
 {
-    public bool Enabled { get; set; }
-
     /// <summary>Seed-Admin: wird beim Start angelegt, wenn die Accounts-Tabelle leer ist.</summary>
     public SeedAdminOptions Admin { get; set; } = new();
 

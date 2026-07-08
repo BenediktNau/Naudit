@@ -22,8 +22,6 @@ public class AuthEndpointTests : IClassFixture<TestAppFactory>
         {
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-            b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Db:Enabled", "true");
             b.UseSetting("Naudit:Db:ConnectionString", db);
             b.UseSetting("Naudit:Ui:Admin:Username", "root");
             b.UseSetting("Naudit:Ui:Admin:InitialPassword", "passwort123");
@@ -86,14 +84,16 @@ public class AuthEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
-    public async Task UiDisabled_authEndpointsNotMapped()
+    public async Task AuthEndpoints_sindImmerGemappt()
     {
+        // Keine WebUI-Aktivierung mehr nötig — /auth/login existiert immer; unbekannte Credentials
+        // ⇒ 401 (Route existiert und wird ausgeführt), nicht mehr 404 (früher: Route ungemappt).
         var client = _factory.WithWebHostBuilder(b =>
         {
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
         }).CreateClient();
         var response = await client.PostAsJsonAsync("/auth/login", new { username = "x", password = "y" });
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

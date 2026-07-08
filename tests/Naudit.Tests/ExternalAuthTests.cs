@@ -17,8 +17,6 @@ public class ExternalAuthTests : IClassFixture<TestAppFactory>
         {
             b.UseSetting("Naudit:Git:Platform", "GitLab");
             b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-            b.UseSetting("Naudit:Ui:Enabled", "true");
-            b.UseSetting("Naudit:Db:Enabled", "true");
             b.UseSetting("Naudit:Db:ConnectionString", db);
             if (gitHubEnabled)
             {

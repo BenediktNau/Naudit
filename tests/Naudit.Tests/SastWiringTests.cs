@@ -13,6 +13,7 @@ public class SastWiringTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddNauditDatabase(config);
         services.AddNauditInfrastructure(config);
         return services.BuildServiceProvider();
     }
