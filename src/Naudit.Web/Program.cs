@@ -70,17 +70,6 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     // wo AddNauditInfrastructure NICHT läuft). Im Gesundfall registriert AddNauditInfrastructure sie erneut
     // (identisch aus derselben Config) — letzte Registrierung gewinnt, harmlos.
     builder.Services.AddSingleton(uiConfig);
-    // Read-only Settings-Projektion (/api/settings) gehört ebenfalls zur immer-an UI und braucht diese
-    // Config-Options auch im Recovery-Modus. Reine Config-Projektionen; im Gesundfall registriert
-    // AddNauditInfrastructure sie erneut (identisch) — sonst scheiterte das Endpoint-Metadata-Inferring
-    // von /api/settings mangels registrierter Services beim Host-Start.
-    builder.Services.AddSingleton(builder.Configuration.GetSection("Naudit:Ai").Get<Naudit.Infrastructure.Ai.AiOptions>()
-        ?? new Naudit.Infrastructure.Ai.AiOptions());
-    builder.Services.AddSingleton(builder.Configuration.GetSection("Naudit:Git").Get<GitOptions>() ?? new GitOptions());
-    var settingsReviewOptions = builder.Configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
-    if (string.IsNullOrWhiteSpace(settingsReviewOptions.SystemPrompt))
-        settingsReviewOptions.SystemPrompt = PromptBuilder.DefaultSystemPrompt;
-    builder.Services.AddSingleton(settingsReviewOptions);
     if (configError is null)
     {
         builder.Services.AddNauditInfrastructure(builder.Configuration);

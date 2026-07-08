@@ -12,7 +12,10 @@ public static class NauditConfig
 {
     /// <summary>Fügt die DB-Settings als Memory-Quelle DIREKT NACH den appsettings-JSONs ein —
     /// Ergebnis: appsettings < DB < User-Secrets/Env/CommandLine. Liefert die darüberliegenden
-    /// Quellen als eigenen Config-Root zurück (für die "via environment"-Erkennung der Settings-API).</summary>
+    /// Quellen als eigenen Config-Root zurück (für die "via environment"-Erkennung der Settings-API).
+    /// Vorbedingung: MUSS aufgerufen werden, NACHDEM alle Env-Tier-Quellen (User-Secrets, Environment-
+    /// Variablen, Command-Line) am Builder hängen — <see cref="EnvOverrides"/> wird zum Aufrufzeitpunkt
+    /// als Snapshot der darüberliegenden Quellen gebaut, spätere Quellen würden darin fehlen.</summary>
     public static EnvOverrides InsertDbSettings(IConfigurationBuilder configuration, IDictionary<string, string?> dbSettings)
     {
         // Einfügeposition: hinter der LETZTEN appsettings*-JSON-Quelle. User-Secrets sind zwar auch
