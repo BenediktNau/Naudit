@@ -162,7 +162,8 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   banner**: `GET /api/me/github-app` (`src/Naudit.Web/Endpoints/GitHubAppEndpoints.cs`, mapped only
   when `Platform=GitHub` **and** `Auth=App`) uses `GitHubAppInstallationChecker`
   (`src/Naudit.Infrastructure/Git/GitHub/`, sharing the App-JWT via the extracted `GitHubAppJwt`) to
-  live-check `GET /users/{login}/installation` (org fallback) per linked login and derive the install
+  live-check `GET /users/{login}/installation` (org fallback) per linked login (result cached ~5 min
+  per login) and derive the install
   deep-link from the app slug (`GET /app`); fail-quiet (API error ⇒ `installed: null`, no banner).
   The SPA renders the banner on the dashboard + pending screen and a status row on the profile.
 

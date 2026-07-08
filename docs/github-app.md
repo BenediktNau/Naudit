@@ -42,7 +42,7 @@ Either way, configure:
 | **Permissions → Contents** | Read-only |
 | **Permissions → Metadata** | Read-only (mandatory default) |
 | **Subscribe to events** | `Pull request` |
-| **Setup URL** (optional) | `https://<your-host>/` — after "Install app", GitHub sends the user back to the Naudit dashboard; the install banner then clears itself |
+| **Setup URL** (optional) | `https://<your-host>/` — after "Install app", GitHub sends the user back to the Naudit dashboard; the install banner clears itself once the fresh state is read (cached a few minutes — see below) |
 
 Then **generate a private key** for the app (app settings page, "Private keys" section) and
 download the `.pem` file — this becomes `Naudit:GitHub:App:PrivateKey`.
@@ -96,9 +96,12 @@ Once `Naudit:GitHub:Auth=App` and the WebUI (`Naudit:Ui:Enabled=true`) are both 
 user whose GitHub account/org does not yet have the app installed sees an **install banner** on
 the dashboard (and on the pending screen, while they wait for admin approval). The banner links
 straight to the app's install page; after installing, GitHub returns them to the Naudit dashboard
-(the **Setup URL** above) and the banner disappears — Naudit re-checks the live installation state
-on each load (`GET /users/{login}/installation`, org fallback), so it also reflects a later
-uninstall. The Profile page shows the same status per linked GitHub login.
+(the **Setup URL** above). Naudit re-checks the installation state per request against GitHub
+(`GET /users/{login}/installation`, org fallback), so the banner clears once the fresh state is
+read and a later uninstall makes it reappear. The result is cached in memory for a few minutes per
+login (so dashboard reloads don't hammer the GitHub API) — a reload in the first minutes right
+after installing may therefore still briefly show the banner. The Profile page shows the same
+status per linked GitHub login.
 
 This needs no extra configuration beyond `Auth=App`: Naudit derives the install link from the
 app's own slug (`GET /app`).
