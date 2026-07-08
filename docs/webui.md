@@ -158,8 +158,8 @@ the stable external id.
 - **Persistence** is EF Core (`src/Naudit.Infrastructure/Data/`) on **SQLite (default) or
   Postgres** (`Naudit:Db:Provider`) and is always on; the schema is applied via
   `Database.Migrate()` at startup (run once, in the `DbSettingsLoader` bootstrap, before
-  the host itself is built). The migrations (`InitialUi`, `AddDataProtectionKeys`, plus
-  the `Settings` table added for the DB-config model) are hand-kept
+  the host itself is built). The migrations (`InitialUi`, `AddDataProtectionKeys`, `AddSettingsAndSetupDraft`,
+  which adds the `Settings` and `SetupDraft` tables) are hand-kept
   provider-neutral (no explicit column types, both identity strategies annotated) so a
   single migration chain runs on either backend; on Postgres EF's pending-changes check
   is suppressed (the committed model snapshot is SQLite-flavoured). Data-Protection keys

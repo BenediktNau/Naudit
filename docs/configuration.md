@@ -56,7 +56,7 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 
 | Key | Meaning |
 | --- | --- |
-| `Naudit:PublicBaseUrl` | Public base URL of this instance (used to build webhook/callback URLs) — DB-managed |
+| `Naudit:PublicBaseUrl` | Reserved for the upcoming setup wizard (GitHub App manifest / webhook URL construction) — not yet read by the running app |
 | `Naudit:Git:Platform` | `GitLab` (default) \| `GitHub` — selects the active platform |
 | `Naudit:GitLab:BaseUrl` | Base URL of the GitLab instance, e.g. `https://gitlab.example.com` |
 | `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) — global fallback |
