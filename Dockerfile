@@ -81,10 +81,18 @@ COPY sast/rules /opt/naudit-rules
 
 COPY --from=build /app/publish .
 
-# WebUI-SPA: nur aktiv, wenn Naudit:Ui:Enabled=true (sonst wird wwwroot nie serviert).
+# WebUI-SPA: DB+UI sind immer an, wwwroot wird also immer serviert.
 COPY --from=frontend-build /frontend/dist ./wwwroot
+
+# /data gehoert dem non-root-User: die DB ist Pflicht (DbSettingsLoader legt das
+# Verzeichnis selbst an, aber "/" gehoert root -- ohne dieses chown scheitert das
+# schon ohne gemountetes Volume mit UnauthorizedAccessException).
+RUN mkdir -p /data && chown $APP_UID /data
 
 # Vom Base-Image bereitgestellter non-root-User.
 USER $APP_UID
 EXPOSE 8080
+# DB-Pflicht: im Container liegt die SQLite-Default-DB auf dem /data-Volume
+# (der App-Default "data/naudit.db" ist fuer den Binary-Fall gedacht).
+ENV Naudit__Db__ConnectionString="Data Source=/data/naudit.db"
 ENTRYPOINT ["dotnet", "Naudit.Web.dll"]

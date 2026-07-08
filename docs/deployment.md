@@ -17,10 +17,26 @@ For the meaning of each `Naudit:*` key see [Configuration](configuration.md).
 
 ## Environment-variable template (Coolify)
 
-Configuration is supplied via environment variables (ASP.NET convention: `:` → `__`).
-Add these in Coolify; mark the 🔒 ones as secrets.
+The database and the WebUI are **always on** — configuration lives in the database and
+is editable on the Settings page, so most of what used to be an environment variable is
+now optional (see [Configuration › Where configuration lives](configuration.md#where-configuration-lives)).
+Only the **bootstrap** block below is strictly required; everything else can be set here
+as an override (env always wins over the database and locks that key on the Settings
+page) or left for an admin to configure after first start.
 
 ```bash
+# ── Bootstrap (required — env-only, read before the database exists) ───
+# Naudit__Db__Provider=Sqlite                                 # Sqlite (default) | Postgres
+# Naudit__Db__ConnectionString="Data Source=/data/naudit.db"  # SQLite: mount a persistent volume at /data!
+# Postgres instead (no /data volume needed):
+# Naudit__Db__Provider=Postgres
+# Naudit__Db__ConnectionString="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
+# Naudit__Ui__Admin__Username=admin                           # seed admin (first start, empty DB)
+# Naudit__Ui__Admin__InitialPassword=<secret>                 # 🔒
+
+# ── Everything below is optional: set here as an env override, or leave ─
+# ── unset and configure on the Settings page after first start. ────────
+
 # ── Platform selection ──────────────────────────────────────────────
 Naudit__Git__Platform=GitHub          # GitHub | GitLab
 
@@ -51,18 +67,10 @@ Naudit__Ai__ApiKey=<anthropic-key>    # 🔒 secret  (for Anthropic / OpenAIComp
 # ── Review (optional) ───────────────────────────────────────────────
 # Naudit__Review__SystemPrompt=       # empty = built-in default prompt
 
-# ── Database (required for the WebUI; also usable headless: gate + audit log) ──
-# Naudit__Db__Enabled=true
-# Naudit__Db__Provider=Sqlite                                 # Sqlite (default) | Postgres
-# Naudit__Db__ConnectionString="Data Source=/data/naudit.db"  # SQLite: mount a persistent volume at /data!
-# Postgres instead (no /data volume needed):
-# Naudit__Db__Provider=Postgres
-# Naudit__Db__ConnectionString="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
+# ── Access gate (optional — default Open, see docs/webui.md#access-model) ──
+# Naudit__AccessGate__Mode=Registered   # Open (default) | Registered
 
-# ── WebUI (optional — access gate + dashboard, see docs/webui.md) ───
-# Naudit__Ui__Enabled=true                       # requires Naudit__Db__Enabled=true
-# Naudit__Ui__Admin__Username=admin
-# Naudit__Ui__Admin__InitialPassword=<secret>    # 🔒 seed admin (first start, empty DB)
+# ── WebUI sign-in (optional — dashboard/gate work with local accounts already) ──
 # Naudit__Ui__Auth__GitHub__Enabled=false        # optional self-service sign-in
 # Naudit__Ui__Auth__GitHub__ClientId=
 # Naudit__Ui__Auth__GitHub__ClientSecret=        # 🔒
@@ -72,17 +80,28 @@ Naudit__Ai__ApiKey=<anthropic-key>    # 🔒 secret  (for Anthropic / OpenAIComp
 # Naudit__Ui__Auth__Oidc__ClientSecret=          # 🔒
 ```
 
-> **WebUI volume:** with `Naudit__Db__Enabled=true` and the default **SQLite** backend, add a
-> persistent storage mount at `/data` in Coolify — the SQLite DB (accounts, review history,
-> token usage) lives there. With `Naudit__Db__Provider=Postgres` the data lives in your
-> external database instead and no volume is needed. Session signing keys are stored in the
+> **WebUI volume:** with the default **SQLite** backend, add a persistent storage mount
+> at `/data` in Coolify — the SQLite DB (settings, accounts, review history, token usage)
+> lives there. With `Naudit__Db__Provider=Postgres` the data lives in your external
+> database instead and no volume is needed. Session signing keys are stored in the
 > database — no extra key volume.
+
+> **Breaking (DB + UI always on):** `Naudit__Db__Enabled` and `Naudit__Ui__Enabled` have
+> been **removed** — the values are now ignored, the database and the WebUI are always
+> on. Deployments that previously ran **without** a database now get a SQLite file
+> created at the default path on next start — **mount `/data`** (see above) or it is
+> lost on redeploy. Deployments that relied on the (until now implicit) access gate must
+> explicitly set `Naudit__AccessGate__Mode=Registered` — the new default is `Open`
+> (every project with a valid webhook secret is reviewed, i.e. the pre-WebUI behaviour).
+> Also note: the WebUI's session-cookie protection now uses a fixed Data-Protection
+> application name (`SetApplicationName("Naudit")`) so it survives the host's restart
+> loop — this invalidates any existing WebUI session cookies **once** on upgrade
+> (users are simply asked to sign in again).
 
 > **Breaking (pre-release rename):** deployments that used the WebUI preview must rename
 > `Naudit__Ui__Db` → `Naudit__Db__ConnectionString`, `Naudit__Ui__DbProvider` →
-> `Naudit__Db__Provider`, add `Naudit__Db__Enabled=true`, and drop
-> `Naudit__Ui__DataProtectionKeysDir`. Data is untouched (same schema); active WebUI
-> sessions are invalidated once (keys move to the database).
+> `Naudit__Db__Provider`, and drop `Naudit__Ui__DataProtectionKeysDir`. Data is untouched
+> (same schema); active WebUI sessions are invalidated once (keys move to the database).
 
 **AI variants** (instead of the Anthropic block):
 

@@ -1,10 +1,44 @@
 # Configuration
 
-Non-secret defaults live in `src/Naudit.Web/appsettings.json` under the `Naudit`
-section. **Secrets** (`GitLab:Token`, `GitLab:WebhookSecret`, `GitHub:Token`,
+## Where configuration lives
+
+Configuration comes from three layers, in increasing precedence:
+
+```
+appsettings.json  <  database (Settings page)  <  user-secrets / environment variables
+```
+
+Most `Naudit:*` keys are **DB-managed**: they ship with a built-in default and can be
+changed by an admin on the WebUI **Settings** page — no redeploy needed, just a restart
+(triggered from the same page) to apply. A key set via user-secrets or an environment
+variable always **wins over the database** and shows up on the Settings page as
+**locked** ("via environment") — an env-complete deployment is therefore unaffected by
+the Settings page; the page is for the keys you *haven't* pinned via env. The exact list
+of DB-managed keys is the whitelist in
+[`SettingsCatalog.cs`](../src/Naudit.Infrastructure/Settings/SettingsCatalog.cs) — it
+covers platform/AI/review/access-gate/sign-in settings, but not list-shaped config
+(`ProjectTokens`, `Ui:Admins`), the admin seed (`Ui:Admin:Username`/`InitialPassword`),
+or the redaction/review-context tuning knobs, which stay user-secrets/environment-only
+for now.
+
+A small set of **bootstrap keys** must stay environment-only, full stop — they are
+needed *before* the database can be opened, or they configure the transport itself, so
+putting them in the database would be circular: `Naudit:Db:Provider`,
+`Naudit:Db:ConnectionString`, `Naudit:ForwardedHeaders:*`, and the listening
+port/URLs (`ASPNETCORE_URLS`). These never appear on the Settings page.
+
+**Secrets** (🔒 in the table below) stored via the Settings page are **encrypted at
+rest** in the database (ASP.NET Data Protection) and **write-only** through the API — it
+reports whether a secret is set, never its value. Honest caveat: the Data Protection key
+ring lives in the same database as the encrypted values, so this guards against
+accidental exposure (a leaked table dump, a stray log line) — not against an attacker
+who already has full read access to the database.
+
+Non-secret defaults also still live in `src/Naudit.Web/appsettings.json` under the
+`Naudit` section. **Secrets** (`GitLab:Token`, `GitLab:WebhookSecret`, `GitHub:Token`,
 `GitHub:WebhookSecret`, any `ProjectTokens:*:Token`, `Ai:ApiKey`) do **not** belong
-there — put them in user-secrets, environment variables, or your deployment
-environment's secret management.
+there — put them in user-secrets, environment variables, the Settings page, or your
+deployment environment's secret management.
 
 > In a container the keys are set as environment variables — ASP.NET maps `:` to
 > `__`, e.g. `Naudit:Ai:ApiKey` → `Naudit__Ai__ApiKey`.
@@ -22,6 +56,7 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 
 | Key | Meaning |
 | --- | --- |
+| `Naudit:PublicBaseUrl` | Public base URL of this instance (used to build webhook/callback URLs) — DB-managed |
 | `Naudit:Git:Platform` | `GitLab` (default) \| `GitHub` — selects the active platform |
 | `Naudit:GitLab:BaseUrl` | Base URL of the GitLab instance, e.g. `https://gitlab.example.com` |
 | `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) — global fallback |
@@ -55,12 +90,11 @@ dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"    
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
-| `Naudit:Ui:Enabled` | WebUI (dashboard + BFF auth) — **default `false`**; requires `Naudit:Db:Enabled=true` (fails fast otherwise; see [WebUI](webui.md)) |
-| `Naudit:Db:Enabled` | Naudit's database (access gate, review audit log, accounts, session keys) — **default `false`**; works headless without the UI |
-| `Naudit:Db:Provider` | `Sqlite` (default) \| `Postgres` — persistence backend (same schema/migrations for both) |
-| `Naudit:Db:ConnectionString` | Connection string for the chosen backend: SQLite `Data Source=/data/naudit.db` (default — mount a volume!) or Postgres `Host=…;Database=…;Username=…;Password=…` |
-| `Naudit:Ui:Admin:Username` / `:InitialPassword` | Seed admin, created once on first start with an empty DB (secret!) |
-| `Naudit:Ui:Admins` | Usernames that get the admin role on (external) sign-in |
+| `Naudit:AccessGate:Mode` | `Open` (default) — every project with a valid webhook secret is reviewed \| `Registered` — only projects of active WebUI accounts (see [WebUI › Access model](webui.md#access-model)) |
+| `Naudit:Db:Provider` | `Sqlite` (default) \| `Postgres` — persistence backend (same schema/migrations for both) — **bootstrap key, env-only** |
+| `Naudit:Db:ConnectionString` | Connection string for the chosen backend — **bootstrap key, env-only**. App default `Data Source=data/naudit.db` (relative path, for the self-contained-binary case); the container image overrides this to `Data Source=/data/naudit.db` (mount a volume!) or Postgres `Host=…;Database=…;Username=…;Password=…` |
+| `Naudit:Ui:Admin:Username` / `:InitialPassword` | Seed admin, created once on first start with an empty database (secret!) — env-only, not yet DB-managed |
+| `Naudit:Ui:Admins` | Usernames that get the admin role on (external) sign-in — env-only, not yet DB-managed (list-shaped) |
 | `Naudit:Ui:Auth:GitHub:Enabled` / `:ClientId` / `:ClientSecret` | GitHub-OAuth self-service sign-in (opt-in; secret!) |
 | `Naudit:Ui:Auth:Oidc:Enabled` / `:Authority` / `:ClientId` / `:ClientSecret` | OIDC/Keycloak self-service sign-in (opt-in; secret!) |
 
