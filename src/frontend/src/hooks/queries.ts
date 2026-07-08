@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import type { AccountsDto, DashboardDto, ReviewDetailDto, SettingsDto, UsageDto } from "@/api/types";
 
@@ -20,6 +20,29 @@ export function useAccounts() {
 
 export function useSettings() {
   return useQuery({ queryKey: ["settings"], queryFn: () => api<SettingsDto>("/api/settings") });
+}
+
+export function useSaveSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (changes: { key: string; value: string | null }[]) =>
+      api<{ restartPending: boolean }>("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ changes }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  });
+}
+
+export function useRestartApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>("/api/settings/restart", { method: "POST" }),
+    // Host braucht ~2 s zum Neustart; danach Settings neu laden (Session-Cookie überlebt, DP-Keys in DB).
+    onSuccess: () =>
+      new Promise((resolve) => setTimeout(resolve, 2500)).then(() =>
+        qc.invalidateQueries({ queryKey: ["settings"] })),
+  });
 }
 
 export function useUsage() {
