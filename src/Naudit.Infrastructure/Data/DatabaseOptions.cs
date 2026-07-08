@@ -1,3 +1,6 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+
 namespace Naudit.Infrastructure.Data;
 
 /// <summary>DB-Backend der Persistenz. Ein gemeinsames Schema/eine Migrationskette für beide
@@ -19,4 +22,21 @@ public sealed class DatabaseOptions
     /// SQLite <c>Data Source=/data/naudit.db</c> (Default; /data liegt auf einem Volume) bzw.
     /// Postgres <c>Host=…;Database=…;Username=…;Password=…</c>.</summary>
     public string ConnectionString { get; set; } = "Data Source=/data/naudit.db";
+
+    /// <summary>Die EINE Provider-Weiche für DbContext-Konfiguration — von DI und
+    /// DbSettingsLoader gemeinsam genutzt, damit Bootstrap und Laufzeit nie divergieren.</summary>
+    public static void ConfigureDbContext(DbContextOptionsBuilder builder, DatabaseOptions options)
+    {
+        switch (options.Provider)
+        {
+            case DbProvider.Postgres:
+                builder.UseNpgsql(options.ConnectionString);
+                // Snapshot ist SQLite-geprägt — konventionsbedingter Diff auf Postgres ist gutartig.
+                builder.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+                break;
+            default:
+                builder.UseSqlite(options.ConnectionString);
+                break;
+        }
+    }
 }
