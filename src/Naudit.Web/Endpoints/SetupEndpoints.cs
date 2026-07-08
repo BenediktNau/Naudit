@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Setup;
 using Naudit.Infrastructure.Ui;
@@ -83,6 +84,53 @@ public static class SetupEndpoints
             await drafts.ClearAsync(ctx.RequestAborted);
             return Results.NoContent();
         });
+
+        group.MapPost("/test-ai", async (AiTestRequest body, HttpContext ctx, NauditDbContext db,
+            SetupDraftService drafts, AiTestClientFactory factory) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+            if (!Enum.TryParse<Naudit.Infrastructure.Ai.AiProvider>(body.Provider, true, out var provider))
+                return Results.BadRequest(new { error = $"Unknown AI provider '{body.Provider}'." });
+
+            // ApiKey ist im SPA maskiert, wenn er aus dem Draft stammt — leer ⇒ Draft-Wert nehmen.
+            var apiKey = body.ApiKey;
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                var json = await drafts.LoadAsync(ctx.RequestAborted);
+                apiKey = json is null ? null
+                    : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json)!.AiApiKey;
+            }
+
+            var options = new Naudit.Infrastructure.Ai.AiOptions
+            {
+                Provider = provider,
+                Model = body.Model ?? "",
+                Endpoint = string.IsNullOrWhiteSpace(body.Endpoint) ? null : body.Endpoint,
+                ApiKey = apiKey,
+                TimeoutSeconds = 30, // Verbindungstest, kein Review — kurz halten
+            };
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
+                var client = factory.Create(options);
+                try
+                {
+                    var response = await client.GetResponseAsync("Reply with the single word: OK", cancellationToken: cts.Token);
+                    var text = response.Text;
+                    return Results.Ok(new { ok = true, detail = text.Length > 200 ? text[..200] : text });
+                }
+                finally
+                {
+                    (client as IDisposable)?.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Scheitern ist hier ein ERGEBNIS (Spec: Fortfahren erlaubt, z. B. Ollama noch nicht erreichbar).
+                return Results.Ok(new { ok = false, detail = ex.Message });
+            }
+        });
     }
 
     /// <summary>GET-Antwort des Drafts — Secrets (GitToken/AiApiKey) werden NIE zurueckgegeben,
@@ -104,6 +152,9 @@ public static class SetupEndpoints
 
 /// <summary>Request-Body der Admin-Anlage (Wizard Schritt 1).</summary>
 public sealed record SetupAdminRequest(string Username, string Password);
+
+/// <summary>Request-Body des AI-Verbindungstests; ApiKey leer ⇒ gespeicherter Draft-Wert.</summary>
+public sealed record AiTestRequest(string? Provider, string? Model, string? Endpoint, string? ApiKey);
 
 /// <summary>Wizard-Zwischenstand: API-Kontrakt UND (serialisiert) der DP-verschluesselte
 /// DB-Blob. Alle Felder optional — der Wizard fuellt sie schrittweise. GitToken ist je nach

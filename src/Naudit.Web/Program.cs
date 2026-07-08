@@ -85,6 +85,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     builder.Services.AddSingleton(envOverrides);
     builder.Services.AddSingleton(new StartupState(configError?.Message, load.Warnings));
     builder.Services.AddSingleton(setup);
+    builder.Services.AddSingleton(new AiTestClientFactory(Naudit.Infrastructure.Ai.AiClientFactory.Create));
     builder.Services.AddNauditDatabase(builder.Configuration);
     // UiOptions gehört zur immer-an UI-Basis (AccountService/Seed brauchen sie schon im Recovery-Modus,
     // wo AddNauditInfrastructure NICHT läuft). Im Gesundfall registriert AddNauditInfrastructure sie erneut

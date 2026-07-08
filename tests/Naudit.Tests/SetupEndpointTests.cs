@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Naudit.Tests.Fakes;
+using Naudit.Web;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -139,5 +141,43 @@ public class SetupEndpointTests
         Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync("/api/setup/draft")).StatusCode);
         var doc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
         Assert.False(doc.RootElement.GetProperty("hasGitToken").GetBoolean());
+    }
+
+    [Fact]
+    public async Task TestAi_erfolg_liefertOkTrue()
+    {
+        using var app = new TestAppFactory();
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton(new Naudit.Web.AiTestClientFactory(_ => new FakeChatClient("OK")))));
+        var client = await LoggedInAsync(factory);
+        var res = await client.PostAsJsonAsync("/api/setup/test-ai",
+            new { provider = "Ollama", model = "m" });
+        var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public async Task TestAi_fehler_istErgebnisStattStatuscode()
+    {
+        using var app = new TestAppFactory();
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton(new Naudit.Web.AiTestClientFactory(_ =>
+                throw new InvalidOperationException("connection refused")))));
+        var client = await LoggedInAsync(factory);
+        var res = await client.PostAsJsonAsync("/api/setup/test-ai", new { provider = "Ollama", model = "m" });
+        var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains("connection refused", doc.RootElement.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task TestAi_unbekannterProvider_ist400()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        var res = await client.PostAsJsonAsync("/api/setup/test-ai", new { provider = "Skynet", model = "m" });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 }
