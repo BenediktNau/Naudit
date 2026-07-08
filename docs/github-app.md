@@ -96,7 +96,7 @@ Once `Naudit:GitHub:Auth=App` and the WebUI (`Naudit:Ui:Enabled=true`) are both 
 user whose GitHub account/org does not yet have the app installed sees an **install banner** on
 the dashboard (and on the pending screen, while they wait for admin approval). The banner links
 straight to the app's install page; after installing, GitHub returns them to the Naudit dashboard
-(the **Setup URL** above). Naudit re-checks the installation state per request against GitHub
+(the **Setup URL** above). Naudit re-checks the installation state against GitHub
 (`GET /users/{login}/installation`, org fallback), so the banner clears once the fresh state is
 read and a later uninstall makes it reappear. The result is cached in memory for a few minutes per
 login (so dashboard reloads don't hammer the GitHub API) — a reload in the first minutes right

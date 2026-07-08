@@ -39,7 +39,7 @@ export function ProfilePage() {
                     href={gitHubApp.data!.installUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="cursor-pointer rounded-lg bg-acc px-3 py-1.5 text-xs font-bold text-accink transition-colors hover:bg-acc2"
+                    className="cursor-pointer rounded-lg bg-acc px-3 py-1.5 text-xs font-bold text-accink transition-colors hover:bg-acc2 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-teal"
                   >
                     Install
                   </a>

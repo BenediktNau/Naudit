@@ -120,6 +120,19 @@ public class GitHubAppInstallationCheckerTests
     }
 
     [Fact]
+    public async Task GetStatusAsync_escapesLoginInPath_noThrow()
+    {
+        // Login mit Sonderzeichen (Admin-Freitext): muss escaped rausgehen und darf nicht werfen.
+        var stub = Api(_ => new HttpResponseMessage(HttpStatusCode.NotFound)); // user + org 404 ⇒ false
+        var checker = Checker(stub, new FakeTime(T0));
+
+        var status = await checker.GetStatusAsync(["a b"]);
+
+        Assert.False(Assert.Single(status.Accounts).Installed);
+        Assert.Contains(stub.Calls, c => c.Uri!.AbsolutePath == "/users/a%20b/installation");
+    }
+
+    [Fact]
     public async Task GetStatusAsync_malformedSlugResponse_failsQuiet_emptyInstallUrl()
     {
         // /app liefert 200, aber keinen JSON-Body ⇒ JsonException. Fail-quiet: nicht werfen,

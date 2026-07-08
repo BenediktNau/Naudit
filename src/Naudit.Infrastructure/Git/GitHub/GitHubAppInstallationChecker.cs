@@ -55,16 +55,21 @@ public sealed class GitHubAppInstallationChecker(
     {
         try
         {
-            using var userResp = await SendAsync($"users/{login}/installation", ct);
+            // Login ist Admin-Freitext (nur getrimmt/lowercased) — für den URL-Pfad escapen,
+            // damit ein untauglicher Wert keine UriFormatException wirft (Fail-quiet, s. catch).
+            var enc = Uri.EscapeDataString(login);
+            using var userResp = await SendAsync($"users/{enc}/installation", ct);
             if (userResp.StatusCode == HttpStatusCode.OK) return true;
             if (userResp.StatusCode != HttpStatusCode.NotFound) return LogAndNull(login, userResp.StatusCode);
 
-            using var orgResp = await SendAsync($"orgs/{login}/installation", ct);
+            using var orgResp = await SendAsync($"orgs/{enc}/installation", ct);
             if (orgResp.StatusCode == HttpStatusCode.OK) return true;
             if (orgResp.StatusCode == HttpStatusCode.NotFound) return false;
             return LogAndNull(login, orgResp.StatusCode);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        // Bewusst breit wie GetSlugAsync: auch ein URI-untauglicher Login darf nicht werfen — Fail-quiet.
+        // Cancellation bleibt ausgenommen, damit ein echter Abbruch weiterhin propagiert.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "GitHub-App-Installationsprüfung für {Login} fehlgeschlagen.", login);
             return null;
