@@ -92,7 +92,7 @@ API call and every checkout clone uses a freshly minted installation token inste
 
 ## Install from the Naudit WebUI
 
-Once `Naudit:GitHub:Auth=App` and the WebUI (`Naudit:Ui:Enabled=true`) are both on, a signed-in
+Once `Naudit:GitHub:Auth=App` is on (the WebUI is always on), a signed-in
 user whose GitHub account/org does not yet have the app installed sees an **install banner** on
 the dashboard (and on the pending screen, while they wait for admin approval). The banner links
 straight to the app's install page; after installing, GitHub returns them to the Naudit dashboard
