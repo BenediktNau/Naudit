@@ -103,3 +103,13 @@ export interface SettingsDto {
   authMethods: AuthProviders;
   systemPrompt: string;
 }
+
+export interface GitHubAppAccount {
+  login: string;
+  installed: boolean | null;
+}
+
+export interface GitHubAppDto {
+  installUrl: string;
+  accounts: GitHubAppAccount[];
+}
