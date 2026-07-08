@@ -53,11 +53,35 @@ dotnet user-secrets set "Naudit:GitLab:Token"         "YOUR_TOKEN_WITH_API_SCOPE
 dotnet user-secrets set "Naudit:GitLab:WebhookSecret" "A_SELF_CHOSEN_SECRET"           --project src/Naudit.Web
 ```
 
+## Setup mode
+
+On first start with an empty database, Naudit checks the **effective** config (database +
+env) for the required key set below, per chosen platform/provider. If anything is missing,
+the host comes up in **setup mode**: the webhook endpoints, `POST /review`, and the review
+pipeline stay unmapped, and the WebUI serves the [setup wizard](webui.md#setup-wizard)
+instead of the normal app. An env-complete deployment never sees it. See
+[WebUI › Setup wizard](webui.md#setup-wizard) for the guided flow; this table is the
+reference for driving it via env vars/user-secrets instead.
+
+| Scenario | Required keys |
+| --- | --- |
+| GitLab | `Naudit:GitLab:BaseUrl`, `Naudit:GitLab:Token`, `Naudit:GitLab:WebhookSecret` |
+| GitHub (PAT) | `Naudit:GitHub:Token`, `Naudit:GitHub:WebhookSecret` |
+| GitHub (App) | `Naudit:GitHub:App:AppId`, `Naudit:GitHub:App:PrivateKey`, `Naudit:GitHub:WebhookSecret` |
+| AI | `Naudit:Ai:Model` (not required for `ClaudeCode`, which defaults to `sonnet`); additionally `Naudit:Ai:ApiKey` for `Anthropic`/`OpenAICompatible` |
+
+`Naudit:Ai:Endpoint` is **never** in the required set — every provider that reads it has a
+working default (`http://localhost:11434` for Ollama; OpenAI-compatible endpoints need it
+in practice but setup mode doesn't hard-require it). Guiding principle: a **missing** value
+drops you into setup mode (the wizard asks for it); an **invalid** value (an enum that
+doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mode** — see
+[WebUI › Settings are editable](webui.md#settings-are-editable).
+
 ## Keys
 
 | Key | Meaning |
 | --- | --- |
-| `Naudit:PublicBaseUrl` | Reserved for the upcoming setup wizard (GitHub App manifest / webhook URL construction) — not yet read by the running app |
+| `Naudit:PublicBaseUrl` | The externally reachable base URL of this instance, e.g. `https://naudit.example.com`. Set by the [setup wizard](#setup-mode) (step 2) or manually; backs the webhook URLs shown on the wizard's completion page and (in a later PR) the GitHub App manifest redirect |
 | `Naudit:Git:Platform` | `GitLab` (default) \| `GitHub` — selects the active platform |
 | `Naudit:GitLab:BaseUrl` | Base URL of the GitLab instance, e.g. `https://gitlab.example.com` |
 | `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) — global fallback |

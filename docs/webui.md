@@ -22,6 +22,45 @@ Screens: login, dashboard, approvals (admin), settings (admin, editable), profil
 UI design source of truth: `Naudit WebUI.dc.html` (Claude Design project). Dark-only,
 Space Grotesk + Space Mono, one green accent (`#4ADE80`).
 
+## Setup wizard
+
+On first start with an empty database, Naudit checks the effective config for the
+required key set (see [Configuration › Setup mode](configuration.md#setup-mode)). Missing
+⇒ **setup mode**: only the WebUI base (login, the wizard API, the Settings/Approvals/
+Dashboard screens) stays mapped — webhooks, `POST /review`, and the review pipeline are
+off until setup completes. An **invalid** value instead (an enum that fails to parse) is a
+different case: **recovery mode**, not the wizard — see
+[Settings are editable](#settings-are-editable) below.
+
+The wizard runs before the login screen and walks through six steps:
+
+1. **Admin account** — create one, or sign in if one already exists.
+2. **Instance URL** — pre-filled from the request, editable; saved as
+   `Naudit:PublicBaseUrl` (backs the webhook URLs shown at the end).
+3. **Git platform** — GitHub (PAT) or GitLab, with the token and a generated webhook
+   secret; the webhook itself is created **manually** by copying the shown URL/secret
+   into the platform (a GitHub App manifest flow and GitLab's webhook-creation API are
+   a separate, not-yet-built follow-up).
+4. **AI provider** — Ollama / Anthropic / OpenAI-compatible / Claude Code, with a
+   **"Test connection"** button that spins up a transient `IChatClient` from the draft
+   values and sends a one-word prompt; a failure is shown but does **not** block
+   continuing (e.g. Ollama often isn't reachable yet at setup time).
+5. **Access model** — `Open` or `Registered` (see [Access model](#access-model)).
+6. **Review & apply** — summary of the draft, then "Apply & restart": the draft is
+   written to `Settings` atomically and `IAppRestarter` triggers an in-process restart;
+   the wizard polls `/api/setup/status` until `setupRequired` flips to `false`, then
+   shows the webhook URL to wire up.
+
+**Protection (Grafana/Portainer pattern):** step 1 only allows *creating* an admin while
+**none exists** — once one does (including an env-seeded `Naudit:Ui:Admin:*` account), the
+wizard requires that admin to log in instead. The same guard covers recovery mode: it is
+never an open config panel.
+
+**Draft persistence:** progress before "Apply" lives in a single `SetupDraft` database row,
+its JSON blob **encrypted with Data Protection** like other secrets (`SetupDraftService`) —
+this survives page reloads. Only "Apply" turns the draft into real `Settings` rows; walking
+away just leaves an inert draft.
+
 ## Enabling (Coolify / environment)
 
 The database and UI need no switch anymore — only the bootstrap keys below are required;
