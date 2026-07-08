@@ -3,6 +3,7 @@ import { useDashboard, fmtTokens } from "@/hooks/queries";
 import { Panel } from "@/components/ui/Panel";
 import { StatTile } from "@/components/ui/StatTile";
 import { VerdictPill } from "@/components/ui/Pill";
+import { Skeleton, SkeletonPanel, SkeletonRows } from "@/components/ui/Skeleton";
 import { ReviewDetail } from "@/components/ReviewDetail";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
 
@@ -28,12 +29,66 @@ const chevron = (open: boolean) => (
   </svg>
 );
 
+// Layout-treues Skeleton: 3 StatTiles + 2 Panels wie im echten Dashboard → kein Sprung beim Laden.
+function StatTileSkeleton() {
+  return (
+    <div className="min-h-[132px] rounded-xl border border-hairline bg-surface px-5 py-4">
+      <Skeleton className="h-2.5 w-20" />
+      <Skeleton className="mt-3.5 h-8 w-28" />
+      <Skeleton className="mt-3 h-3 w-24" />
+    </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 px-7 py-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <StatTileSkeleton />
+        <StatTileSkeleton />
+        <StatTileSkeleton />
+      </div>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[5fr_7fr]">
+        <SkeletonPanel>
+          <SkeletonRows count={4}>
+            {() => (
+              <>
+                <Skeleton className="size-3.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-3 w-40" />
+                  <Skeleton className="mt-1.5 h-2.5 w-24" />
+                </div>
+                <Skeleton className="h-3 w-10" />
+              </>
+            )}
+          </SkeletonRows>
+        </SkeletonPanel>
+        <SkeletonPanel>
+          <SkeletonRows count={5}>
+            {() => (
+              <>
+                <Skeleton className="size-3.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-3 w-56" />
+                  <Skeleton className="mt-1.5 h-2.5 w-32" />
+                </div>
+                <Skeleton className="h-4 w-14 rounded-full" />
+                <Skeleton className="h-3 w-10" />
+              </>
+            )}
+          </SkeletonRows>
+        </SkeletonPanel>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const { data, isLoading, isError } = useDashboard();
   const [openProject, setOpenProject] = useState<number | null>(null);
   const [openReview, setOpenReview] = useState<number | null>(null);
 
-  if (isLoading) return <div className="p-8 font-mono text-ink3">loading…</div>;
+  if (isLoading) return <DashboardSkeleton />;
   if (isError || !data) return <div className="p-8 font-mono text-danger">failed to load dashboard</div>;
 
   return (
