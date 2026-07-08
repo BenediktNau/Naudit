@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
@@ -128,6 +129,20 @@ if (uiConfig.Enabled)
 }
 
 var app = builder.Build();
+
+// Reverse-Proxy: Coolify/Traefik (und nginx) terminieren TLS und reichen plain HTTP weiter.
+// X-Forwarded-Proto übernehmen, damit Request.Scheme wieder "https" ist — sonst baut der
+// OAuth-/OIDC-Handler die redirect_uri mit http:// statt https:// und GitHub/der IdP lehnt sie
+// als Mismatch zur registrierten Callback-URL ab (Login schlägt fehl). KnownIPNetworks/-Proxies
+// leeren: der Proxy hat eine unbekannte Container-IP (nicht Loopback), und die App ist
+// ausschließlich über ihn erreichbar, nie direkt.
+var forwardedHeaders = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+};
+forwardedHeaders.KnownIPNetworks.Clear();
+forwardedHeaders.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeaders);
 
 // UI-Persistenz: Migration + Seed-Admin beim Start (nur bei aktiviertem UI).
 var uiOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Ui.UiOptions>();

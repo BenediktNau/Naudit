@@ -36,6 +36,22 @@ public class ExternalAuthTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task GitHubChallenge_usesHttpsRedirectUri_behindTlsTerminatingProxy()
+    {
+        // Reverse-Proxy (Coolify/Traefik) terminiert TLS, die App sieht plain HTTP (TestServer =
+        // http://localhost). Ohne Forwarded-Headers-Behandlung baut der OAuth-Handler die
+        // redirect_uri mit http:// → Mismatch mit der bei GitHub registrierten https-Callback-URL.
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/auth/login/github");
+        req.Headers.Add("X-Forwarded-Proto", "https");
+        var response = await CreateClient(gitHubEnabled: true).SendAsync(req);
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        // redirect_uri ist im authorize-Query URL-kodiert: https:// ⇒ https%3A%2F%2F.
+        Assert.Contains("redirect_uri=https%3A%2F%2F", response.Headers.Location!.ToString());
+        Assert.Contains("%2Fauth%2Fcallback%2Fgithub", response.Headers.Location!.ToString());
+    }
+
+    [Fact]
     public async Task GitHubChallenge_notMapped_whenDisabled()
     {
         var response = await CreateClient(gitHubEnabled: false).GetAsync("/auth/login/github");
