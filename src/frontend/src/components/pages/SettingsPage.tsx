@@ -1,6 +1,7 @@
 import { useSettings } from "@/hooks/queries";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { Skeleton, SkeletonPanel } from "@/components/ui/Skeleton";
 
 function Row({ label, value, on }: { label: string; value?: string; on?: boolean }) {
   return (
@@ -12,11 +13,41 @@ function Row({ label, value, on }: { label: string; value?: string; on?: boolean
   );
 }
 
+// Skeleton: Titelblock + drei Config-Panels mit je drei Zeilen (Label ↔ Wert).
+function SettingsPanelSkeleton({ rows }: { rows: number }) {
+  return (
+    <SkeletonPanel>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center justify-between border-b border-hairline px-5 py-3.5 last:border-b-0">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      ))}
+    </SkeletonPanel>
+  );
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 px-7 py-6">
+      <div>
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="mt-2 h-3 w-full max-w-[70ch]" />
+      </div>
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+        <SettingsPanelSkeleton rows={3} />
+        <SettingsPanelSkeleton rows={3} />
+        <SettingsPanelSkeleton rows={3} />
+      </div>
+    </div>
+  );
+}
+
 /** Bewusst read-only (v1): zeigt die effektive Config, ändert nichts.
  *  Provider/Prompt werden weiterhin ausschließlich über appsettings/Env gesetzt. */
 export function SettingsPage() {
   const { data, isLoading } = useSettings();
-  if (isLoading || !data) return <div className="p-8 font-mono text-ink3">loading…</div>;
+  if (isLoading || !data) return <SettingsSkeleton />;
 
   return (
     <div className="flex flex-col gap-5 px-7 py-6">
