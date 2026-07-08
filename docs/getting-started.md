@@ -69,10 +69,18 @@ providers. Point the platform's webhook at `https://<your-host>/webhook/github` 
 `/webhook/gitlab`) — see [Platform setup](platform-setup.md) for the exact steps
 (token scopes, webhook fields).
 
+> **You still need a WebUI admin.** A fully env-configured instance boots straight into
+> normal operation, so the wizard — including its admin-creation step — never runs. Unless
+> you also seed an admin, there is no account to sign in with. Set
+> `Naudit__Ui__Admin__Username` + `Naudit__Ui__Admin__InitialPassword` (seeded on first
+> start while the account table is empty), or enable a sign-in provider and list the
+> account under `Naudit__Ui__Admins`. Without one of these you get a working review
+> pipeline but no way into the WebUI.
+
 Everything not in the required set — access-gate mode, sign-in providers, review/gate
-tuning — can either be set the same way or left for an admin to configure later on the
-WebUI's Settings page (no wizard involved, since setup mode only triggers on a
-*missing* required key).
+tuning — can either be set the same way or left for a seeded admin (see the note above)
+to configure later on the WebUI's Settings page (no wizard involved, since setup mode
+only triggers on a *missing* required key).
 
 ## Next steps
 
