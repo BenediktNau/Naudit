@@ -71,7 +71,15 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         if (string.IsNullOrWhiteSpace(text))
             throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
 
-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text));
+        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
+        {
+            // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
+            // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
+            // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
+            Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
+                ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
+                : null,
+        };
     }
 
     // ReviewService nutzt nur die non-streaming Variante; hier ein dünner Wrapper übers Einzelergebnis.
@@ -106,5 +114,11 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
     private sealed record ClaudeResult(
         [property: JsonPropertyName("subtype")] string? Subtype,
         [property: JsonPropertyName("is_error")] bool IsError,
-        [property: JsonPropertyName("result")] string? Result);
+        [property: JsonPropertyName("result")] string? Result,
+        [property: JsonPropertyName("usage")] ClaudeUsage? Usage);
+
+    // usage-Teilobjekt des Envelopes; nur Input/Output (Cache-Felder ignoriert der Adapter).
+    private sealed record ClaudeUsage(
+        [property: JsonPropertyName("input_tokens")] long? InputTokens,
+        [property: JsonPropertyName("output_tokens")] long? OutputTokens);
 }
