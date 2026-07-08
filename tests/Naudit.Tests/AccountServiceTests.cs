@@ -58,6 +58,37 @@ public class AccountServiceTests
     }
 
     [Fact]
+    public async Task MaterializeExternal_rejectedAccount_returnsToPending_onReSignIn()
+    {
+        // Ein abgelehnter/entzogener externer User muss sich erneut anmelden können und dabei
+        // wieder in Pending landen — sonst sieht der Admin ihn nie wieder (Rejected ist im
+        // Dashboard unsichtbar) und kann ihn nicht mehr freigeben.
+        await using var db = NewDb();
+        var svc = NewService(db);
+        var acct = await svc.MaterializeExternalAsync(AccountProvider.GitHub, "12345", "mmustermann", "mmustermann");
+        await svc.SetStatusAsync(acct.Id, AccountStatus.Rejected);
+
+        var reSignIn = await svc.MaterializeExternalAsync(AccountProvider.GitHub, "12345", "mmustermann", "mmustermann");
+
+        Assert.Equal(acct.Id, reSignIn.Id);
+        Assert.Equal(AccountStatus.Pending, reSignIn.Status);
+    }
+
+    [Fact]
+    public async Task MaterializeExternal_activeAccount_staysActive_onReSignIn()
+    {
+        // Gegenprobe: ein bereits freigegebener User darf bei jedem Login NICHT zurückgesetzt werden.
+        await using var db = NewDb();
+        var svc = NewService(db);
+        var acct = await svc.MaterializeExternalAsync(AccountProvider.Oidc, "sub-1", "u", null);
+        await svc.SetStatusAsync(acct.Id, AccountStatus.Active);
+
+        var reSignIn = await svc.MaterializeExternalAsync(AccountProvider.Oidc, "sub-1", "u", null);
+
+        Assert.Equal(AccountStatus.Active, reSignIn.Status);
+    }
+
+    [Fact]
     public async Task Accounts_providerExternalId_isUnique()
     {
         // DB-Netz gegen doppelte externe Identitäten (paralleler OAuth-Callback): ein zweiter
