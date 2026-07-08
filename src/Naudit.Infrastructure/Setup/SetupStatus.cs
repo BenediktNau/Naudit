@@ -63,7 +63,7 @@ public static class SetupStatus
     private static bool TryReadEnum<T>(string? raw, ref T value) where T : struct
     {
         if (string.IsNullOrWhiteSpace(raw)) return true;
-        if (Enum.TryParse<T>(raw, ignoreCase: true, out var parsed)) { value = parsed; return true; }
+        if (Enum.TryParse<T>(raw, ignoreCase: true, out var parsed) && Enum.IsDefined(typeof(T), parsed)) { value = parsed; return true; }
         return false;
     }
 

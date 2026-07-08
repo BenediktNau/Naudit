@@ -106,4 +106,38 @@ public sealed class SetupStatusTests
             ("Naudit:Ai:Provider", "Bogus")));
         Assert.False(result.SetupRequired);
     }
+
+    [Fact]
+    public void NumerischerEnumWert_giltAlsUngueltig()
+    {
+        // Enum.TryParse akzeptiert "5" als int-Wert — SetupStatus muss das als ungueltig
+        // (keine Aussage) behandeln, nicht als gueltige Nicht-GitLab-Plattform.
+        var result = SetupStatus.Check(Config(
+            ("Naudit:Git:Platform", "5"),
+            ("Naudit:Ai:Provider", "5")));
+        Assert.False(result.SetupRequired);
+    }
+
+    [Fact]
+    public void UngueltigeAuth_beiValidemGitHub_verlangtNurWebhookSecret()
+    {
+        // Plattform ist valide (GitHub), nur Auth ist Muell: die Auth-spezifischen Keys
+        // (Token bzw. App:*) sind "keine Aussage", das Plattform-Pflicht-WebhookSecret bleibt.
+        var result = SetupStatus.Check(Config(
+            ("Naudit:Git:Platform", "GitHub"),
+            ("Naudit:GitHub:Auth", "Bogus"),
+            ("Naudit:Ai:Model", "m")));
+        Assert.Contains("Naudit:GitHub:WebhookSecret", result.MissingKeys);
+        Assert.DoesNotContain("Naudit:GitHub:Token", result.MissingKeys);
+        Assert.DoesNotContain("Naudit:GitHub:App:AppId", result.MissingKeys);
+    }
+
+    [Fact]
+    public void OpenAICompatibleOhneApiKey_fehlt()
+    {
+        var result = SetupStatus.Check(Config(
+            ("Naudit:GitLab:BaseUrl", "b"), ("Naudit:GitLab:Token", "t"), ("Naudit:GitLab:WebhookSecret", "s"),
+            ("Naudit:Ai:Provider", "OpenAICompatible"), ("Naudit:Ai:Model", "m")));
+        Assert.Contains("Naudit:Ai:ApiKey", result.MissingKeys);
+    }
 }
