@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import type { MeDto } from "@/api/types";
 import { LoginPage } from "@/components/pages/LoginPage";
@@ -23,6 +24,7 @@ export function useAuth(): AuthState {
 export function AuthGate({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeDto | null>(null);
   const [error, setError] = useState(false);
+  const queryClient = useQueryClient();
 
   const refresh = useCallback(async () => {
     // Fehler abfangen: /api/me kann bei Netzwerk-/5xx-Fehlern werfen. refresh() wird u. a.
@@ -37,8 +39,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await api("/auth/logout", { method: "POST" });
+    // Query-Cache leeren, damit keine Daten des vorigen Users beim nächsten Login flackern.
+    queryClient.clear();
     await refresh();
-  }, [refresh]);
+  }, [refresh, queryClient]);
 
   useEffect(() => {
     // setState nur im Promise-Callback (nie synchron im Effect) — react-hooks/set-state-in-effect.
