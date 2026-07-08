@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
@@ -128,6 +129,27 @@ if (uiConfig.Enabled)
 }
 
 var app = builder.Build();
+
+// Reverse-Proxy: Coolify/Traefik (und nginx) terminieren TLS und reichen plain HTTP weiter.
+// X-Forwarded-Proto übernehmen, damit Request.Scheme wieder "https" ist — sonst baut der
+// OAuth-/OIDC-Handler die redirect_uri mit http:// statt https:// und GitHub/der IdP lehnt sie
+// als Mismatch zur registrierten Callback-URL ab (Login schlägt fehl).
+// Vertrauensgrenze: Standard = leere Listen ⇒ allen Quellen vertrauen (Container-Deployment mit
+// dynamischer Proxy-IP; hält das Setup ohne Konfiguration lauffähig). Wer Proxy-IP/-Netz kennt,
+// härtet über Naudit:ForwardedHeaders:KnownProxies (IPs) / :KnownNetworks (CIDR) — dann werden
+// X-Forwarded-* nur von dort akzeptiert (gegen Spoofing durch direkt erreichbare Clients).
+var forwardedHeaders = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+};
+var fhSection = builder.Configuration.GetSection("Naudit:ForwardedHeaders");
+forwardedHeaders.KnownIPNetworks.Clear(); // Loopback-Defaults raus — der Proxy ist nie Loopback.
+forwardedHeaders.KnownProxies.Clear();
+foreach (var ip in fhSection.GetSection("KnownProxies").Get<string[]>() ?? [])
+    forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.Parse(ip));
+foreach (var cidr in fhSection.GetSection("KnownNetworks").Get<string[]>() ?? [])
+    forwardedHeaders.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr));
+app.UseForwardedHeaders(forwardedHeaders);
 
 // UI-Persistenz: Migration + Seed-Admin beim Start (nur bei aktiviertem UI).
 var uiOptions = app.Services.GetRequiredService<Naudit.Infrastructure.Ui.UiOptions>();
