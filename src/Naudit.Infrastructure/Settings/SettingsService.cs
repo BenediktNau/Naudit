@@ -33,7 +33,10 @@ public sealed class SettingsService(NauditDbContext db, IDataProtectionProvider 
 
     public async Task<bool> RemoveAsync(string key, CancellationToken ct = default)
     {
-        var row = await db.Settings.SingleOrDefaultAsync(s => s.Key == key, ct);
+        // Über den Katalog normalisieren (kanonische Schreibweise) — sonst schlägt ein Remove
+        // mit abweichender Groß-/Kleinschreibung unter SQLites BINARY-Collation still fehl.
+        if (!SettingsCatalog.TryGet(key, out var def)) return false;
+        var row = await db.Settings.SingleOrDefaultAsync(s => s.Key == def.Key, ct);
         if (row is null) return false;
         db.Settings.Remove(row);
         await db.SaveChangesAsync(ct);

@@ -60,6 +60,14 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveAsync_istCaseInsensitiv()
+    {
+        await _service.SetAsync("Naudit:Ai:Model", "sonnet");
+        Assert.True(await _service.RemoveAsync("naudit:ai:model")); // andere Schreibweise
+        Assert.Empty(await _service.GetSetKeysAsync());
+    }
+
+    [Fact]
     public void Catalog_kenntKernKeys_mitKorrektemSecretFlag()
     {
         Assert.True(SettingsCatalog.TryGet("Naudit:Ai:ApiKey", out var apiKey));
