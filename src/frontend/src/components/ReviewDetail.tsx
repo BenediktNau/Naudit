@@ -1,5 +1,6 @@
 import { useReviewDetail, fmtTokens } from "@/hooks/queries";
 import { Logo } from "@/components/ui/Logo";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 const sevColor: Record<string, string> = {
   Critical: "text-danger bg-danger/12",
@@ -13,7 +14,15 @@ const sevColor: Record<string, string> = {
 export function ReviewDetail({ id }: { id: number }) {
   const { data, isLoading, isError } = useReviewDetail(id);
   if (isLoading)
-    return <div className="border-b border-hairline bg-bg px-10 py-4 font-mono text-xs text-ink3">loading…</div>;
+    return (
+      // gleicher Container wie der geladene Zustand → die aufgeklappte Zeile behält ihre Höhe.
+      <div className="border-b border-hairline bg-bg py-4 pr-5 pl-10">
+        <Skeleton className="h-2.5 w-40" />
+        <Skeleton className="mt-3 h-3 w-full max-w-[70ch]" />
+        <Skeleton className="mt-1.5 h-3 w-full max-w-[62ch]" />
+        <Skeleton className="mt-1.5 h-3 w-1/2" />
+      </div>
+    );
   if (isError || !data)
     return <div className="border-b border-hairline bg-bg px-10 py-4 font-mono text-xs text-danger">failed to load review</div>;
 
