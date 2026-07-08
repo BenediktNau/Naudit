@@ -122,3 +122,29 @@ export interface GitHubAppDto {
   installUrl: string;
   accounts: GitHubAppAccount[];
 }
+
+export interface SetupStatusDto {
+  setupRequired: boolean;
+  adminExists: boolean;
+  missing: string[];
+  suggestedPublicBaseUrl: string | null;
+}
+
+export interface SetupDraftDto {
+  publicBaseUrl: string | null;
+  platform: "GitHub" | "GitLab" | null;
+  gitToken: string | null; // von der API immer maskiert (null) — hasGitToken zeigt "gesetzt"
+  gitLabBaseUrl: string | null;
+  webhookSecret: string | null;
+  aiProvider: string | null;
+  aiModel: string | null;
+  aiEndpoint: string | null;
+  aiApiKey: string | null; // von der API immer maskiert (null) — hasAiApiKey zeigt "gesetzt"
+  accessGateMode: "Open" | "Registered" | null;
+}
+
+export interface SetupDraftResponse {
+  draft: SetupDraftDto;
+  hasGitToken: boolean;
+  hasAiApiKey: boolean;
+}

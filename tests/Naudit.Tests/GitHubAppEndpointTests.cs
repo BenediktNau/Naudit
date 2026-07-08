@@ -50,6 +50,13 @@ public class GitHubAppEndpointTests : IClassFixture<WebApplicationFactory<Progra
                 b.UseSetting("Naudit:GitHub:App:AppId", "12345");
                 b.UseSetting("Naudit:GitHub:App:PrivateKey", TestPem());
             }
+            else
+            {
+                // Pat-Modus mit vollstaendiger Pflicht-Config: sonst startet der Host im Setup-Modus
+                // (GitHub:Token fehlt) und /api/me/github-app waere schon deshalb ungemappt. Mit Token
+                // ist reviewActive=true, und die 404 beweist die Auth!=App-Selbstabschaltung des Endpoints.
+                b.UseSetting("Naudit:GitHub:Token", "pat-x");
+            }
             if (withFakeChecker)
                 b.ConfigureTestServices(s => s.AddSingleton<IGitHubAppInstallationChecker>(new FakeChecker()));
         });
