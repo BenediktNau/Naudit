@@ -3,14 +3,15 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Mvc.Testing.Handlers;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class AdminEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class AdminEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public AdminEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public AdminEndpointTests(TestAppFactory factory) => _factory = factory;
 
     private async Task<HttpClient> AdminClient()
     {

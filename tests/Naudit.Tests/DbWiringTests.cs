@@ -5,16 +5,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Naudit.Core.Abstractions;
 using Naudit.Infrastructure;
 using Naudit.Infrastructure.Ui;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
 /// <summary>Verdrahtung der zwei Schalter: Naudit:Db:Enabled (DbContext + Gate + Audit-Sink)
 /// und Naudit:Ui:Enabled (Dashboard/Auth/Accounts) — DB ohne UI ist gültig, UI ohne DB nicht.</summary>
-public class DbWiringTests : IClassFixture<WebApplicationFactory<Program>>
+public class DbWiringTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public DbWiringTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public DbWiringTests(TestAppFactory factory) => _factory = factory;
 
     private static ServiceProvider Build(Dictionary<string, string?> settings)
     {

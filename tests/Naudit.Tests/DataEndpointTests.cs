@@ -6,14 +6,15 @@ using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Naudit.Infrastructure.Data;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class DataEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class DataEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public DataEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public DataEndpointTests(TestAppFactory factory) => _factory = factory;
 
     private async Task<(HttpClient Client, WebApplicationFactory<Program> Factory)> AdminApp()
     {

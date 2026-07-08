@@ -1,13 +1,14 @@
 using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class SpaHostingTests : IClassFixture<WebApplicationFactory<Program>>
+public class SpaHostingTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public SpaHostingTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public SpaHostingTests(TestAppFactory factory) => _factory = factory;
 
     private HttpClient CreateClient(bool uiEnabled)
     {

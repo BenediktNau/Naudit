@@ -5,14 +5,15 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class AuthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class AuthEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public AuthEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public AuthEndpointTests(TestAppFactory factory) => _factory = factory;
 
     private (HttpClient Client, WebApplicationFactory<Program> Factory) CreateApp()
     {

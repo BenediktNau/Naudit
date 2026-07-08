@@ -3,15 +3,16 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class WebhookEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class WebhookEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly TestAppFactory _factory;
 
-    public WebhookEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public WebhookEndpointTests(TestAppFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Webhook_withWrongToken_returnsUnauthorized()

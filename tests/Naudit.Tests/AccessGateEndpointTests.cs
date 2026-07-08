@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Data;
+using Naudit.Tests.Fakes;
 using Naudit.Web;
 using Xunit;
 
@@ -34,10 +35,10 @@ public sealed class RecordingReviewQueue : IReviewQueue
     }
 }
 
-public class AccessGateEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class AccessGateEndpointTests : IClassFixture<TestAppFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
-    public AccessGateEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    private readonly TestAppFactory _factory;
+    public AccessGateEndpointTests(TestAppFactory factory) => _factory = factory;
 
     private static string TempDb() => $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-gate-{Guid.NewGuid():N}.db")}";
 
