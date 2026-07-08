@@ -14,6 +14,14 @@ public class ClaudeCodeChatClientTests
     private static string Envelope(string? result, bool isError = false, string subtype = "success")
         => JsonSerializer.Serialize(new { type = "result", subtype, is_error = isError, result });
 
+    // Envelope mit usage-Objekt, wie die CLI es unter --output-format json mitliefert.
+    private static string EnvelopeWithUsage(string result, long inputTokens, long outputTokens)
+        => JsonSerializer.Serialize(new
+        {
+            type = "result", subtype = "success", is_error = false, result,
+            usage = new { input_tokens = inputTokens, output_tokens = outputTokens },
+        });
+
     private static ChatMessage[] Messages() =>
     [
         new(ChatRole.System, "SYS-PROMPT"),
@@ -126,5 +134,28 @@ public class ClaudeCodeChatClientTests
         // Ein Fence-Block ohne Inhalt muss ebenfalls als leer erkannt werden (fail-closed).
         var client = Client(_ => new ProcessResult(0, Envelope("```json\n```"), ""));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_mapsUsageTokens_fromEnvelope()
+    {
+        var client = Client(_ => new ProcessResult(0, EnvelopeWithUsage("{\"x\":1}", 1200, 340), ""));
+
+        var response = await client.GetResponseAsync(Messages());
+
+        Assert.NotNull(response.Usage);
+        Assert.Equal(1200, response.Usage!.InputTokenCount);
+        Assert.Equal(340, response.Usage.OutputTokenCount);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_leavesUsageNull_whenEnvelopeHasNoUsage()
+    {
+        // Provider ohne Usage-Meldung: Audit soll null (nicht 0) sehen, kein erfundener Verbrauch.
+        var client = Client(_ => new ProcessResult(0, Envelope("OK"), ""));
+
+        var response = await client.GetResponseAsync(Messages());
+
+        Assert.Null(response.Usage);
     }
 }

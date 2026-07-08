@@ -45,6 +45,11 @@ envelope and uses its `result` field as the model output. Any non-zero exit, `is
 non-`success` subtype, empty result, or timeout fails the review (fail-closed) — no comment
 is posted.
 
+The envelope's `usage` object (`input_tokens`/`output_tokens`) is mapped onto the MEAI
+`ChatResponse.Usage`, so the review audit and dashboard count this provider's token usage
+like the API provider does — even though a Pro/Max subscription is not billed per token. If a
+run reports no `usage`, the counts stay null (no fabricated zero).
+
 ## Non-goals
 
 - No Dockerfile changes here — `claude` is an environment precondition. Baking Node + the
