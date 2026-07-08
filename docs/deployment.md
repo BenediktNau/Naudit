@@ -51,14 +51,16 @@ Naudit__Ai__ApiKey=<anthropic-key>    # 🔒 secret  (for Anthropic / OpenAIComp
 # ── Review (optional) ───────────────────────────────────────────────
 # Naudit__Review__SystemPrompt=       # empty = built-in default prompt
 
-# ── WebUI (optional — access gate + dashboard, see docs/webui.md) ───
-# Naudit__Ui__Enabled=true
-# Naudit__Ui__DbProvider=Sqlite                  # Sqlite (default) | Postgres
-# Naudit__Ui__Db="Data Source=/data/naudit.db"   # SQLite: mount a persistent volume at /data!
+# ── Database (required for the WebUI; also usable headless: gate + audit log) ──
+# Naudit__Db__Enabled=true
+# Naudit__Db__Provider=Sqlite                                 # Sqlite (default) | Postgres
+# Naudit__Db__ConnectionString="Data Source=/data/naudit.db"  # SQLite: mount a persistent volume at /data!
 # Postgres instead (no /data volume needed):
-# Naudit__Ui__DbProvider=Postgres
-# Naudit__Ui__Db="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
-# Naudit__Ui__DataProtectionKeysDir=/data/dp-keys  # Postgres: put session keys on a volume (else sessions drop on restart)
+# Naudit__Db__Provider=Postgres
+# Naudit__Db__ConnectionString="Host=db.example.com;Port=5432;Database=naudit;Username=naudit;Password=<secret>"  # 🔒
+
+# ── WebUI (optional — access gate + dashboard, see docs/webui.md) ───
+# Naudit__Ui__Enabled=true                       # requires Naudit__Db__Enabled=true
 # Naudit__Ui__Admin__Username=admin
 # Naudit__Ui__Admin__InitialPassword=<secret>    # 🔒 seed admin (first start, empty DB)
 # Naudit__Ui__Auth__GitHub__Enabled=false        # optional self-service sign-in
@@ -70,10 +72,17 @@ Naudit__Ai__ApiKey=<anthropic-key>    # 🔒 secret  (for Anthropic / OpenAIComp
 # Naudit__Ui__Auth__Oidc__ClientSecret=          # 🔒
 ```
 
-> **WebUI volume:** with `Naudit__Ui__Enabled=true` and the default **SQLite** backend, add a
+> **WebUI volume:** with `Naudit__Db__Enabled=true` and the default **SQLite** backend, add a
 > persistent storage mount at `/data` in Coolify — the SQLite DB (accounts, review history,
-> token usage) lives there. With `Naudit__Ui__DbProvider=Postgres` the data lives in your
-> external database instead and no volume is needed.
+> token usage) lives there. With `Naudit__Db__Provider=Postgres` the data lives in your
+> external database instead and no volume is needed. Session signing keys are stored in the
+> database — no extra key volume.
+
+> **Breaking (pre-release rename):** deployments that used the WebUI preview must rename
+> `Naudit__Ui__Db` → `Naudit__Db__ConnectionString`, `Naudit__Ui__DbProvider` →
+> `Naudit__Db__Provider`, add `Naudit__Db__Enabled=true`, and drop
+> `Naudit__Ui__DataProtectionKeysDir`. Data is untouched (same schema); active WebUI
+> sessions are invalidated once (keys move to the database).
 
 **AI variants** (instead of the Anthropic block):
 

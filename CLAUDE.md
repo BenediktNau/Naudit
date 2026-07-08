@@ -117,25 +117,31 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   read-only "Repository context" section. On by default; `Naudit:Review:Context:Enabled=false`
   restores the diff-only prompt. Seam for a future Roslyn/tree-sitter or cached "repo map"
   collector — just another impl + registration. See `docs/review-context.md`.
-- **WebUI: access gate + dashboard (opt-in):** everything behind `Naudit:Ui:Enabled`
-  (default `false` = exactly the pre-WebUI behaviour: no gate, no DB, no UI endpoints).
-  Two Core seams in the `IPromptRedactor` pattern: `IAccessGate` (may this project be
-  reviewed? checked in both webhook endpoints before enqueue — silent drop with 200 — and
-  in `POST /review` — 403) and `IReviewAuditSink` (called after `PostReviewAsync` with
-  verdict/findings/token usage from MEAI `ChatResponse.Usage`; failures never fail the
-  review). Implementations in `src/Naudit.Infrastructure/Ui/` (`EfAccessGate`,
-  `EfReviewAuditSink`, `AccountService` — local users active immediately, self-service
-  GitHub-OAuth/OIDC sign-ups start pending), persistence in `src/Naudit.Infrastructure/Data/`
-  (EF Core on **SQLite (default) or Postgres** via `Naudit:Ui:DbProvider`, migration via
-  `Database.Migrate()` at startup — the single `InitialUi` migration is hand-kept provider-neutral:
-  no explicit column types, both `Sqlite:Autoincrement` and `Npgsql:ValueGenerationStrategy`
-  annotated in `Up()` **and** the Designer's `BuildTargetModel`; on Postgres the
-  `PendingModelChangesWarning` is suppressed. A future `dotnet ef migrations add` re-bakes SQLite
-  types into both files — re-neutralize them. Postgres round-trip: opt-in
-  `NauditDbContextPostgresTests`, gated on `NAUDIT_TEST_POSTGRES`). BFF-auth + JSON API in
-  `src/Naudit.Web/Endpoints/` (cookie session, 401 instead of redirects); the React SPA in
-  `src/frontend/` is compiled into `wwwroot/` by the container build. The Settings API/page
-  is **read-only** by design (config stays env-only). See `docs/webui.md`.
+- **DB (first-class concern) + WebUI on top (both opt-in):** the database is its own config
+  section `Naudit:Db` (`Enabled` default `false`, `Provider` = `Sqlite`|`Postgres`,
+  `ConnectionString`), decoupled from the UI. `Naudit:Db:Enabled` switches
+  `NauditDbContext` + `EfAccessGate` + `EfReviewAuditSink` (off ⇒ `AllowAllAccessGate` +
+  `NullReviewAuditSink` = pre-WebUI behaviour); `Naudit:Ui:Enabled` switches
+  dashboard/BFF-auth/`AccountService` and **requires the DB — fail-fast at startup
+  otherwise** (UI ⇒ DB; gate + audit log work headless without the dashboard). Two Core
+  seams in the `IPromptRedactor` pattern: `IAccessGate` (checked in both webhook endpoints
+  before enqueue — silent drop with 200 — and in `POST /review` — 403) and
+  `IReviewAuditSink` (called after `PostReviewAsync` with verdict/findings/token usage from
+  MEAI `ChatResponse.Usage`; failures never fail the review). Implementations in
+  `src/Naudit.Infrastructure/Ui/`, persistence in `src/Naudit.Infrastructure/Data/` (EF
+  Core, migration via `Database.Migrate()` at startup whenever the DB is on). ASP.NET
+  Data-Protection keys are persisted **in the DB** (`NauditDbContext` implements
+  `IDataProtectionKeyContext`, `PersistKeysToDbContext` in `Program.cs`) — sessions survive
+  restarts on both backends. The migrations (`InitialUi`, `AddDataProtectionKeys`) are
+  hand-kept provider-neutral: no explicit column types, both `Sqlite:Autoincrement` and
+  `Npgsql:ValueGenerationStrategy` annotated in `Up()`, no `HasColumnType` in the
+  Designers; on Postgres the `PendingModelChangesWarning` is suppressed. A future `dotnet
+  ef migrations add` re-bakes SQLite types — re-neutralize the new migration + Designer
+  (snapshot stays SQLite-baked). Postgres round-trip: opt-in `NauditDbContextPostgresTests`,
+  gated on `NAUDIT_TEST_POSTGRES`. BFF-auth + JSON API in `src/Naudit.Web/Endpoints/`
+  (cookie session, 401 instead of redirects); the React SPA in `src/frontend/` is compiled
+  into `wwwroot/` by the container build. The Settings API/page is **read-only** by design
+  (config stays env-only). See `docs/webui.md`.
 - **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
   git-API token from the review's `ProjectId` (per-project override → global fallback) via
   `ResolveTokenAsync` (async — implementations may mint tokens over HTTP, not just look them up).
