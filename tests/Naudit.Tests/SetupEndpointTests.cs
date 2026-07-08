@@ -101,4 +101,43 @@ public class SetupEndpointTests
         var client = SetupMode(app).CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/setup/draft")).StatusCode);
     }
+
+    [Fact]
+    public async Task Draft_putUndGet_maskiertSecrets_behaeltSieBeimUpdate()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        var put = await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            platform = "GitHub", gitToken = "ghp-geheim", webhookSecret = "hook-1", aiProvider = "Ollama",
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        var doc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("draft").GetProperty("gitToken").ValueKind);
+        Assert.True(doc.RootElement.GetProperty("hasGitToken").GetBoolean());
+        // Generiertes WebhookSecret ist bewusst sichtbar (Copy-Paste in die Plattform).
+        Assert.Equal("hook-1", doc.RootElement.GetProperty("draft").GetProperty("webhookSecret").GetString());
+
+        // Update OHNE gitToken (SPA kann den maskierten Wert nicht mitschicken) ⇒ Token bleibt.
+        await client.PutAsJsonAsync("/api/setup/draft", new { platform = "GitHub", webhookSecret = "hook-1", aiModel = "m" });
+        doc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.True(doc.RootElement.GetProperty("hasGitToken").GetBoolean());
+
+        // Plattformwechsel ⇒ gespeicherter Token verfaellt (GitHub-PAT taugt nicht fuer GitLab).
+        await client.PutAsJsonAsync("/api/setup/draft", new { platform = "GitLab" });
+        doc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.False(doc.RootElement.GetProperty("hasGitToken").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Draft_delete_verwirft()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        await client.PutAsJsonAsync("/api/setup/draft", new { platform = "GitLab", gitToken = "glpat-x" });
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync("/api/setup/draft")).StatusCode);
+        var doc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.False(doc.RootElement.GetProperty("hasGitToken").GetBoolean());
+    }
 }

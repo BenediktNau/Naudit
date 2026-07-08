@@ -53,6 +53,36 @@ public static class SetupEndpoints
 
         group.MapGet("/draft", async (HttpContext ctx, NauditDbContext db, SetupDraftService drafts) =>
             await DraftResponseAsync(ctx, db, drafts));
+
+        group.MapPut("/draft", async (SetupDraft incoming, HttpContext ctx, NauditDbContext db,
+            SetupDraftService drafts) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+
+            // Merge-Semantik: GET maskiert Secrets, das SPA kann sie nicht zurueckschicken —
+            // leere Secret-Felder heissen "gespeicherten Wert behalten". Ausnahme Plattformwechsel:
+            // ein GitHub-PAT taugt nicht fuer GitLab (und umgekehrt) ⇒ Token verfaellt.
+            var existingJson = await drafts.LoadAsync(ctx.RequestAborted);
+            var existing = existingJson is null
+                ? new SetupDraft()
+                : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(existingJson)!;
+            var samePlatform = string.Equals(incoming.Platform, existing.Platform, StringComparison.OrdinalIgnoreCase);
+            var merged = incoming with
+            {
+                GitToken = !string.IsNullOrEmpty(incoming.GitToken)
+                    ? incoming.GitToken : (samePlatform ? existing.GitToken : null),
+                AiApiKey = !string.IsNullOrEmpty(incoming.AiApiKey) ? incoming.AiApiKey : existing.AiApiKey,
+            };
+            await drafts.SaveAsync(System.Text.Json.JsonSerializer.Serialize(merged), ctx.RequestAborted);
+            return Results.Ok(new { saved = true });
+        });
+
+        group.MapDelete("/draft", async (HttpContext ctx, NauditDbContext db, SetupDraftService drafts) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+            await drafts.ClearAsync(ctx.RequestAborted);
+            return Results.NoContent();
+        });
     }
 
     /// <summary>GET-Antwort des Drafts — Secrets (GitToken/AiApiKey) werden NIE zurueckgegeben,
