@@ -54,16 +54,26 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     var load = DbSettingsLoader.Load(dbOptions);
     var envOverrides = NauditConfig.InsertDbSettings(builder.Configuration, load.Settings);
 
+    // 1b) Setup-Erkennung: fehlt Pflicht-Config (Token/Secrets/Model je Plattform & Provider),
+    //     faehrt der Host im Setup-Modus hoch — Wizard statt Webhooks. FEHLENDE Werte ⇒ Wizard;
+    //     UNGUELTIGE Werte (z. B. kaputter Enum) laufen weiter in den Probe ⇒ Recovery-Modus.
+    var setup = Naudit.Infrastructure.Setup.SetupStatus.Check(builder.Configuration);
+
     // 2) Probe: registriert die Review-Infrastruktur in einen WEGWERF-Container. Wirft sie
     //    (z. B. Auth=App ohne PrivateKey), starten wir im Recovery-Modus statt in der Crash-Loop.
+    //    Im Setup-Modus entfaellt der Probe — unvollstaendige Config ist dort der Normalfall.
     Exception? configError = null;
-    try
+    if (!setup.SetupRequired)
     {
-        var probe = new ServiceCollection();
-        probe.AddLogging();
-        probe.AddNauditInfrastructure(builder.Configuration);
+        try
+        {
+            var probe = new ServiceCollection();
+            probe.AddLogging();
+            probe.AddNauditInfrastructure(builder.Configuration);
+        }
+        catch (Exception ex) { configError = ex; }
     }
-    catch (Exception ex) { configError = ex; }
+    var reviewActive = !setup.SetupRequired && configError is null;
 
     // WebUI-Auth (BFF): Cookie-Session; API-Verhalten statt Browser-Redirects (401/403 als Status).
     // GetSection NACH InsertDbSettings lesen, damit DB-Werte greifen.
@@ -74,12 +84,14 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     builder.Services.AddSingleton<IAppRestarter>(restarter);
     builder.Services.AddSingleton(envOverrides);
     builder.Services.AddSingleton(new StartupState(configError?.Message, load.Warnings));
+    builder.Services.AddSingleton(setup);
+    builder.Services.AddSingleton(new AiTestClientFactory(Naudit.Infrastructure.Ai.AiClientFactory.Create));
     builder.Services.AddNauditDatabase(builder.Configuration);
     // UiOptions gehört zur immer-an UI-Basis (AccountService/Seed brauchen sie schon im Recovery-Modus,
     // wo AddNauditInfrastructure NICHT läuft). Im Gesundfall registriert AddNauditInfrastructure sie erneut
     // (identisch aus derselben Config) — letzte Registrierung gewinnt, harmlos.
     builder.Services.AddSingleton(uiConfig);
-    if (configError is null)
+    if (reviewActive)
     {
         builder.Services.AddNauditInfrastructure(builder.Configuration);
         builder.Services.AddSingleton<IReviewQueue, ReviewQueue>();
@@ -215,7 +227,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
     app.MapGet("/health", () => Results.Ok("healthy"));
 
-    if (configError is null)
+    if (reviewActive)
     {
         // Nur den Webhook-Endpoint der aktiven Plattform mappen.
         var platform = app.Services.GetRequiredService<GitOptions>().Platform;
@@ -325,10 +337,16 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
             app.Services.GetRequiredService<GitOptions>(),
             app.Services.GetRequiredService<IOptions<GitHubOptions>>().Value);
     }
+    else if (setup.SetupRequired)
+    {
+        app.Logger.LogWarning("Setup-Modus: fehlende Pflicht-Konfiguration ({Missing}) — " +
+            "Webhooks/Review sind deaktiviert, Einrichtung über den Wizard in der WebUI.",
+            string.Join(", ", setup.MissingKeys));
+    }
     else
     {
         app.Logger.LogError("Recovery-Modus: {Error} — Webhooks/Review sind deaktiviert, " +
-            "Korrektur über die Settings-Seite, dann Neustart.", configError.Message);
+            "Korrektur über die Settings-Seite, dann Neustart.", configError!.Message);
     }
     foreach (var warning in load.Warnings) app.Logger.LogWarning("{Warning}", warning);
 
@@ -337,6 +355,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
     app.MapSettingsEndpoints();
+    app.MapSetupEndpoints(setup);
 
     // SPA: index.html + Assets aus wwwroot (im Container aus src/frontend gebaut).
     // Fallback-Reihenfolge: echte Endpoints > /api-404 (nie HTML für API-Tippfehler) > index.html.

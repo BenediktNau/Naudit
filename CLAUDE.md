@@ -182,10 +182,19 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   into `wwwroot/` by the container build. See `docs/webui.md` and `docs/configuration.md`.
 
   This (DB Pflicht, config-in-DB, restart loop, recovery mode, `AccessGate:Mode`) is the
-  "Fundament" slice of a larger design — a first-run setup wizard and platform automation
-  (GitHub App manifest flow, GitLab webhook creation) are a **separate, not-yet-built**
-  follow-up PR; see `docs/superpowers/specs/2026-07-08-setup-wizard-design.md` for the
-  full plan.
+  "Fundament" slice of a larger design; see
+  `docs/superpowers/specs/2026-07-08-setup-wizard-design.md` for the full plan. The
+  first-run **setup wizard** is now built on top of it: `SetupStatus`
+  (`src/Naudit.Infrastructure/Setup/SetupStatus.cs`) checks the effective config against
+  the required key set per platform/provider at host build time; missing ⇒ **setup
+  mode** — webhooks, `POST /review`, and the review pipeline stay unmapped, but the whole
+  WebUI base (login, Settings, Dashboard) stays up. `/api/setup/*`
+  (`src/Naudit.Web/Endpoints/SetupEndpoints.cs`) is the wizard API (admin creation guarded
+  Grafana-style — only while no admin exists — then draft/test-ai/apply), backed by
+  `SetupDraftService` (a single DP-encrypted `SetupDraft` row) and rendered by the React
+  `SetupGate`/`SetupWizard` (`src/frontend/src/components/setup/`) ahead of the AuthGate.
+  Only the **platform automation** (GitHub App manifest flow, GitLab webhook creation —
+  PR 3) remains outstanding.
 - **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
   git-API token from the review's `ProjectId` (per-project override → global fallback) via
   `ResolveTokenAsync` (async — implementations may mint tokens over HTTP, not just look them up).

@@ -127,13 +127,20 @@ Pflichtset, abhängig von der gewählten Plattform/dem Provider:
 - GitLab: `BaseUrl` + `Token` + `WebhookSecret`
 - GitHub (PAT): `Token` + `WebhookSecret`
 - GitHub (App): `App:AppId` + `App:PrivateKey` + `WebhookSecret`
-- AI: `Provider` + `Model`; bei Anthropic/OpenAICompatible zusätzlich `ApiKey`,
-  bei Ollama/OpenAICompatible `Endpoint`
+- AI: `Model` (außer bei `ClaudeCode` — die CLI defaultet auf `sonnet`, kein Pflichtfeld);
+  bei Anthropic/OpenAICompatible zusätzlich `ApiKey`
 
-Fehlt etwas ⇒ **Setup-Modus**: gemappt sind nur `/health`, die Wizard-API
-(`/api/setup/*`) und die SPA (zeigt den Wizard). Keine Webhooks, kein `/review`.
-Env-komplette Deployments (z. B. das bestehende Coolify-Deployment) sehen den Wizard
-**nie**.
+**Präzisierung (Implementierung):** `Ai:Endpoint` gehört **nie** zum Pflichtset — jeder
+Provider, der ihn liest, hat einen funktionierenden Default (Ollama
+`http://localhost:11434`); bei OpenAICompatible ist er praktisch nötig, aber keine
+Setup-Modus-Bedingung (siehe `SetupStatus.Check`).
+
+Fehlt etwas ⇒ **Setup-Modus**. **Präzisierung (Implementierung):** gemappt bleiben nicht
+nur `/health` und die Wizard-API, sondern die **komplette WebUI-Basis** — Login,
+`/api/setup/*`, aber auch die Settings-/Dashboard-/Approvals-API und die SPA selbst (sie
+zeigt dann den Wizard statt der App). Nur die Webhooks, `POST /review` und die
+Review-Pipeline bleiben unten (`if (reviewActive)` in `Program.cs`). Env-komplette
+Deployments (z. B. das bestehende Coolify-Deployment) sehen den Wizard **nie**.
 
 ### Schutz
 
@@ -161,6 +168,11 @@ dessen Login. Docs weisen auf das Zeitfenster hin: Instanz erst nach dem Setup
 6. **Zusammenfassung → „Übernehmen & Neustart":** Draft wird atomar in `Settings`
    geschrieben, `IAppRestarter` löst den Neustart aus; Abschlussseite mit
    Webhook-URLs (für manuelle Pfade) und Statuscheck
+
+**Präzisierung (PR-Schnitt):** der Plattform-Schritt aus **PR 2** bietet nur
+**GitHub-PAT** und **GitLab** (jeweils manueller Webhook — Copy-Paste-Anleitung mit
+vorausgefüllten Werten); die **GitHub-App**-Option mit Manifest-Flow kommt erst mit
+**PR 3** (Plattform-Automation).
 
 ### Draft
 

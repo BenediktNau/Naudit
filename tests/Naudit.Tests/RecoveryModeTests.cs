@@ -5,8 +5,9 @@ using Xunit;
 
 namespace Naudit.Tests;
 
-/// <summary>Kaputte Review-Config (GitHub App ohne Keys) ⇒ kein Crash, sondern Recovery:
-/// Health + UI laufen, Webhooks/Review sind nicht gemappt.</summary>
+/// <summary>UNGUELTIGE Review-Config (kaputter Enum-Wert) ⇒ kein Crash, sondern Recovery:
+/// Health + UI laufen, Webhooks/Review sind nicht gemappt. (FEHLENDE Werte sind seit dem
+/// Setup-Wizard ein Setup-Fall — siehe SetupModeTests.)</summary>
 public class RecoveryModeTests : IClassFixture<TestAppFactory>
 {
     private readonly TestAppFactory _factory;
@@ -17,8 +18,8 @@ public class RecoveryModeTests : IClassFixture<TestAppFactory>
     {
         var client = _factory.WithWebHostBuilder(b =>
         {
-            b.UseSetting("Naudit:Git:Platform", "GitHub");
-            b.UseSetting("Naudit:GitHub:Auth", "App"); // AppId/PrivateKey fehlen ⇒ Registrierung wirft
+            // Baseline ist komplett (kein Setup-Fall); der kaputte Enum laesst den Probe werfen.
+            b.UseSetting("Naudit:Git:Platform", "Bogus");
         }).CreateClient();
 
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AuthGate } from "@/lib/auth";
+import { SetupGate } from "@/components/setup/SetupGate";
 import { TopBar } from "@/components/TopBar";
 import { DashboardPage } from "@/components/pages/DashboardPage";
 import { ApprovalsPage } from "@/components/pages/ApprovalsPage";
@@ -23,8 +24,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthGate>
-      <Shell />
-    </AuthGate>
+    <SetupGate>
+      <AuthGate>
+        <Shell />
+      </AuthGate>
+    </SetupGate>
   );
 }
