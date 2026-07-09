@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Setup;
 using Naudit.Tests.Fakes;
 using Naudit.Web;
+using Naudit.Web.Endpoints;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -277,5 +279,83 @@ public class SetupEndpointTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
         Assert.DoesNotContain(await db.Settings.ToListAsync(), s => s.Key == "Naudit:AccessGate:Mode");
+    }
+
+    [Fact]
+    public async Task Draft_appFelder_sindServerseitig_putKannSieNichtSetzen()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        // Boeswillig mitgeschickte App-Felder: nur der Manifest-Callback darf sie schreiben.
+        await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            platform = "GitHub", gitHubAuth = "App",
+            gitHubAppId = "1", gitHubAppPrivateKey = "PEM", gitHubAppSlug = "x", gitHubManifestState = "s",
+        });
+        var doc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.False(doc.RootElement.GetProperty("hasGitHubApp").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("draft").GetProperty("gitHubAppId").ValueKind);
+        // Die Wahl-Felder (Auth/Host) sind dagegen normale Draft-Felder:
+        Assert.Equal("App", doc.RootElement.GetProperty("draft").GetProperty("gitHubAuth").GetString());
+    }
+
+    /// <summary>Draft mit App-Credentials direkt ueber den Service setzen — im echten Fluss
+    /// macht das der Manifest-Callback (Task 5). WithoutGitHubBaseline, sonst sind die
+    /// GitHub-Keys env-locked und Apply schreibt sie nicht.</summary>
+    private static async Task SeedAppDraftAsync(WebApplicationFactory<Program> factory, string gitHubHost)
+    {
+        using var scope = factory.Services.CreateScope();
+        var drafts = scope.ServiceProvider.GetRequiredService<SetupDraftService>();
+        await drafts.SaveAsync(System.Text.Json.JsonSerializer.Serialize(new SetupDraft(
+            PublicBaseUrl: "https://naudit.example.com",
+            Platform: "GitHub",
+            WebhookSecret: "hook-geheim",
+            AiProvider: "Ollama", AiModel: "m",
+            AccessGateMode: "Open",
+            GitHubAuth: "App",
+            GitHubHost: gitHubHost,
+            GitHubAppId: "4711",
+            GitHubAppPrivateKey: "PEM-geheim",
+            GitHubAppSlug: "naudit-test")));
+    }
+
+    [Fact]
+    public async Task Apply_appZweig_schreibtAppSettings_ghesBaseUrl_keinePatKeys()
+    {
+        using var app = new TestAppFactory().WithoutGitHubBaseline();
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton<Naudit.Web.IAppRestarter>(new FakeRestarter())));
+        var client = await LoggedInAsync(factory);
+        await SeedAppDraftAsync(factory, "https://ghes.example.com");
+
+        var res = await client.PostAsync("/api/setup/apply", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+        var settings = db.Settings.ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal("App", settings["Naudit:GitHub:Auth"]);
+        Assert.True(settings.ContainsKey("Naudit:GitHub:App:AppId"));
+        Assert.True(settings.ContainsKey("Naudit:GitHub:App:PrivateKey"));
+        Assert.True(settings.ContainsKey("Naudit:GitHub:WebhookSecret"));
+        Assert.Equal("https://ghes.example.com/api/v3", settings["Naudit:GitHub:BaseUrl"]); // GHES ⇒ API-Base
+        Assert.False(settings.ContainsKey("Naudit:GitHub:Token"));                          // kein PAT-Key
+        Assert.DoesNotContain("PEM-geheim", settings["Naudit:GitHub:App:PrivateKey"]);      // verschluesselt
+    }
+
+    [Fact]
+    public async Task Apply_appZweig_githubCom_schreibtKeineBaseUrl()
+    {
+        using var app = new TestAppFactory().WithoutGitHubBaseline();
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton<Naudit.Web.IAppRestarter>(new FakeRestarter())));
+        var client = await LoggedInAsync(factory);
+        await SeedAppDraftAsync(factory, "https://github.com");
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync("/api/setup/apply", null)).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+        Assert.DoesNotContain(db.Settings, s => s.Key == "Naudit:GitHub:BaseUrl"); // Options-Default reicht
     }
 }

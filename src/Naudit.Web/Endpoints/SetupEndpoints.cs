@@ -74,6 +74,11 @@ public static class SetupEndpoints
                 GitToken = !string.IsNullOrEmpty(incoming.GitToken)
                     ? incoming.GitToken : (samePlatform ? existing.GitToken : null),
                 AiApiKey = !string.IsNullOrEmpty(incoming.AiApiKey) ? incoming.AiApiKey : existing.AiApiKey,
+                // Serverseitig verwaltet (Manifest-Callback): PUT ignoriert eingehende Werte komplett.
+                GitHubAppId = samePlatform ? existing.GitHubAppId : null,
+                GitHubAppPrivateKey = samePlatform ? existing.GitHubAppPrivateKey : null,
+                GitHubAppSlug = samePlatform ? existing.GitHubAppSlug : null,
+                GitHubManifestState = samePlatform ? existing.GitHubManifestState : null,
             };
             await drafts.SaveAsync(System.Text.Json.JsonSerializer.Serialize(merged), ctx.RequestAborted);
             return Results.Ok(new { saved = true });
@@ -182,9 +187,15 @@ public static class SetupEndpoints
         var draft = json is null ? new SetupDraft() : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json)!;
         return Results.Ok(new
         {
-            draft = draft with { GitToken = null, AiApiKey = null },
+            draft = draft with
+            {
+                GitToken = null, AiApiKey = null,
+                GitHubAppPrivateKey = null, GitHubManifestState = null,
+            },
             hasGitToken = !string.IsNullOrEmpty(draft.GitToken),
             hasAiApiKey = !string.IsNullOrEmpty(draft.AiApiKey),
+            hasGitHubApp = !string.IsNullOrEmpty(draft.GitHubAppId)
+                && !string.IsNullOrEmpty(draft.GitHubAppPrivateKey),
         });
     }
 
@@ -204,8 +215,21 @@ public static class SetupEndpoints
         };
         if (string.Equals(d.Platform, "GitHub", StringComparison.OrdinalIgnoreCase))
         {
-            values["Naudit:GitHub:Auth"] = "Pat"; // PR 2 kennt nur den PAT-Pfad; App kommt mit dem Manifest-Flow (PR 3)
-            values["Naudit:GitHub:Token"] = d.GitToken;
+            var app = string.Equals(d.GitHubAuth, "App", StringComparison.OrdinalIgnoreCase);
+            values["Naudit:GitHub:Auth"] = app ? "App" : "Pat";
+            if (app)
+            {
+                values["Naudit:GitHub:App:AppId"] = d.GitHubAppId;
+                values["Naudit:GitHub:App:PrivateKey"] = d.GitHubAppPrivateKey;
+                // GHES: API-Base persistieren; github.com bleibt beim Options-Default.
+                var host = Naudit.Infrastructure.Setup.GitHubManifest.Normalize(d.GitHubHost);
+                if (host != Naudit.Infrastructure.Setup.GitHubManifest.DefaultWebHost)
+                    values["Naudit:GitHub:BaseUrl"] = Naudit.Infrastructure.Setup.GitHubManifest.ApiBase(host);
+            }
+            else
+            {
+                values["Naudit:GitHub:Token"] = d.GitToken;
+            }
             values["Naudit:GitHub:WebhookSecret"] = d.WebhookSecret;
         }
         else if (string.Equals(d.Platform, "GitLab", StringComparison.OrdinalIgnoreCase))
@@ -232,9 +256,15 @@ public sealed record SetupDraft(
     string? Platform = null,          // "GitHub" | "GitLab"
     string? GitToken = null,          // Secret: write-only ueber die API
     string? GitLabBaseUrl = null,
-    string? WebhookSecret = null,     // von Naudit generiert — bewusst sichtbar/kopierbar
+    string? WebhookSecret = null,     // von Naudit generiert bzw. von GitHub (Manifest) — bewusst sichtbar
     string? AiProvider = null,        // "Ollama" | "Anthropic" | "OpenAICompatible" | "ClaudeCode"
     string? AiModel = null,
     string? AiEndpoint = null,
     string? AiApiKey = null,          // Secret: write-only ueber die API
-    string? AccessGateMode = null);   // "Open" | "Registered"
+    string? AccessGateMode = null,    // "Open" | "Registered"
+    string? GitHubAuth = null,        // "Pat" | "App" — Wizard-Wahl, wie Naudit:GitHub:Auth
+    string? GitHubHost = null,        // Web-Host (Default https://github.com; GHES: eigener Host)
+    string? GitHubAppId = null,       // ab hier serverseitig: nur der Manifest-Callback schreibt
+    string? GitHubAppPrivateKey = null, // Secret: nie in GET, nie per PUT setzbar
+    string? GitHubAppSlug = null,     // fuer den Install-Link
+    string? GitHubManifestState = null); // CSRF-State des Manifest-Flows — nie in GET
