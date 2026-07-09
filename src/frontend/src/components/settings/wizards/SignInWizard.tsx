@@ -37,7 +37,7 @@ export function SignInWizard({ state, ctx, base, onClose }: {
             onClick={() => commit([
               { key: "Naudit:GitHub:Auth", value: "App" },
               { key: "Naudit:GitHub:App:AppId", value: appId },
-              { key: "Naudit:GitHub:App:PrivateKey", value: pem === "" ? null : pem },
+              { key: "Naudit:GitHub:App:PrivateKey", value: pem },
             ], onClose)}>Save</Button>
         </>}>
         <p className="text-[12.5px] text-ink2">Enter the App's credentials. Reviews will post under the bot identity after a restart.</p>
@@ -64,7 +64,7 @@ export function SignInWizard({ state, ctx, base, onClose }: {
               { key: "Naudit:Ui:Auth:Oidc:Enabled", value: "true" },
               { key: "Naudit:Ui:Auth:Oidc:Authority", value: authority },
               { key: "Naudit:Ui:Auth:Oidc:ClientId", value: clientId },
-              { key: "Naudit:Ui:Auth:Oidc:ClientSecret", value: secret === "" ? null : secret },
+              { key: "Naudit:Ui:Auth:Oidc:ClientSecret", value: secret },
             ], onClose)}>Save</Button>
         </>}>
         <p className="text-[12.5px] text-ink2">Point Naudit at your IdP. Sign-in turns on after a restart.</p>
@@ -105,7 +105,7 @@ export function SignInWizard({ state, ctx, base, onClose }: {
                 onClick={() => commit([
                   { key: "Naudit:Ui:Auth:GitHub:Enabled", value: "true" },
                   { key: "Naudit:Ui:Auth:GitHub:ClientId", value: clientId },
-                  { key: "Naudit:Ui:Auth:GitHub:ClientSecret", value: secret === "" ? null : secret },
+                  { key: "Naudit:Ui:Auth:GitHub:ClientSecret", value: secret },
                 ], () => setStep(3))}>Continue →</Button></div>
           </>
         ) : (

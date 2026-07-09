@@ -18,6 +18,7 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
   const needsEndpoint = provider === "Ollama" || provider === "OpenAICompatible";
   const needsKey = provider === "Anthropic" || provider === "OpenAICompatible";
   const shown = 1 + (needsEndpoint ? 1 : 0) + (needsKey ? 1 : 0); // Model + Extras
+  const meta = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
 
   return (
     <>
@@ -39,7 +40,7 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
         })}
       </div>
 
-      <Panel title={`${PROVIDERS.find((p) => p.id === provider)!.title} settings`} extra={`${shown} of ${shown} fields shown`}>
+      <Panel title={`${meta.title} settings`} extra={`${shown} of ${shown} fields shown`}>
         <div className="flex flex-col gap-4 px-5 py-4">
           <Field label="Model" hint={provider === "ClaudeCode" ? "Optional — defaults to sonnet." : "Required."}>
             <input className={inputCls} value={ctx.get("Naudit:Ai:Model")}
