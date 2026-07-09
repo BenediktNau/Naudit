@@ -10,6 +10,7 @@ import { GitCategory } from "@/components/settings/categories/GitCategory";
 import { AiCategory } from "@/components/settings/categories/AiCategory";
 import { ReviewCategory } from "@/components/settings/categories/ReviewCategory";
 import { SignInCategory } from "@/components/settings/categories/SignInCategory";
+import { SignInWizard } from "@/components/settings/wizards/SignInWizard";
 import { computeHints } from "@/components/settings/hints";
 import { CATEGORIES, type CategoryId, type SettingsCtx, type WizardState } from "@/components/settings/model";
 
@@ -38,8 +39,7 @@ export function SettingsPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [active, setActive] = useState<CategoryId>("instance");
   const [rawMode, setRawMode] = useState<boolean>(() => localStorage.getItem("naudit.settings.rawMode") === "1");
-  // wizard selbst wird erst ab Task 8 gerendert (Sign-in-Wizard-Modal); Unterstrich vermeidet den unused-var-Lint bis dahin.
-  const [_wizard, setWizard] = useState<WizardState>(null);
+  const [wizard, setWizard] = useState<WizardState>(null);
 
   const byKey = useMemo(() => {
     const m = new Map<string, SettingItem>();
@@ -67,6 +67,7 @@ export function SettingsPage() {
 
   const hints = computeHints(ctx);
   const activeMeta = CATEGORIES.find((c) => c.id === active)!;
+  const base = ctx.get("Naudit:PublicBaseUrl").replace(/\/+$/, "");
 
   return (
     <div className="flex min-h-[70vh]">
@@ -123,6 +124,7 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+      {wizard && <SignInWizard state={wizard} ctx={ctx} base={base} onClose={() => setWizard(null)} />}
     </div>
   );
 }
