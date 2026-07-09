@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body { margin:0; background:#0b0e14; font-family:'Space Grotesk',system-ui,sans-serif; }
+a { color:#4ade80; text-decoration:none; }
+a:hover { color:#22c55e; }
+</style>
+</helmet>
+
+<section data-screen-label="Turn 2 — Final direction: guided categories + wizards" style="display:flex; gap:56px; padding:56px; align-items:flex-start;">
+  <div id="2a" style="display:flex; flex-direction:column; gap:20px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <a href="#2a" style="font:700 13px 'Space Mono',monospace; color:#4ade80; background:#141a22; border:1px solid #242d38; border-radius:8px; padding:6px 12px;">2a</a>
+      <div>
+        <div style="font:700 15px 'Space Mono',monospace; color:#e6edf3;">Guided categories — voll ausgebaut</div>
+        <div style="font-size:13px; color:#98a5b3;">Richtung <a href="#1a">1a</a> mit dem Setup-Wizard aus <a href="#1b">1b</a> · alle Kategorien + Raw-keys-Expertenmodus</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1200px 1200px; gap:40px; align-items:start;">
+
+      <!-- 2a-1: AI provider -->
+      <div data-screen-label="2a — AI provider (Claude Code)" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+        <div style="display:flex; align-items:center; border-bottom:1px solid #1b232d; padding:14px 28px;">
+          <span style="display:inline-flex; align-items:center; gap:10px;">
+            <svg width="24" height="24" viewBox="0 0 64 64" style="border-radius:5px;"><rect width="64" height="64" fill="#0D1117"></rect><rect x=".5" y=".5" width="63" height="63" rx="8.4" fill="none" stroke="#242D38"></rect><line x1="16" y1="17" x2="16" y2="46" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></line><path d="M16 31 C16 23.5 22.5 21 27.5 21 C34.5 21 38 25.5 38 31.5 L38 46" fill="none" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></path><rect x="45" y="35.5" width="9" height="12" rx="1.5" fill="#4ADE80"></rect></svg>
+            <span style="font:700 16px 'Space Mono',monospace; color:#fff;">naudit</span>
+          </span>
+          <nav style="margin-left:32px; margin-right:auto; display:flex; gap:6px;">
+            <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Dashboard</span>
+            <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Approvals</span>
+            <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Settings</span>
+          </nav>
+          <span style="display:flex; align-items:center; gap:10px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">
+            <span style="display:grid; place-items:center; width:24px; height:24px; border-radius:50%; border:1px solid #242d38; background:#1a222c; font-size:11px; font-weight:700; color:#4ade80;">B</span>
+            benedikt
+            <span style="border:1px solid #53d3d1; border-radius:999px; padding:2px 8px; font-size:10px; letter-spacing:.1em; color:#53d3d1; text-transform:uppercase;">admin</span>
+            <span style="color:#5f6b78;">⏻</span>
+          </span>
+        </div>
+        <div style="display:flex; align-items:stretch;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Instance</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Git platform</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓ GitHub</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>AI provider</span><span style="font:11px 'Space Mono',monospace;">Claude Code</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Review rules</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">defaults</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+            <div style="margin-top:16px; padding:16px 12px 0; border-top:1px solid #1b232d;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:12px; color:#5f6b78;">Raw keys</span>
+                <span style="width:30px; height:17px; border-radius:999px; background:#1a222c; border:1px solid #242d38; position:relative; display:inline-block;"><span style="position:absolute; top:1px; left:1px; width:13px; height:13px; border-radius:50%; background:#5f6b78;"></span></span>
+              </div>
+              <div style="font-size:11px; color:#5f6b78; margin-top:6px; line-height:1.4;">Show every setting as its config key</div>
+            </div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+              <div>
+                <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">AI provider</h2>
+                <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">Which AI reviews your merge requests. Pick a provider — only the fields it actually needs are shown.</p>
+              </div>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Save changes</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Ollama</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">local</span></div>
+                <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Runs models on your own hardware. Free and private — no API key.</div>
+              </div>
+              <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Anthropic</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">API key</span></div>
+                <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Claude via the Anthropic API. Strongest reviews, pay per token.</div>
+              </div>
+              <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">OpenAI-compatible</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">API key + URL</span></div>
+                <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Any OpenAI-style endpoint — NVIDIA NIM, vLLM, Azure, …</div>
+              </div>
+              <div style="border:1px solid #4ade80; background:rgba(74,222,128,.06); border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Claude Code</b><span style="font:700 11px 'Space Mono',monospace; color:#4ade80;">✓ selected</span></div>
+                <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Uses the Claude Code CLI sign-in on the server. No API key.</div>
+              </div>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;">
+                <b style="font:700 12.5px 'Space Mono',monospace;">Claude Code settings</b>
+                <span style="font:11px 'Space Mono',monospace; color:#5f6b78;">2 of 2 fields shown</span>
+              </div>
+              <div style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Model</span>
+                  <span style="display:flex; align-items:center; justify-content:space-between; width:280px; border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#e6edf3;">sonnet <span style="color:#5f6b78;">▾</span></span>
+                  <span style="font-size:11.5px; color:#5f6b78;">Optional — defaults to sonnet.</span>
+                </label>
+                <div style="border:1px solid #242d38; background:#1a222c; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#98a5b3; line-height:1.5;">Claude Code signs in with the subscription already configured on the server — there is no endpoint or API key to manage here.</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:#5f6b78;">
+              <span style="width:6px; height:6px; border-radius:50%; background:#e3b341; display:inline-block;"></span>
+              Changes apply after a restart — you'll be prompted when you save.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-2: Git platform -->
+      <div data-screen-label="2a — Git platform" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+        <div style="display:flex; align-items:stretch;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Instance</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>Git platform</span><span style="font:11px 'Space Mono',monospace;">✓ GitHub</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>AI provider</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Claude Code</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Review rules</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">defaults</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+              <div>
+                <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Git platform</h2>
+                <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">Where Naudit listens for merge requests and posts its reviews.</p>
+              </div>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Save changes</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                <b style="font-size:14px;">GitLab</b>
+                <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Self-hosted or gitlab.com. Uses a group/project access token.</div>
+              </div>
+              <div style="border:1px solid #4ade80; background:rgba(74,222,128,.06); border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">GitHub</b><span style="font:700 11px 'Space Mono',monospace; color:#4ade80;">✓ selected</span></div>
+                <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">github.com or GitHub Enterprise. PAT or GitHub App.</div>
+              </div>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;">
+                <b style="font:700 12.5px 'Space Mono',monospace;">GitHub connection</b>
+                <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">✓ connected</span>
+              </div>
+              <div style="padding:16px; display:flex; flex-direction:column; gap:16px;">
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">How Naudit authenticates</span>
+                  <div style="display:flex; gap:8px;">
+                    <span style="border:1px solid #4ade80; background:rgba(74,222,128,.1); border-radius:999px; padding:7px 16px; font-size:13px; font-weight:600; color:#4ade80;">✓ Personal access token</span>
+                    <span style="border:1px solid #242d38; border-radius:999px; padding:7px 16px; font-size:13px; color:#98a5b3;">GitHub App (bot)</span>
+                  </div>
+                </div>
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Access token</span>
+                  <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78; width:360px;">•••••• (set)</span>
+                  <span style="font-size:11.5px; color:#5f6b78;">Fine-grained PAT with pull request read/write. Comments appear as the token's owner.</span>
+                </label>
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Webhook secret</span>
+                  <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78; width:360px;">•••••• (set)</span>
+                  <span style="font-size:11.5px; color:#5f6b78;">Must match the secret entered in the repo's webhook settings.</span>
+                </label>
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">API base URL <span style="color:#5f6b78; font-weight:400;">— optional</span></span>
+                  <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78; width:360px;">https://api.github.com</span>
+                  <span style="font-size:11.5px; color:#5f6b78;">Only change this for GitHub Enterprise.</span>
+                </label>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-top:1px solid #1b232d; padding-top:16px;">
+                  <div style="display:flex; flex-direction:column; gap:2px;">
+                    <span style="font-size:13px; font-weight:500;">Post a real review verdict</span>
+                    <span style="font-size:11.5px; color:#5f6b78;">APPROVE / REQUEST_CHANGES instead of a plain comment.</span>
+                  </div>
+                  <span style="width:30px; height:17px; border-radius:999px; background:#1a222c; border:1px solid #242d38; position:relative; display:inline-block; flex-shrink:0;"><span style="position:absolute; top:1px; left:1px; width:13px; height:13px; border-radius:50%; background:#5f6b78;"></span></span>
+                </div>
+              </div>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+              <div style="display:flex; flex-direction:column; gap:4px;">
+                <b style="font-size:14px;">Run as a bot instead</b>
+                <span style="font-size:12.5px; color:#98a5b3; max-width:52ch; line-height:1.5;">Comments appear as <span style="font-family:'Space Mono',monospace;">Naudit[bot]</span>, tokens rotate automatically, and verdicts work on everyone's PRs. One-click install per repo.</span>
+              </div>
+              <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Set up GitHub App →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-3: Sign-in -->
+      <div data-screen-label="2a — Sign-in" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+        <div style="display:flex; align-items:stretch;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Instance</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Git platform</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓ GitHub</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>AI provider</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Claude Code</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Review rules</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">defaults</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+            <div>
+              <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Sign-in</h2>
+              <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">How your team signs in to this dashboard. The local admin account always works.</p>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:20px; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <b style="font-size:15px;">GitHub sign-in</b>
+                  <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">off</span>
+                </div>
+                <div style="font-size:12.5px; color:#98a5b3; max-width:48ch; line-height:1.5;">Let anyone with a GitHub account sign in. New accounts wait on your Approvals page until you let them in.</div>
+                <div style="font-size:11.5px; color:#5f6b78;">Takes ~2 minutes — we'll walk you through creating the OAuth app.</div>
+              </div>
+              <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:10px 18px; font-size:13.5px; font-weight:700; background:#4ade80; color:#06170c;">Set up GitHub sign-in →</span>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:20px; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <b style="font-size:15px;">Single sign-on (OIDC)</b>
+                  <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">off</span>
+                </div>
+                <div style="font-size:12.5px; color:#98a5b3; max-width:48ch; line-height:1.5;">Sign in through your company's identity provider — Entra ID, Keycloak, Authentik, …</div>
+                <div style="font-size:11.5px; color:#5f6b78;">You'll need the authority URL and a client from your IdP admin.</div>
+              </div>
+              <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:10px 18px; font-size:13.5px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Set up SSO →</span>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:20px; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <b style="font-size:15px;">Local admin</b>
+                  <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">✓ active</span>
+                </div>
+                <div style="font:12.5px 'Space Mono',monospace; color:#98a5b3;">user benedikt · password set</div>
+              </div>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Change password</span>
+            </div>
+            <div style="font-size:12px; color:#5f6b78;">Need a key that isn't here? Flip on <b style="color:#98a5b3;">Raw keys</b> in the sidebar to edit the full config catalog.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-4: GitHub sign-in wizard modal -->
+      <div data-screen-label="2a — GitHub sign-in wizard (step 1)" style="width:1200px; height:720px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3; position:relative;">
+        <div style="position:absolute; inset:0; display:flex; align-items:stretch; filter:blur(2px); opacity:.35;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Instance</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Git platform</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">AI provider</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Review rules</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Sign-in</div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:16px;">
+            <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Sign-in</h2>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+          </div>
+        </div>
+        <div style="position:absolute; inset:0; background:rgba(6,9,13,.6); display:grid; place-items:center;">
+          <div style="width:560px; background:#141a22; border:1px solid #242d38; border-radius:14px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,.5);">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid #1b232d;">
+              <b style="font:700 15px 'Space Mono',monospace;">Set up GitHub sign-in</b>
+              <span style="font:12px 'Space Mono',monospace; color:#5f6b78;">step 1 / 3</span>
+            </div>
+            <div style="padding:24px; display:flex; flex-direction:column; gap:18px;">
+              <p style="margin:0; font-size:13px; color:#98a5b3; line-height:1.55;">Naudit signs users in through a GitHub OAuth app that you own. Create one now — everything you need is below.</p>
+              <div style="display:flex; gap:12px;">
+                <span style="flex-shrink:0; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#1a222c; border:1px solid #242d38; font:700 11px 'Space Mono',monospace; color:#4ade80;">1</span>
+                <span style="font-size:13px; color:#e6edf3; line-height:1.5;">Open <a href="#2a">GitHub → Settings → Developer settings → New OAuth app</a></span>
+              </div>
+              <div style="display:flex; gap:12px;">
+                <span style="flex-shrink:0; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#1a222c; border:1px solid #242d38; font:700 11px 'Space Mono',monospace; color:#4ade80;">2</span>
+                <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+                  <span style="font-size:13px; color:#e6edf3;">Paste this callback URL</span>
+                  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #1b232d; background:#1a222c; border-radius:8px; padding:8px 12px;">
+                    <span style="font:12.5px 'Space Mono',monospace; color:#e6edf3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">https://naudit.tegut.com/auth/github/callback</span>
+                    <span style="flex-shrink:0; border:1px solid #242d38; border-radius:4px; padding:4px 8px; font:11px 'Space Mono',monospace; color:#98a5b3;">copy</span>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; gap:12px;">
+                <span style="flex-shrink:0; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#1a222c; border:1px solid #242d38; font:700 11px 'Space Mono',monospace; color:#4ade80;">3</span>
+                <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+                  <span style="font-size:13px; color:#e6edf3;">Copy the Client ID and a new client secret back here</span>
+                  <label style="display:flex; flex-direction:column; gap:6px;">
+                    <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Client ID</span>
+                    <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78;">Iv1.…</span>
+                  </label>
+                  <label style="display:flex; flex-direction:column; gap:6px;">
+                    <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Client secret</span>
+                    <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78;">••••••••</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-top:1px solid #1b232d;">
+              <span style="font-size:13px; font-weight:600; color:#98a5b3;">Cancel</span>
+              <div style="display:flex; align-items:center; gap:16px;">
+                <span style="display:flex; gap:5px;"><span style="width:6px; height:6px; border-radius:50%; background:#4ade80;"></span><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span></span>
+                <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 18px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Continue →</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-5: Review rules -->
+      <div data-screen-label="2a — Review rules" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+        <div style="display:flex; align-items:stretch;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Instance</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Git platform</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓ GitHub</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>AI provider</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Claude Code</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>Review rules</span><span style="font:11px 'Space Mono',monospace;">defaults</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+              <div>
+                <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Review rules</h2>
+                <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">When a finding blocks the merge, and what the reviewer is told.</p>
+              </div>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Save changes</span>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+              <div style="border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">Merge gate</b></div>
+              <div style="padding:16px; display:flex; flex-direction:column; gap:16px;">
+                <div style="display:flex; gap:24px;">
+                  <label style="display:flex; flex-direction:column; gap:6px;">
+                    <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Minimum severity</span>
+                    <span style="display:flex; align-items:center; justify-content:space-between; width:220px; border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#e6edf3;">High <span style="color:#5f6b78;">▾</span></span>
+                    <span style="font-size:11.5px; color:#5f6b78;">Findings below this never block.</span>
+                  </label>
+                  <label style="display:flex; flex-direction:column; gap:6px;">
+                    <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Minimum confidence</span>
+                    <span style="display:flex; align-items:center; justify-content:space-between; width:220px; border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#e6edf3;">Medium <span style="color:#5f6b78;">▾</span></span>
+                    <span style="font-size:11.5px; color:#5f6b78;">How sure the AI must be.</span>
+                  </label>
+                </div>
+                <div style="border:1px solid #242d38; background:#1a222c; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#98a5b3; line-height:1.5;">With these rules, a merge is blocked when a finding is <b style="color:#e6edf3;">High</b> or worse and the AI is at least <b style="color:#e6edf3;">Medium</b> confident. Everything else becomes a non-blocking comment.</div>
+              </div>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;">
+                <b style="font:700 12.5px 'Space Mono',monospace;">Review prompt</b>
+                <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">built-in default</span>
+              </div>
+              <div style="padding:16px; display:flex; flex-direction:column; gap:8px;">
+                <span style="display:block; min-height:88px; border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:12px 14px; font:13px 'Space Mono',monospace; color:#5f6b78; line-height:1.5;">Using the built-in review prompt. Write your own here to override it.</span>
+                <span style="font-size:11.5px; color:#5f6b78;">Clearing the field goes back to the built-in prompt.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-6: Raw keys (expert mode on) -->
+      <div data-screen-label="2a — Raw keys (expert mode)" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+        <div style="display:flex; align-items:stretch;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#5f6b78;"><span>Instance</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#5f6b78;"><span>Git platform</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#5f6b78;"><span>AI provider</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#5f6b78;"><span>Review rules</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#5f6b78;"><span>Sign-in</span></div>
+            <div style="margin-top:16px; padding:16px 12px 0; border-top:1px solid #1b232d;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="font-size:12px; color:#e6edf3; font-weight:600;">Raw keys</span>
+                <span style="width:30px; height:17px; border-radius:999px; background:rgba(74,222,128,.25); border:1px solid #4ade80; position:relative; display:inline-block;"><span style="position:absolute; top:1px; right:1px; width:13px; height:13px; border-radius:50%; background:#4ade80;"></span></span>
+              </div>
+              <div style="font-size:11px; color:#5f6b78; margin-top:6px; line-height:1.4;">Showing all 27 DB-managed keys</div>
+            </div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:16px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+              <div>
+                <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Raw keys</h2>
+                <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:60ch;">Every DB-managed key, exactly as in the config. Keys set via environment are locked — environment always wins.</p>
+              </div>
+              <span style="display:flex; align-items:center; gap:8px; border-radius:8px; border:1px solid #242d38; background:#141a22; padding:8px 14px; font:12.5px 'Space Mono',monospace; color:#5f6b78; width:240px;">⌕ filter keys…</span>
+            </div>
+            <div style="overflow:hidden; border-radius:12px; border:1px solid #1b232d; background:#141a22;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:PublicBaseUrl</span><span style="width:300px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">https://naudit.tegut.com</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:Git:Platform</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">GitHub ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="display:flex; align-items:center; gap:8px; font:13px 'Space Mono',monospace;">Naudit:GitHub:Token <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">db</span></span><span style="width:300px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">•••••• (set)</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="display:flex; align-items:center; gap:8px; font:13px 'Space Mono',monospace;">Naudit:GitHub:WebhookSecret <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">db</span></span><span style="width:300px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">•••••• (set)</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:GitHub:Auth</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">Pat ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:Ai:Provider</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">ClaudeCode ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:Ai:Model</span><span style="width:300px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">sonnet</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="display:flex; align-items:center; gap:8px; font:13px 'Space Mono',monospace;">Naudit:Ai:ApiKey <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">via environment</span></span><span style="font:12.5px 'Space Mono',monospace; color:#5f6b78;">•••</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:Review:Gate:MinSeverity</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">(default) ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px;"><span style="font:13px 'Space Mono',monospace;">Naudit:Ui:Auth:Oidc:Authority</span><span style="width:300px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            </div>
+            <div style="font-size:12px; color:#5f6b78;">…17 more keys below. Same save / restart behaviour as the guided view.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-7: Instance -->
+      <div data-screen-label="2a — Instance" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+        <div style="display:flex; align-items:stretch;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>Instance</span><span style="font:11px 'Space Mono',monospace;">✓</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Git platform</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓ GitHub</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>AI provider</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Claude Code</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Review rules</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">defaults</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+              <div>
+                <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Instance</h2>
+                <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">Where this Naudit lives and which repos it will review.</p>
+              </div>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Save changes</span>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+              <div style="border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">Address</b></div>
+              <div style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Public base URL</span>
+                  <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#e6edf3; width:360px;">https://naudit.tegut.com</span>
+                  <span style="font-size:11.5px; color:#5f6b78;">Used to build the webhook and sign-in callback URLs below.</span>
+                </label>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #1b232d; background:#1a222c; border-radius:8px; padding:8px 12px; width:520px;">
+                  <div style="min-width:0;">
+                    <div style="font-size:11px; color:#5f6b78;">Webhook URL — paste into your repo's webhook settings</div>
+                    <div style="font:12.5px 'Space Mono',monospace; color:#e6edf3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">https://naudit.tegut.com/webhook/github</div>
+                  </div>
+                  <span style="flex-shrink:0; border:1px solid #242d38; border-radius:4px; padding:4px 8px; font:11px 'Space Mono',monospace; color:#98a5b3;">copy</span>
+                </div>
+              </div>
+            </div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+              <div style="border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">Who gets reviews</b></div>
+              <div style="padding:16px; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div style="border:1px solid #4ade80; background:rgba(74,222,128,.06); border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                  <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Open</b><span style="font:700 11px 'Space Mono',monospace; color:#4ade80;">✓ selected</span></div>
+                  <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Any repo that knows the webhook secret gets reviews.</div>
+                </div>
+                <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+                  <b style="font-size:14px;">Registered only</b>
+                  <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Only repos belonging to approved dashboard accounts. Everyone else is ignored.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-8: wizard step 2 — test -->
+      <div data-screen-label="2a — GitHub sign-in wizard (step 2)" style="width:1200px; height:640px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3; position:relative;">
+        <div style="position:absolute; inset:0; display:flex; align-items:stretch; filter:blur(2px); opacity:.35;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Instance</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Git platform</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">AI provider</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Review rules</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Sign-in</div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:16px;">
+            <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Sign-in</h2>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+          </div>
+        </div>
+        <div style="position:absolute; inset:0; background:rgba(6,9,13,.6); display:grid; place-items:center;">
+          <div style="width:560px; background:#141a22; border:1px solid #242d38; border-radius:14px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,.5);">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid #1b232d;">
+              <b style="font:700 15px 'Space Mono',monospace;">Set up GitHub sign-in</b>
+              <span style="font:12px 'Space Mono',monospace; color:#5f6b78;">step 2 / 3</span>
+            </div>
+            <div style="padding:24px; display:flex; flex-direction:column; gap:16px;">
+              <p style="margin:0; font-size:13px; color:#98a5b3; line-height:1.55;">Credentials saved. Let's make sure GitHub accepts them before turning sign-in on.</p>
+              <div style="display:flex; flex-direction:column; gap:10px; border:1px solid #1b232d; background:#0d1117; border-radius:10px; padding:14px 16px;">
+                <div style="display:flex; align-items:center; gap:10px; font-size:13px;"><span style="color:#4ade80; font-family:'Space Mono',monospace;">✓</span> Client ID recognized by GitHub</div>
+                <div style="display:flex; align-items:center; gap:10px; font-size:13px;"><span style="color:#4ade80; font-family:'Space Mono',monospace;">✓</span> Callback URL matches the OAuth app</div>
+                <div style="display:flex; align-items:center; gap:10px; font-size:13px; color:#98a5b3;"><span style="display:inline-block; width:12px; height:12px; border-radius:50%; border:2px solid #242d38; border-top-color:#4ade80;"></span> Waiting for a test sign-in…</div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <span style="display:inline-flex; align-self:flex-start; align-items:center; border-radius:8px; padding:10px 18px; font-size:13.5px; font-weight:700; background:#4ade80; color:#06170c;">Test sign-in with GitHub →</span>
+                <span style="font-size:11.5px; color:#5f6b78;">Opens GitHub in a new tab — sign in with any account to complete the check.</span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-top:1px solid #1b232d;">
+              <span style="font-size:13px; font-weight:600; color:#98a5b3;">← Back</span>
+              <div style="display:flex; align-items:center; gap:16px;">
+                <span style="display:flex; gap:5px;"><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span><span style="width:6px; height:6px; border-radius:50%; background:#4ade80;"></span><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span></span>
+                <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 18px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c; opacity:.5;">Continue →</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2a-9: wizard step 3 — done -->
+      <div data-screen-label="2a — GitHub sign-in wizard (step 3)" style="width:1200px; height:640px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3; position:relative;">
+        <div style="position:absolute; inset:0; display:flex; align-items:stretch; filter:blur(2px); opacity:.35;">
+          <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px;">
+            <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Instance</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Git platform</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">AI provider</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; color:#98a5b3;">Review rules</div>
+            <div style="border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Sign-in</div>
+          </div>
+          <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:16px;">
+            <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Sign-in</h2>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+            <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:96px;"></div>
+          </div>
+        </div>
+        <div style="position:absolute; inset:0; background:rgba(6,9,13,.6); display:grid; place-items:center;">
+          <div style="width:560px; background:#141a22; border:1px solid #242d38; border-radius:14px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,.5);">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid #1b232d;">
+              <b style="font:700 15px 'Space Mono',monospace;">Set up GitHub sign-in</b>
+              <span style="font:12px 'Space Mono',monospace; color:#5f6b78;">step 3 / 3</span>
+            </div>
+            <div style="padding:28px 24px; display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center;">
+              <span style="display:grid; place-items:center; width:52px; height:52px; border-radius:50%; background:rgba(74,222,128,.12); border:1px solid #4ade80; font:700 22px 'Space Mono',monospace; color:#4ade80;">✓</span>
+              <b style="font-size:17px;">GitHub sign-in is ready</b>
+              <p style="margin:0; font-size:13px; color:#98a5b3; line-height:1.55; max-width:42ch;">The sign-in page will show <b style="color:#e6edf3;">"Continue with GitHub"</b>. New accounts wait on your Approvals page until you let them in.</p>
+              <div style="width:100%; display:flex; flex-direction:column; gap:8px; border:1px solid #1b232d; background:#0d1117; border-radius:10px; padding:14px 16px; text-align:left;">
+                <div style="display:flex; justify-content:space-between; font-size:12.5px;"><span style="color:#5f6b78;">OAuth client</span><span style="font-family:'Space Mono',monospace; color:#e6edf3;">Iv1.8f2a…c41</span></div>
+                <div style="display:flex; justify-content:space-between; font-size:12.5px;"><span style="color:#5f6b78;">Test sign-in</span><span style="font-family:'Space Mono',monospace; color:#4ade80;">✓ passed</span></div>
+                <div style="display:flex; justify-content:space-between; font-size:12.5px;"><span style="color:#5f6b78;">Applies</span><span style="font-family:'Space Mono',monospace; color:#e3b341;">after restart</span></div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-top:1px solid #1b232d;">
+              <span style="font-size:13px; font-weight:600; color:#98a5b3;">Restart later</span>
+              <div style="display:flex; align-items:center; gap:16px;">
+                <span style="display:flex; gap:5px;"><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span><span style="width:6px; height:6px; border-radius:50%; background:#4ade80;"></span></span>
+                <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 18px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Restart now to apply</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section data-screen-label="Turn 1 — Settings redesign options" style="display:flex; gap:56px; padding:56px; align-items:flex-start;">
+
+  <!-- ============ OPTION 1a — Guided categories (sidebar) ============ -->
+  <div id="1a" style="display:flex; flex-direction:column; gap:20px; width:1200px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <a href="#1a" style="font:700 13px 'Space Mono',monospace; color:#4ade80; background:#141a22; border:1px solid #242d38; border-radius:8px; padding:6px 12px;">1a</a>
+      <div>
+        <div style="font:700 15px 'Space Mono',monospace; color:#e6edf3;">Guided categories</div>
+        <div style="font-size:13px; color:#98a5b3;">Sidebar mit Status je Kategorie · Provider als Karten · nur relevante Felder sichtbar</div>
+      </div>
+    </div>
+
+    <!-- Screen A1: AI provider category, Claude Code selected -->
+    <div data-screen-label="1a — AI provider (Claude Code selected)" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+      <!-- topbar -->
+      <div style="display:flex; align-items:center; border-bottom:1px solid #1b232d; padding:14px 28px;">
+        <span style="display:inline-flex; align-items:center; gap:10px;">
+          <svg width="24" height="24" viewBox="0 0 64 64" style="border-radius:5px;"><rect width="64" height="64" fill="#0D1117"></rect><rect x=".5" y=".5" width="63" height="63" rx="8.4" fill="none" stroke="#242D38"></rect><line x1="16" y1="17" x2="16" y2="46" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></line><path d="M16 31 C16 23.5 22.5 21 27.5 21 C34.5 21 38 25.5 38 31.5 L38 46" fill="none" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></path><rect x="45" y="35.5" width="9" height="12" rx="1.5" fill="#4ADE80"></rect></svg>
+          <span style="font:700 16px 'Space Mono',monospace; color:#fff;">naudit</span>
+        </span>
+        <nav style="margin-left:32px; margin-right:auto; display:flex; gap:6px;">
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Dashboard</span>
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Approvals</span>
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Settings</span>
+        </nav>
+        <span style="display:flex; align-items:center; gap:10px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">
+          <span style="display:grid; place-items:center; width:24px; height:24px; border-radius:50%; border:1px solid #242d38; background:#1a222c; font-size:11px; font-weight:700; color:#4ade80;">B</span>
+          benedikt
+          <span style="border:1px solid #53d3d1; border-radius:999px; padding:2px 8px; font-size:10px; letter-spacing:.1em; color:#53d3d1; text-transform:uppercase;">admin</span>
+          <span style="color:#5f6b78;">⏻</span>
+        </span>
+      </div>
+      <div style="display:flex; align-items:stretch;">
+        <!-- sidebar -->
+        <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+          <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Instance</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Git platform</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓ GitHub</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>AI provider</span><span style="font:11px 'Space Mono',monospace;">Claude Code</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Review rules</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">defaults</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+          <div style="margin-top:auto; padding:16px 12px 0; border-top:1px solid #1b232d; margin-top:16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span style="font-size:12px; color:#5f6b78;">Raw keys</span>
+              <span style="width:30px; height:17px; border-radius:999px; background:#1a222c; border:1px solid #242d38; position:relative; display:inline-block;"><span style="position:absolute; top:1px; left:1px; width:13px; height:13px; border-radius:50%; background:#5f6b78;"></span></span>
+            </div>
+            <div style="font-size:11px; color:#5f6b78; margin-top:6px; line-height:1.4;">Show every setting as its config key</div>
+          </div>
+        </div>
+        <!-- content -->
+        <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+            <div>
+              <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">AI provider</h2>
+              <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">Which AI reviews your merge requests. Pick a provider — only the fields it actually needs are shown.</p>
+            </div>
+            <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Save changes</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Ollama</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">local</span></div>
+              <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Runs models on your own hardware. Free and private — no API key.</div>
+            </div>
+            <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Anthropic</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">API key</span></div>
+              <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Claude via the Anthropic API. Strongest reviews, pay per token.</div>
+            </div>
+            <div style="border:1px solid #242d38; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">OpenAI-compatible</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">API key + URL</span></div>
+              <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Any OpenAI-style endpoint — NVIDIA NIM, vLLM, Azure, …</div>
+            </div>
+            <div style="border:1px solid #4ade80; background:rgba(74,222,128,.06); border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; justify-content:space-between;"><b style="font-size:14px;">Claude Code</b><span style="font:700 11px 'Space Mono',monospace; color:#4ade80;">✓ selected</span></div>
+              <div style="font-size:12.5px; color:#98a5b3; line-height:1.5;">Uses the Claude Code CLI sign-in on the server. No API key.</div>
+            </div>
+          </div>
+
+          <!-- conditional block: only what Claude Code needs -->
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; overflow:hidden;">
+            <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;">
+              <b style="font:700 12.5px 'Space Mono',monospace;">Claude Code settings</b>
+              <span style="font:11px 'Space Mono',monospace; color:#5f6b78;">2 of 2 fields shown</span>
+            </div>
+            <div style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+              <label style="display:flex; flex-direction:column; gap:6px;">
+                <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Model</span>
+                <span style="display:flex; align-items:center; justify-content:space-between; width:280px; border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#e6edf3;">sonnet <span style="color:#5f6b78;">▾</span></span>
+                <span style="font-size:11.5px; color:#5f6b78;">Optional — defaults to sonnet.</span>
+              </label>
+              <div style="border:1px solid #242d38; background:#1a222c; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#98a5b3; line-height:1.5;">Claude Code signs in with the subscription already configured on the server — there is no endpoint or API key to manage here.</div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:#5f6b78;">
+            <span style="width:6px; height:6px; border-radius:50%; background:#e3b341; display:inline-block;"></span>
+            Changes apply after a restart — you'll be prompted when you save.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen A2: Sign-in category with setup cards -->
+    <div data-screen-label="1a — Sign-in (one-click setups)" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+      <div style="display:flex; align-items:stretch;">
+        <div style="width:230px; flex-shrink:0; border-right:1px solid #1b232d; padding:20px 14px; display:flex; flex-direction:column; gap:4px;">
+          <div style="font:700 11px 'Space Mono',monospace; color:#5f6b78; text-transform:uppercase; letter-spacing:.12em; padding:0 12px 10px;">Settings</div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Instance</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Git platform</span><span style="font:11px 'Space Mono',monospace; color:#4ade80;">✓ GitHub</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>AI provider</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Claude Code</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:500; color:#98a5b3;"><span>Review rules</span><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">defaults</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; border-radius:8px; padding:10px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);"><span>Sign-in</span><span style="font:11px 'Space Mono',monospace; color:#e3b341;">local only</span></div>
+        </div>
+        <div style="flex:1; padding:28px 32px; display:flex; flex-direction:column; gap:20px;">
+          <div>
+            <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Sign-in</h2>
+            <p style="margin:6px 0 0; font-size:13px; color:#98a5b3; max-width:56ch;">How your team signs in to this dashboard. The local admin account always works.</p>
+          </div>
+          <!-- GitHub sign-in: off, one-click setup -->
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:20px; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <b style="font-size:15px;">GitHub sign-in</b>
+                <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">off</span>
+              </div>
+              <div style="font-size:12.5px; color:#98a5b3; max-width:48ch; line-height:1.5;">Let anyone with a GitHub account sign in. New accounts wait on your Approvals page until you let them in.</div>
+              <div style="font-size:11.5px; color:#5f6b78;">Takes ~2 minutes — we'll walk you through creating the OAuth app.</div>
+            </div>
+            <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:10px 18px; font-size:13.5px; font-weight:700; background:#4ade80; color:#06170c;">Set up GitHub sign-in →</span>
+          </div>
+          <!-- OIDC: configured -->
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:20px; display:flex; align-items:center; justify-content:space-between; gap:20px;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <b style="font-size:15px;">Single sign-on (OIDC)</b>
+                <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">✓ enabled</span>
+              </div>
+              <div style="font:12.5px 'Space Mono',monospace; color:#98a5b3;">auth.tegut.com · client naudit-web · secret set</div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Manage</span>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:600; color:#f47067;">Disable</span>
+            </div>
+          </div>
+          <div style="font-size:12px; color:#5f6b78;">Need a key that isn't here? Flip on <b style="color:#98a5b3;">Raw keys</b> in the sidebar to edit the full config catalog.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ OPTION 1b — Overview cards + wizard ============ -->
+  <div id="1b" style="display:flex; flex-direction:column; gap:20px; width:1200px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <a href="#1b" style="font:700 13px 'Space Mono',monospace; color:#4ade80; background:#141a22; border:1px solid #242d38; border-radius:8px; padding:6px 12px;">1b</a>
+      <div>
+        <div style="font:700 15px 'Space Mono',monospace; color:#e6edf3;">Overview cards</div>
+        <div style="font-size:13px; color:#98a5b3;">Eine Spalte · jede Karte fasst ihren Zustand in einem Satz zusammen · Details nur beim Bearbeiten · Setup als Wizard-Modal</div>
+      </div>
+    </div>
+
+    <!-- Screen B1: overview -->
+    <div data-screen-label="1b — Settings overview" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+      <div style="display:flex; align-items:center; border-bottom:1px solid #1b232d; padding:14px 28px;">
+        <span style="display:inline-flex; align-items:center; gap:10px;">
+          <svg width="24" height="24" viewBox="0 0 64 64" style="border-radius:5px;"><rect width="64" height="64" fill="#0D1117"></rect><rect x=".5" y=".5" width="63" height="63" rx="8.4" fill="none" stroke="#242D38"></rect><line x1="16" y1="17" x2="16" y2="46" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></line><path d="M16 31 C16 23.5 22.5 21 27.5 21 C34.5 21 38 25.5 38 31.5 L38 46" fill="none" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></path><rect x="45" y="35.5" width="9" height="12" rx="1.5" fill="#4ADE80"></rect></svg>
+          <span style="font:700 16px 'Space Mono',monospace; color:#fff;">naudit</span>
+        </span>
+        <nav style="margin-left:32px; margin-right:auto; display:flex; gap:6px;">
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Dashboard</span>
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Approvals</span>
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Settings</span>
+        </nav>
+        <span style="display:flex; align-items:center; gap:10px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">
+          <span style="display:grid; place-items:center; width:24px; height:24px; border-radius:50%; border:1px solid #242d38; background:#1a222c; font-size:11px; font-weight:700; color:#4ade80;">B</span>
+          benedikt
+          <span style="border:1px solid #53d3d1; border-radius:999px; padding:2px 8px; font-size:10px; letter-spacing:.1em; color:#53d3d1; text-transform:uppercase;">admin</span>
+          <span style="color:#5f6b78;">⏻</span>
+        </span>
+      </div>
+      <div style="max-width:820px; margin:0 auto; padding:28px 28px 40px; display:flex; flex-direction:column; gap:16px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+          <div>
+            <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Settings</h2>
+            <p style="margin:6px 0 0; font-size:13px; color:#98a5b3;">Everything is set up in plain terms. Changes apply after a restart.</p>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px;">
+            <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:#5f6b78;">Raw keys
+              <span style="width:30px; height:17px; border-radius:999px; background:#1a222c; border:1px solid #242d38; position:relative; display:inline-block;"><span style="position:absolute; top:1px; left:1px; width:13px; height:13px; border-radius:50%; background:#5f6b78;"></span></span>
+            </span>
+            <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Save changes</span>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; border:1px solid #1b232d; background:#1a222c; border-radius:8px; padding:10px 16px; font-size:12.5px; color:#98a5b3;">
+          <span>Pending changes — restart Naudit to apply.</span>
+          <span style="display:inline-flex; align-items:center; border-radius:8px; padding:6px 14px; font-size:12.5px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Restart now</span>
+        </div>
+
+        <!-- Instance (collapsed) -->
+        <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <b style="font-size:14.5px;">Instance</b>
+            <span style="font-size:12.5px; color:#98a5b3;">Reachable at <span style="font-family:'Space Mono',monospace;">naudit.tegut.com</span> · reviews any repo with a valid webhook secret</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">✓ ok</span>
+            <span style="font-size:13px; font-weight:600; color:#98a5b3;">Edit ▾</span>
+          </div>
+        </div>
+
+        <!-- Git platform (collapsed) -->
+        <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <b style="font-size:14.5px;">Git platform</b>
+            <span style="font-size:12.5px; color:#98a5b3;">GitHub · personal access token · posts reviews as comments</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">✓ connected</span>
+            <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:6px 14px; font-size:12.5px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Upgrade to bot identity →</span>
+            <span style="font-size:13px; font-weight:600; color:#98a5b3;">Edit ▾</span>
+          </div>
+        </div>
+
+        <!-- AI provider (EXPANDED) -->
+        <div style="border:1px solid #242d38; background:#141a22; border-radius:12px; overflow:hidden;">
+          <div style="padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d;">
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <b style="font-size:14.5px;">AI provider</b>
+              <span style="font-size:12.5px; color:#98a5b3;">Claude Code · model sonnet · no API key needed</span>
+            </div>
+            <span style="font-size:13px; font-weight:600; color:#e6edf3;">Close ▴</span>
+          </div>
+          <div style="padding:20px; display:flex; flex-direction:column; gap:16px;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Provider</span>
+              <div style="display:flex; gap:8px;">
+                <span style="border:1px solid #242d38; border-radius:999px; padding:7px 16px; font-size:13px; color:#98a5b3;">Ollama</span>
+                <span style="border:1px solid #242d38; border-radius:999px; padding:7px 16px; font-size:13px; color:#98a5b3;">Anthropic</span>
+                <span style="border:1px solid #242d38; border-radius:999px; padding:7px 16px; font-size:13px; color:#98a5b3;">OpenAI-compatible</span>
+                <span style="border:1px solid #4ade80; background:rgba(74,222,128,.1); border-radius:999px; padding:7px 16px; font-size:13px; font-weight:600; color:#4ade80;">✓ Claude Code</span>
+              </div>
+              <span style="font-size:11.5px; color:#5f6b78;">Switching the provider changes which fields appear below.</span>
+            </div>
+            <label style="display:flex; flex-direction:column; gap:6px;">
+              <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Model</span>
+              <span style="display:flex; align-items:center; justify-content:space-between; width:280px; border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#e6edf3;">sonnet <span style="color:#5f6b78;">▾</span></span>
+              <span style="font-size:11.5px; color:#5f6b78;">Optional — defaults to sonnet.</span>
+            </label>
+            <div style="border:1px solid #242d38; background:#1a222c; border-radius:8px; padding:10px 14px; font-size:12.5px; color:#98a5b3; line-height:1.5;">Claude Code uses the CLI sign-in already on the server — endpoint and API key don't apply.</div>
+          </div>
+        </div>
+
+        <!-- Review (collapsed) -->
+        <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <b style="font-size:14.5px;">Review rules</b>
+            <span style="font-size:12.5px; color:#98a5b3;">Blocks merges on <b style="color:#e6edf3;">High</b> findings at <b style="color:#e6edf3;">Medium</b> confidence · built-in prompt</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">defaults</span>
+            <span style="font-size:13px; font-weight:600; color:#98a5b3;">Edit ▾</span>
+          </div>
+        </div>
+
+        <!-- Sign-in (collapsed, with actions) -->
+        <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <b style="font-size:14.5px;">Sign-in</b>
+            <span style="font-size:12.5px; color:#98a5b3;">Local admin only — nobody else can sign in yet</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:6px 14px; font-size:12.5px; font-weight:600; border:1px solid #242d38; color:#e6edf3;">Enable GitHub sign-in</span>
+            <span style="display:inline-flex; align-items:center; white-space:nowrap; border-radius:8px; padding:6px 14px; font-size:12.5px; font-weight:600; color:#98a5b3;">Enable SSO (OIDC)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen B2: wizard modal -->
+    <div data-screen-label="1b — GitHub sign-in wizard (step 1)" style="width:1200px; height:640px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3; position:relative;">
+      <div style="position:absolute; inset:0; padding:28px; filter:blur(2px); opacity:.35;">
+        <div style="max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:16px;">
+          <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Settings</h2>
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:76px;"></div>
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:76px;"></div>
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:76px;"></div>
+          <div style="border:1px solid #1b232d; background:#141a22; border-radius:12px; height:76px;"></div>
+        </div>
+      </div>
+      <div style="position:absolute; inset:0; background:rgba(6,9,13,.6); display:grid; place-items:center;">
+        <div style="width:560px; background:#141a22; border:1px solid #242d38; border-radius:14px; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,.5);">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid #1b232d;">
+            <b style="font:700 15px 'Space Mono',monospace;">Set up GitHub sign-in</b>
+            <span style="font:12px 'Space Mono',monospace; color:#5f6b78;">step 1 / 3</span>
+          </div>
+          <div style="padding:24px; display:flex; flex-direction:column; gap:18px;">
+            <p style="margin:0; font-size:13px; color:#98a5b3; line-height:1.55;">Naudit signs users in through a GitHub OAuth app that you own. Create one now — everything you need is below.</p>
+            <div style="display:flex; gap:12px;">
+              <span style="flex-shrink:0; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#1a222c; border:1px solid #242d38; font:700 11px 'Space Mono',monospace; color:#4ade80;">1</span>
+              <span style="font-size:13px; color:#e6edf3; line-height:1.5;">Open <a href="#1b">GitHub → Settings → Developer settings → New OAuth app</a></span>
+            </div>
+            <div style="display:flex; gap:12px;">
+              <span style="flex-shrink:0; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#1a222c; border:1px solid #242d38; font:700 11px 'Space Mono',monospace; color:#4ade80;">2</span>
+              <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+                <span style="font-size:13px; color:#e6edf3;">Paste this callback URL</span>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #1b232d; background:#1a222c; border-radius:8px; padding:8px 12px;">
+                  <span style="font:12.5px 'Space Mono',monospace; color:#e6edf3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">https://naudit.tegut.com/auth/github/callback</span>
+                  <span style="flex-shrink:0; border:1px solid #242d38; border-radius:4px; padding:4px 8px; font:11px 'Space Mono',monospace; color:#98a5b3;">copy</span>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; gap:12px;">
+              <span style="flex-shrink:0; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#1a222c; border:1px solid #242d38; font:700 11px 'Space Mono',monospace; color:#4ade80;">3</span>
+              <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+                <span style="font-size:13px; color:#e6edf3;">Copy the Client ID and a new client secret back here</span>
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Client ID</span>
+                  <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78;">Iv1.…</span>
+                </label>
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span style="font-size:12.5px; font-weight:500; color:#98a5b3;">Client secret</span>
+                  <span style="border-radius:8px; border:1px solid #242d38; background:#0d1117; padding:10px 14px; font:13.5px 'Space Mono',monospace; color:#5f6b78;">••••••••</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-top:1px solid #1b232d;">
+            <span style="font-size:13px; font-weight:600; color:#98a5b3;">Cancel</span>
+            <div style="display:flex; align-items:center; gap:16px;">
+              <span style="display:flex; gap:5px;"><span style="width:6px; height:6px; border-radius:50%; background:#4ade80;"></span><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span><span style="width:6px; height:6px; border-radius:50%; background:#242d38;"></span></span>
+              <span style="display:inline-flex; align-items:center; border-radius:8px; padding:8px 18px; font-size:13px; font-weight:700; background:#4ade80; color:#06170c;">Continue →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 1c — Current page (reference) ============ -->
+  <div id="1c" style="display:flex; flex-direction:column; gap:20px; width:1200px; flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <a href="#1c" style="font:700 13px 'Space Mono',monospace; color:#98a5b3; background:#141a22; border:1px solid #242d38; border-radius:8px; padding:6px 12px;">1c</a>
+      <div>
+        <div style="font:700 15px 'Space Mono',monospace; color:#e6edf3;">Current page (reference)</div>
+        <div style="font-size:13px; color:#98a5b3;">1:1-Nachbau der heutigen SettingsPage.tsx zum Vergleich</div>
+      </div>
+    </div>
+
+    <div data-screen-label="1c — Current settings page" style="width:1200px; background:#0d1117; border:1px solid #242d38; border-radius:12px; overflow:hidden; color:#e6edf3;">
+      <div style="display:flex; align-items:center; border-bottom:1px solid #1b232d; padding:14px 28px;">
+        <span style="display:inline-flex; align-items:center; gap:10px;">
+          <svg width="24" height="24" viewBox="0 0 64 64" style="border-radius:5px;"><rect width="64" height="64" fill="#0D1117"></rect><rect x=".5" y=".5" width="63" height="63" rx="8.4" fill="none" stroke="#242D38"></rect><line x1="16" y1="17" x2="16" y2="46" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></line><path d="M16 31 C16 23.5 22.5 21 27.5 21 C34.5 21 38 25.5 38 31.5 L38 46" fill="none" stroke="#FFF" stroke-width="6.5" stroke-linecap="round"></path><rect x="45" y="35.5" width="9" height="12" rx="1.5" fill="#4ADE80"></rect></svg>
+          <span style="font:700 16px 'Space Mono',monospace; color:#fff;">naudit</span>
+        </span>
+        <nav style="margin-left:32px; margin-right:auto; display:flex; gap:6px;">
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Dashboard</span>
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:500; color:#98a5b3;">Approvals</span>
+          <span style="border-radius:8px; padding:6px 12px; font-size:13px; font-weight:600; color:#4ade80; background:rgba(74,222,128,.12);">Settings</span>
+        </nav>
+        <span style="display:flex; align-items:center; gap:10px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">
+          <span style="display:grid; place-items:center; width:24px; height:24px; border-radius:50%; border:1px solid #242d38; background:#1a222c; font-size:11px; font-weight:700; color:#4ade80;">B</span>
+          benedikt
+          <span style="border:1px solid #53d3d1; border-radius:999px; padding:2px 8px; font-size:10px; letter-spacing:.1em; color:#53d3d1; text-transform:uppercase;">admin</span>
+          <span style="color:#5f6b78;">⏻</span>
+        </span>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:20px; padding:24px 28px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between;">
+          <div>
+            <h2 style="margin:0; font:700 18px 'Space Mono',monospace;">Settings</h2>
+            <p style="margin:4px 0 0; max-width:70ch; font-size:12.5px; color:#5f6b78;">Stored in Naudit's database. Keys set via environment are locked (environment always wins). Changes take effect after a restart. Clearing a field resets it to its default.</p>
+          </div>
+          <span style="display:inline-flex; align-items:center; border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:700; background:#4ade80; color:#06170c; opacity:.5;">Save changes</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start;">
+          <!-- General -->
+          <div style="overflow:hidden; border-radius:12px; border:1px solid #1b232d; background:#141a22;">
+            <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">General</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Naudit</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">PublicBaseUrl</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">https://naudit.tegut.com</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">AccessGate:Mode</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">Open ▾</span></div>
+          </div>
+          <!-- AI provider -->
+          <div style="overflow:hidden; border-radius:12px; border:1px solid #1b232d; background:#141a22;">
+            <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">AI provider</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Naudit:Ai</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ai:Provider</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">Anthropic ▾</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ai:Model</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">claude-sonnet-4-6</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ai:Endpoint</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px;"><span style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500;">Ai:ApiKey <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#98a5b3; background:#1a222c;">via environment</span></span><span style="font:12.5px 'Space Mono',monospace; color:#5f6b78;">•••</span></div>
+          </div>
+          <!-- Git platform -->
+          <div style="overflow:hidden; border-radius:12px; border:1px solid #1b232d; background:#141a22;">
+            <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">Git platform</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Naudit:Git*</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Git:Platform</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">GitHub ▾</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitLab:BaseUrl</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitLab:Token</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">not set</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitLab:WebhookSecret</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">not set</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitLab:PostVerdict</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitHub:BaseUrl</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500;">GitHub:Token <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">db</span></span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">•••••• (set)</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500;">GitHub:WebhookSecret <span style="display:inline-flex; border-radius:999px; padding:2px 10px; font:11px 'Space Mono',monospace; color:#4ade80; background:rgba(74,222,128,.12);">db</span></span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">•••••• (set)</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitHub:Auth</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#98a5b3;">Pat ▾</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitHub:App:AppId</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitHub:App:PrivateKey</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">not set</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitHub:App:InstallationId</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">GitHub:PostVerdict</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+          </div>
+          <!-- Review + Sign-in stacked -->
+          <div style="display:flex; flex-direction:column; gap:16px;">
+            <div style="overflow:hidden; border-radius:12px; border:1px solid #1b232d; background:#141a22;">
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">Review</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Naudit:Review</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Review:SystemPrompt</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Review:Gate:MinSeverity</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">(default) ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Review:Gate:MinConfidence</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">(default) ▾</span></div>
+            </div>
+            <div style="overflow:hidden; border-radius:12px; border:1px solid #1b232d; background:#141a22;">
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1b232d; padding:12px 16px;"><b style="font:700 12.5px 'Space Mono',monospace;">Sign-in</b><span style="font:11px 'Space Mono',monospace; color:#5f6b78;">Naudit:Ui:Auth</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:GitHub:Enabled</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">(default) ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:GitHub:ClientId</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:GitHub:ClientSecret</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">not set</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:Oidc:Enabled</span><span style="border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">(default) ▾</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:Oidc:Authority</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid #1b232d; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:Oidc:ClientId</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">&nbsp;</span></div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px;"><span style="font-size:13px; font-weight:500;">Ui:Auth:Oidc:ClientSecret</span><span style="width:256px; border-radius:4px; border:1px solid #1b232d; padding:4px 8px; font:12.5px 'Space Mono',monospace; color:#5f6b78;">not set</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+</x-dc>
+</body>
+</html>
