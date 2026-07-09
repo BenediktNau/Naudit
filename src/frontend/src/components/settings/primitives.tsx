@@ -76,6 +76,7 @@ export function Modal({ title, step, onClose, footer, children }: {
       onClick={onClose}
     >
       <div
+        role="dialog" aria-modal="true"
         className="anim-modalin flex w-[560px] max-w-full flex-col rounded-[14px] border border-border bg-surface shadow-[0_24px_64px_rgba(0,0,0,.5)]"
         onClick={(e) => e.stopPropagation()}
       >

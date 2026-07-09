@@ -22,10 +22,9 @@ export function SignInWizard({ state, ctx, base, onClose }: {
   const [appId, setAppId] = useState(ctx.get("Naudit:GitHub:App:AppId"));
   const [pem, setPem] = useState("");
   const [authority, setAuthority] = useState(ctx.get("Naudit:Ui:Auth:Oidc:Authority"));
-  const [saved, setSaved] = useState(false);
 
   const commit = (changes: Change[], onDone: () => void) =>
-    save.mutate(changes.filter((c) => c.value !== ""), { onSuccess: () => { setSaved(true); onDone(); } });
+    save.mutate(changes.filter((c) => c.value !== ""), { onSuccess: onDone });
 
   // --- GitHub App: Ein-Schritt-Formular ---
   if (state.kind === "github-app") {
@@ -33,11 +32,13 @@ export function SignInWizard({ state, ctx, base, onClose }: {
       <Modal title="Set up GitHub App" onClose={onClose}
         footer={<>
           <button type="button" className="font-mono text-[12px] text-ink3 hover:text-ink" onClick={onClose}>Cancel</button>
-          <Button loading={save.isPending} onClick={() => commit([
-            { key: "Naudit:GitHub:Auth", value: "App" },
-            { key: "Naudit:GitHub:App:AppId", value: appId },
-            { key: "Naudit:GitHub:App:PrivateKey", value: pem === "" ? null : pem },
-          ], onClose)}>Save</Button>
+          <Button loading={save.isPending}
+            disabled={save.isPending || !appId || (!pem && !ctx.secretSet("Naudit:GitHub:App:PrivateKey"))}
+            onClick={() => commit([
+              { key: "Naudit:GitHub:Auth", value: "App" },
+              { key: "Naudit:GitHub:App:AppId", value: appId },
+              { key: "Naudit:GitHub:App:PrivateKey", value: pem === "" ? null : pem },
+            ], onClose)}>Save</Button>
         </>}>
         <p className="text-[12.5px] text-ink2">Enter the App's credentials. Reviews will post under the bot identity after a restart.</p>
         <Field label="App ID"><input className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)} /></Field>
@@ -57,12 +58,14 @@ export function SignInWizard({ state, ctx, base, onClose }: {
       <Modal title="Set up single sign-on (OIDC)" onClose={onClose}
         footer={<>
           <button type="button" className="font-mono text-[12px] text-ink3 hover:text-ink" onClick={onClose}>Cancel</button>
-          <Button loading={save.isPending} onClick={() => commit([
-            { key: "Naudit:Ui:Auth:Oidc:Enabled", value: "true" },
-            { key: "Naudit:Ui:Auth:Oidc:Authority", value: authority },
-            { key: "Naudit:Ui:Auth:Oidc:ClientId", value: clientId },
-            { key: "Naudit:Ui:Auth:Oidc:ClientSecret", value: secret === "" ? null : secret },
-          ], onClose)}>Save</Button>
+          <Button loading={save.isPending}
+            disabled={save.isPending || !authority || !clientId || (!secret && !ctx.secretSet("Naudit:Ui:Auth:Oidc:ClientSecret"))}
+            onClick={() => commit([
+              { key: "Naudit:Ui:Auth:Oidc:Enabled", value: "true" },
+              { key: "Naudit:Ui:Auth:Oidc:Authority", value: authority },
+              { key: "Naudit:Ui:Auth:Oidc:ClientId", value: clientId },
+              { key: "Naudit:Ui:Auth:Oidc:ClientSecret", value: secret === "" ? null : secret },
+            ], onClose)}>Save</Button>
         </>}>
         <p className="text-[12.5px] text-ink2">Point Naudit at your IdP. Sign-in turns on after a restart.</p>
         <Field label="Authority" hint="e.g. https://login.microsoftonline.com/{tenant}/v2.0">
@@ -91,17 +94,18 @@ export function SignInWizard({ state, ctx, base, onClose }: {
           <>
             <button type="button" className="font-mono text-[12px] text-ink3 hover:text-ink" onClick={onClose}>Cancel</button>
             <div className="flex items-center gap-4">{dots}
-              <Button disabled={!clientId || !secret} onClick={() => setStep(2)}>Continue →</Button></div>
+              <Button disabled={!clientId || (!secret && !ctx.secretSet("Naudit:Ui:Auth:GitHub:ClientSecret"))}
+                onClick={() => setStep(2)}>Continue →</Button></div>
           </>
         ) : step === 2 ? (
           <>
             <button type="button" className="font-mono text-[12px] text-ink3 hover:text-ink" onClick={() => setStep(1)}>← Back</button>
             <div className="flex items-center gap-4">{dots}
-              <Button loading={save.isPending} disabled={!saved && save.isPending}
-                onClick={() => saved ? setStep(3) : commit([
+              <Button loading={save.isPending}
+                onClick={() => commit([
                   { key: "Naudit:Ui:Auth:GitHub:Enabled", value: "true" },
                   { key: "Naudit:Ui:Auth:GitHub:ClientId", value: clientId },
-                  { key: "Naudit:Ui:Auth:GitHub:ClientSecret", value: secret },
+                  { key: "Naudit:Ui:Auth:GitHub:ClientSecret", value: secret === "" ? null : secret },
                 ], () => setStep(3))}>Continue →</Button></div>
           </>
         ) : (
@@ -132,10 +136,12 @@ export function SignInWizard({ state, ctx, base, onClose }: {
       )}
       {step === 2 && (
         <>
-          <p className="text-[12.5px] text-ink2">Credentials saved. GitHub sign-in turns on after a restart — we can't test it before then.</p>
-          <div className="flex flex-col gap-2 rounded-[10px] border border-hairline bg-bg px-4 py-3 text-[12.5px]">
-            <span className="text-acc">✓ Client ID saved</span>
-            <span className="text-acc">✓ Callback URL configured</span>
+          <p className="text-[12.5px] text-ink2">
+            Review your credentials, then Continue to save. GitHub sign-in turns on after a restart — we can't test it before then.
+          </p>
+          <div className="flex flex-col gap-2 rounded-[10px] border border-hairline bg-bg px-4 py-3 text-[12.5px] text-ink2">
+            <span>Client ID will be saved</span>
+            <span>Callback URL will be set</span>
           </div>
           {save.isError && <div className="text-[12px] text-danger">Couldn't save: {save.error?.message}</div>}
         </>
@@ -147,6 +153,9 @@ export function SignInWizard({ state, ctx, base, onClose }: {
           <p className="max-w-[46ch] text-[12.5px] text-ink2">
             After the restart, a "Continue with GitHub" button appears on the login page. New sign-ins wait on your Approvals page.
           </p>
+          {restart.isError && (
+            <div className="text-[12px] text-danger">Restart failed: {restart.error?.message ?? "unknown error"}</div>
+          )}
         </div>
       )}
     </Modal>
