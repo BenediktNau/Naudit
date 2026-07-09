@@ -38,13 +38,13 @@ export function SelectableCard({ selected, onClick, disabled, children }: {
 }
 
 /** Auth-Chip (PAT ↔ App). Ausgewaehlt: border-acc bg-acc/10 text-acc. */
-export function AuthChip({ selected, onClick, children }: {
-  selected: boolean; onClick: () => void; children: ReactNode;
+export function AuthChip({ selected, onClick, disabled, children }: {
+  selected: boolean; onClick: () => void; disabled?: boolean; children: ReactNode;
 }) {
   return (
     <button
-      type="button" onClick={onClick}
-      className={`rounded-full border px-3 py-1 font-mono text-[11px] transition-colors ${
+      type="button" onClick={onClick} disabled={disabled}
+      className={`rounded-full border px-3 py-1 font-mono text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         selected ? "border-acc bg-acc/10 text-acc" : "border-border text-ink2 hover:border-ink3"
       }`}
     >

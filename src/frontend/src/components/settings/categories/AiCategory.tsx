@@ -25,7 +25,8 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
         {PROVIDERS.map((p) => {
           const sel = provider === p.id;
           return (
-            <SelectableCard key={p.id} selected={sel} onClick={() => ctx.set("Naudit:Ai:Provider", p.id)}>
+            <SelectableCard key={p.id} selected={sel} onClick={() => ctx.set("Naudit:Ai:Provider", p.id)}
+              disabled={ctx.locked("Naudit:Ai:Provider")}>
               <div className="flex items-center justify-between">
                 <b className="text-[14px]">{p.title}</b>
                 <span className={`font-mono text-[11px] ${sel ? "font-bold text-acc" : "text-ink3"}`}>
@@ -43,6 +44,7 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
           <Field label="Model" hint={provider === "ClaudeCode" ? "Optional — defaults to sonnet." : "Required."}>
             <input className={inputCls} value={ctx.get("Naudit:Ai:Model")}
               placeholder={provider === "ClaudeCode" ? "sonnet" : ""}
+              disabled={ctx.locked("Naudit:Ai:Model")}
               onChange={(e) => ctx.set("Naudit:Ai:Model", e.target.value)} />
           </Field>
           {needsEndpoint && (

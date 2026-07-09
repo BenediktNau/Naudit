@@ -26,7 +26,8 @@ export function GitCategory({ ctx }: { ctx: SettingsCtx }) {
     <>
       <div className="grid grid-cols-2 gap-3">
         {(["GitLab", "GitHub"] as const).map((p) => (
-          <SelectableCard key={p} selected={platform === p} onClick={() => ctx.set("Naudit:Git:Platform", p)}>
+          <SelectableCard key={p} selected={platform === p} onClick={() => ctx.set("Naudit:Git:Platform", p)}
+            disabled={ctx.locked("Naudit:Git:Platform")}>
             <b className="text-[14px]">{p}</b>
             <p className="text-[12.5px] text-ink2">{p === "GitLab" ? "Merge requests on GitLab / self-managed." : "Pull requests on GitHub / GHES."}</p>
           </SelectableCard>
@@ -37,10 +38,12 @@ export function GitCategory({ ctx }: { ctx: SettingsCtx }) {
         <Panel title="GitHub connection">
           <div className="flex flex-col gap-4 px-5 py-4">
             <div className="flex gap-2">
-              <AuthChip selected={!usesApp} onClick={() => ctx.set("Naudit:GitHub:Auth", "Pat")}>
+              <AuthChip selected={!usesApp} onClick={() => ctx.set("Naudit:GitHub:Auth", "Pat")}
+                disabled={ctx.locked("Naudit:GitHub:Auth")}>
                 {!usesApp ? "✓ " : ""}Personal access token
               </AuthChip>
-              <AuthChip selected={usesApp} onClick={() => ctx.set("Naudit:GitHub:Auth", "App")}>
+              <AuthChip selected={usesApp} onClick={() => ctx.set("Naudit:GitHub:Auth", "App")}
+                disabled={ctx.locked("Naudit:GitHub:Auth")}>
                 GitHub App (bot)
               </AuthChip>
             </div>
