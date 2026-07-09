@@ -20,6 +20,20 @@
   --font-mono: "Space Mono", ui-monospace, monospace;
 }
 
+/* Dezente Transitions fuer den Settings-Redesign — respektieren prefers-reduced-motion. */
+@keyframes naudit-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes naudit-modalin {
+  from { opacity: 0; transform: scale(.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .anim-fadein  { animation: naudit-fadein .15s ease both; }
+  .anim-modalin { animation: naudit-modalin .15s ease both; }
+}
+
 html,
 body,
 #root {
