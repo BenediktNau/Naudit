@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { Skeleton, SkeletonPanel, SkeletonRows } from "@/components/ui/Skeleton";
 
 const inputCls =
   "w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-[13px] text-ink outline-none placeholder:text-ink3 focus:border-acc";
@@ -118,6 +119,38 @@ function AccountRow({ account }: { account: AccountDto }) {
   );
 }
 
+// Skeleton der Approvals-Seite: Kopfzeile + zwei Panels mit Konto-Zeilen (Avatar + Text + Aktionen).
+function AccountRowSkeleton() {
+  return (
+    <>
+      <Skeleton className="size-8 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1">
+        <Skeleton className="h-3 w-32" />
+        <Skeleton className="mt-1.5 h-2.5 w-48" />
+      </div>
+      <Skeleton className="h-6 w-16 rounded-lg" />
+      <Skeleton className="h-6 w-16 rounded-lg" />
+    </>
+  );
+}
+
+function ApprovalsSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 px-7 py-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-8 w-24 rounded-lg" />
+      </div>
+      <SkeletonPanel>
+        <SkeletonRows count={2}>{() => <AccountRowSkeleton />}</SkeletonRows>
+      </SkeletonPanel>
+      <SkeletonPanel>
+        <SkeletonRows count={4}>{() => <AccountRowSkeleton />}</SkeletonRows>
+      </SkeletonPanel>
+    </div>
+  );
+}
+
 export function ApprovalsPage() {
   const { data, isLoading } = useAccounts();
   const create = useCreateAccount();
@@ -156,7 +189,7 @@ export function ApprovalsPage() {
     );
   }
 
-  if (isLoading || !data) return <div className="p-8 font-mono text-ink3">loading…</div>;
+  if (isLoading || !data) return <ApprovalsSkeleton />;
 
   return (
     <div className="flex flex-col gap-5 px-7 py-6">

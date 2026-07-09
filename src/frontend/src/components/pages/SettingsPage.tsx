@@ -4,6 +4,7 @@ import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
 import type { SettingItem } from "@/api/types";
+import { Skeleton, SkeletonPanel } from "@/components/ui/Skeleton";
 
 /** Gruppierung + Reihenfolge der Panels; Keys wie im Backend-Katalog. */
 const GROUPS: { title: string; extra: string; prefixes: string[] }[] = [
@@ -64,6 +65,36 @@ function SettingRow({ item, draft, onChange }: {
   );
 }
 
+// Skeleton: Titelblock + drei Config-Panels mit je drei Zeilen (Label ↔ Wert).
+function SettingsPanelSkeleton({ rows }: { rows: number }) {
+  return (
+    <SkeletonPanel>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center justify-between border-b border-hairline px-5 py-3.5 last:border-b-0">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      ))}
+    </SkeletonPanel>
+  );
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 px-7 py-6">
+      <div>
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="mt-2 h-3 w-full max-w-[70ch]" />
+      </div>
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+        <SettingsPanelSkeleton rows={3} />
+        <SettingsPanelSkeleton rows={3} />
+        <SettingsPanelSkeleton rows={3} />
+      </div>
+    </div>
+  );
+}
+
 /** Editierbar (Admin): schreibt in die DB; env-gesetzte Keys sind gesperrt. Änderungen
  *  gelten erst nach dem Neustart — Banner + Restart-Button. Secrets sind write-only. */
 export function SettingsPage() {
@@ -73,7 +104,7 @@ export function SettingsPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const dirty = useMemo(() => Object.keys(drafts).length > 0, [drafts]);
-  if (isLoading || !data) return <div className="p-8 font-mono text-ink3">loading…</div>;
+  if (isLoading || !data) return <SettingsSkeleton />;
 
   const onSave = () => {
     const changes = Object.entries(drafts).map(([key, value]) => ({ key, value: value === "" ? null : value }));

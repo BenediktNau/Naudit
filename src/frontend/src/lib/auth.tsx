@@ -83,7 +83,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
   if (me === null) {
-    return <div className="grid h-full place-items-center font-mono text-ink3">loading…</div>;
+    // Initialer /api/me-Load kann Login ODER App werden → kein App-Skeleton, nur ein dezenter Spinner.
+    return (
+      <div className="grid h-full place-items-center text-ink3">
+        <span
+          className="size-6 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+          role="status"
+          aria-label="loading"
+        />
+      </div>
+    );
   }
   if (!me.isAuthenticated) {
     return <LoginPage providers={me.authProviders} onLoggedIn={refresh} />;
