@@ -1,172 +1,134 @@
 import { useMemo, useState } from "react";
 import { useRestartApp, useSaveSettings, useSettings } from "@/hooks/queries";
-import { Panel } from "@/components/ui/Panel";
-import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
-import type { SettingItem } from "@/api/types";
 import { Skeleton, SkeletonPanel } from "@/components/ui/Skeleton";
-
-/** Gruppierung + Reihenfolge der Panels; Keys wie im Backend-Katalog. */
-const GROUPS: { title: string; extra: string; prefixes: string[] }[] = [
-  { title: "General", extra: "Naudit", prefixes: ["Naudit:PublicBaseUrl", "Naudit:AccessGate:"] },
-  { title: "Git platform", extra: "Naudit:Git*", prefixes: ["Naudit:Git:", "Naudit:GitLab:", "Naudit:GitHub:"] },
-  { title: "AI provider", extra: "Naudit:Ai", prefixes: ["Naudit:Ai:"] },
-  { title: "Review", extra: "Naudit:Review", prefixes: ["Naudit:Review:"] },
-  { title: "Sign-in", extra: "Naudit:Ui:Auth", prefixes: ["Naudit:Ui:Auth:"] },
-];
-
-/** Enum-Keys werden als Select gerendert statt als Freitext. */
-const ENUMS: Record<string, string[]> = {
-  "Naudit:Git:Platform": ["GitLab", "GitHub"],
-  "Naudit:GitHub:Auth": ["Pat", "App"],
-  "Naudit:Ai:Provider": ["Ollama", "Anthropic", "OpenAICompatible", "ClaudeCode"],
-  "Naudit:AccessGate:Mode": ["Open", "Registered"],
-  "Naudit:Review:Gate:MinSeverity": ["Info", "Low", "Medium", "High", "Critical"],
-  "Naudit:Review:Gate:MinConfidence": ["Low", "Medium", "High"],
-  "Naudit:Ui:Auth:GitHub:Enabled": ["false", "true"],
-  "Naudit:Ui:Auth:Oidc:Enabled": ["false", "true"],
-};
-
-function SettingRow({ item, draft, onChange }: {
-  item: SettingItem;
-  draft: string | undefined;
-  onChange: (v: string) => void;
-}) {
-  const label = item.key.replace(/^Naudit:/, "");
-  const current = draft ?? item.value ?? "";
-  const options = ENUMS[item.key];
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-hairline px-5 py-3 last:border-b-0">
-      <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
-        {label}
-        {item.source === "env" && <Pill kind="neutral">via environment</Pill>}
-        {item.source === "db" && <Pill kind="ok">db</Pill>}
-      </span>
-      {!item.editable ? (
-        <span className="font-mono text-[12.5px] text-ink3">{item.isSecret ? "•••" : (item.value ?? "—")}</span>
-      ) : options ? (
-        <select
-          className="rounded border border-hairline bg-transparent px-2 py-1 font-mono text-[12.5px] text-ink2"
-          value={current} onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">(default)</option>
-          {options.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
-      ) : (
-        <input
-          type={item.isSecret ? "password" : "text"}
-          className="w-64 rounded border border-hairline bg-transparent px-2 py-1 font-mono text-[12.5px] text-ink2"
-          placeholder={item.isSecret ? (item.isSet ? "•••••• (set)" : "not set") : ""}
-          value={draft ?? (item.isSecret ? "" : (item.value ?? ""))}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
-    </div>
-  );
-}
-
-// Skeleton: Titelblock + drei Config-Panels mit je drei Zeilen (Label ↔ Wert).
-function SettingsPanelSkeleton({ rows }: { rows: number }) {
-  return (
-    <SkeletonPanel>
-      {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex items-center justify-between border-b border-hairline px-5 py-3.5 last:border-b-0">
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="h-3 w-16" />
-        </div>
-      ))}
-    </SkeletonPanel>
-  );
-}
+import type { SettingItem } from "@/api/types";
+import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
+import { RawKeys } from "@/components/settings/RawKeys";
+import { InstanceCategory } from "@/components/settings/categories/InstanceCategory";
+import { GitCategory } from "@/components/settings/categories/GitCategory";
+import { AiCategory } from "@/components/settings/categories/AiCategory";
+import { ReviewCategory } from "@/components/settings/categories/ReviewCategory";
+import { SignInCategory } from "@/components/settings/categories/SignInCategory";
+import { SignInWizard } from "@/components/settings/wizards/SignInWizard";
+import { computeHints } from "@/components/settings/hints";
+import { CATEGORIES, type CategoryId, type SettingsCtx, type WizardState } from "@/components/settings/model";
 
 function SettingsSkeleton() {
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
-      <div>
-        <Skeleton className="h-6 w-32" />
-        <Skeleton className="mt-2 h-3 w-full max-w-[70ch]" />
+    <div className="flex min-h-[70vh]">
+      <div className="w-[230px] shrink-0 border-r border-hairline px-[14px] py-5">
+        <Skeleton className="mb-4 h-3 w-16" />
+        {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="mb-2 h-8 w-full" />)}
       </div>
-      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-        <SettingsPanelSkeleton rows={3} />
-        <SettingsPanelSkeleton rows={3} />
-        <SettingsPanelSkeleton rows={3} />
+      <div className="flex-1 px-8 py-7">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="mt-2 h-3 w-96" />
+        <div className="mt-5"><SkeletonPanel /></div>
       </div>
     </div>
   );
 }
 
-/** Editierbar (Admin): schreibt in die DB; env-gesetzte Keys sind gesperrt. Änderungen
- *  gelten erst nach dem Neustart — Banner + Restart-Button. Secrets sind write-only. */
+/** Editierbar (Admin): schreibt in die DB; env-gesetzte Keys sind gesperrt. Aenderungen gelten
+ *  erst nach dem Neustart — Banner + Restart-Button. Secrets sind write-only. */
 export function SettingsPage() {
   const { data, isLoading } = useSettings();
   const save = useSaveSettings();
   const restart = useRestartApp();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [active, setActive] = useState<CategoryId>("instance");
+  const [rawMode, setRawMode] = useState<boolean>(() => localStorage.getItem("naudit.settings.rawMode") === "1");
+  const [wizard, setWizard] = useState<WizardState>(null);
 
-  const dirty = useMemo(() => Object.keys(drafts).length > 0, [drafts]);
+  const byKey = useMemo(() => {
+    const m = new Map<string, SettingItem>();
+    for (const s of data?.settings ?? []) m.set(s.key, s);
+    return m;
+  }, [data]);
+
+  const ctx: SettingsCtx = useMemo(() => ({
+    get: (k) => drafts[k] ?? byKey.get(k)?.value ?? "",
+    set: (k, v) => setDrafts((d) => ({ ...d, [k]: v })),
+    locked: (k) => byKey.get(k)?.editable === false,
+    secretSet: (k) => byKey.get(k)?.isSet ?? false,
+    openWizard: (w) => setWizard(w),
+  }), [drafts, byKey]);
+
+  const dirty = Object.keys(drafts).length > 0;
+  const toggleRaw = (v: boolean) => { setRawMode(v); localStorage.setItem("naudit.settings.rawMode", v ? "1" : "0"); };
+
   if (isLoading || !data) return <SettingsSkeleton />;
 
   const onSave = () => {
-    const changes = Object.entries(drafts).map(([key, value]) => ({ key, value: value === "" ? null : value }));
+    // Leerer Draft = Reset auf Default (null). Ausnahme: ein leer gelassenes Secret NICHT senden —
+    // sonst löscht "getippt, dann geleert" das gespeicherte Secret (das Feld ist per Kontrakt ohnehin leer).
+    const changes = Object.entries(drafts)
+      .filter(([key, value]) => !(value === "" && byKey.get(key)?.isSecret))
+      .map(([key, value]) => ({ key, value: value === "" ? null : value }));
     save.mutate(changes, { onSuccess: () => setDrafts({}) });
   };
 
+  const hints = computeHints(ctx);
+  const activeMeta = CATEGORIES.find((c) => c.id === active)!;
+  const base = ctx.get("Naudit:PublicBaseUrl").replace(/\/+$/, "");
+
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="font-mono text-lg font-bold">Settings</h2>
-          <p className="mt-1 max-w-[70ch] text-[12.5px] text-ink3">
-            Stored in Naudit's database. Keys set via environment are locked (environment always wins).
-            Changes take effect after a restart. Clearing a field resets it to its default.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={onSave} disabled={!dirty || save.isPending} className="px-3 py-1.5 text-[12.5px]">
+    <div className="flex min-h-[70vh]">
+      <SettingsSidebar active={active} onSelect={setActive} rawMode={rawMode} onToggleRaw={toggleRaw} hints={hints} />
+      <div className="flex-1 px-8 py-7">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-mono text-[18px] font-bold">{rawMode ? "Raw keys" : activeMeta.title}</h2>
+            {!rawMode && <p className="mt-1 max-w-[56ch] text-[13px] text-ink2">{activeMeta.blurb}</p>}
+          </div>
+          <Button onClick={onSave} disabled={!dirty || save.isPending} className="shrink-0 px-3 py-1.5 text-[12.5px]">
             {save.isPending ? "saving…" : "Save changes"}
           </Button>
         </div>
-      </div>
 
-      {data.recoveryError && (
-        <div className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
-          <b>Recovery mode:</b> {data.recoveryError} — reviews are paused until fixed &amp; restarted.
-        </div>
-      )}
-      {data.warnings.map((w) => (
-        <div key={w} className="rounded border border-warn/40 bg-warn/10 px-4 py-3 text-[12.5px] text-warn">{w}</div>
-      ))}
-      {data.restartPending && (
-        <div className="flex items-center justify-between rounded border border-hairline bg-elev px-4 py-3 text-[12.5px] text-ink2">
-          <span>Pending changes — restart Naudit to apply.</span>
-          <Button variant="secondary" onClick={() => restart.mutate()} disabled={restart.isPending} className="px-3 py-1 text-[12.5px]">
-            {restart.isPending ? "restarting…" : "Restart now"}
-          </Button>
-        </div>
-      )}
-      {save.isError && (
-        <div className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
-          Couldn't save settings: {save.error?.message ?? "unknown error"}
-        </div>
-      )}
-      {restart.isError && (
-        <div className="rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
-          Restart failed: {restart.error?.message ?? "unknown error"}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-        {GROUPS.map((g) => (
-          <Panel key={g.title} title={g.title} extra={g.extra}>
-            {data.settings
-              .filter((s) => g.prefixes.some((p) => s.key === p || s.key.startsWith(p)))
-              .map((s) => (
-                <SettingRow key={s.key} item={s} draft={drafts[s.key]}
-                  onChange={(v) => setDrafts((d) => ({ ...d, [s.key]: v }))} />
-              ))}
-          </Panel>
+        {data.recoveryError && (
+          <div className="mt-4 rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+            <b>Recovery mode:</b> {data.recoveryError} — reviews are paused until fixed &amp; restarted.
+          </div>
+        )}
+        {data.warnings.map((w) => (
+          <div key={w} className="mt-4 rounded border border-warn/40 bg-warn/10 px-4 py-3 text-[12.5px] text-warn">{w}</div>
         ))}
+        {data.restartPending && (
+          <div className="mt-4 flex items-center justify-between rounded border border-hairline bg-elev px-4 py-3 text-[12.5px] text-ink2">
+            <span>Pending changes — restart Naudit to apply.</span>
+            <Button variant="secondary" onClick={() => restart.mutate()} disabled={restart.isPending} className="px-3 py-1 text-[12.5px]">
+              {restart.isPending ? "restarting…" : "Restart now"}
+            </Button>
+          </div>
+        )}
+        {save.isError && (
+          <div className="mt-4 rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+            Couldn't save settings: {save.error?.message ?? "unknown error"}
+          </div>
+        )}
+        {restart.isError && (
+          <div className="mt-4 rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+            Restart failed: {restart.error?.message ?? "unknown error"}
+          </div>
+        )}
+
+        <div className="mt-5">
+          {rawMode ? (
+            <RawKeys items={data.settings} ctx={ctx} />
+          ) : (
+            <div key={active} className="anim-fadein flex flex-col gap-5">
+              {active === "instance" && <InstanceCategory ctx={ctx} />}
+              {active === "git" && <GitCategory ctx={ctx} />}
+              {active === "ai" && <AiCategory ctx={ctx} />}
+              {active === "review" && <ReviewCategory ctx={ctx} />}
+              {active === "signin" && <SignInCategory ctx={ctx} />}
+            </div>
+          )}
+        </div>
       </div>
+      {wizard && <SignInWizard state={wizard} ctx={ctx} base={base} onClose={() => setWizard(null)} />}
     </div>
   );
 }
