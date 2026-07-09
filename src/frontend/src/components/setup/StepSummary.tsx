@@ -12,10 +12,15 @@ export function StepSummary({ draft, hasGitToken, hasAiApiKey, applying, applyEr
   onApply: () => void;
 }) {
   const base = draft.publicBaseUrl.replace(/\/+$/, "");
+  // GitHub-App-Zweig: statt der Token-Zeile den App-Slug zeigen (Auth laeuft ueber die App).
+  const gitAuthRow: [string, string] =
+    draft.platform === "GitHub" && draft.gitHubAuth === "App"
+      ? ["Git auth", `GitHub App (${draft.gitHubAppSlug})`]
+      : ["Git token", draft.gitToken !== "" || hasGitToken ? "•••••• (set)" : "—"];
   const rows: [string, string][] = [
     ["Public base URL", draft.publicBaseUrl],
     ["Platform", draft.platform],
-    ["Git token", draft.gitToken !== "" || hasGitToken ? "•••••• (set)" : "—"],
+    gitAuthRow,
     ...(draft.platform === "GitLab" ? ([["GitLab base URL", draft.gitLabBaseUrl]] as [string, string][]) : []),
     ["AI provider", draft.aiProvider],
     ["AI model", draft.aiModel || "(default)"],

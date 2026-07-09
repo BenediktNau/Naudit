@@ -13,6 +13,12 @@ export interface WizardDraft {
   aiEndpoint: string;
   aiApiKey: string;
   accessGateMode: "Open" | "Registered";
+  // GitHub-Auth-Wahl (PAT vs. App). AppId/Slug sind reine Anzeige-Felder aus dem GET;
+  // das PUT schickt sie mit, der Server ignoriert sie (serverseitig ueber den Manifest-Callback verwaltet).
+  gitHubAuth: "" | "Pat" | "App";
+  gitHubHost: string;
+  gitHubAppId: string;
+  gitHubAppSlug: string;
 }
 
 export const emptyDraft: WizardDraft = {
@@ -26,6 +32,10 @@ export const emptyDraft: WizardDraft = {
   aiEndpoint: "",
   aiApiKey: "",
   accessGateMode: "Open",
+  gitHubAuth: "",
+  gitHubHost: "",
+  gitHubAppId: "",
+  gitHubAppSlug: "",
 };
 
 export const inputCls =
