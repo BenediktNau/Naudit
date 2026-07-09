@@ -207,6 +207,46 @@ public static class SetupEndpoints
             });
         });
 
+        group.MapPost("/gitlab/hooks", async (GitLabHooksRequest body, HttpContext ctx,
+            NauditDbContext db, SetupDraftService drafts, SetupHttpClientFactory httpFactory) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+
+            var json = await drafts.LoadAsync(ctx.RequestAborted);
+            var draft = json is null ? null : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json);
+            if (draft is null || string.IsNullOrWhiteSpace(draft.GitLabBaseUrl)
+                || string.IsNullOrWhiteSpace(draft.GitToken) || string.IsNullOrWhiteSpace(draft.WebhookSecret)
+                || string.IsNullOrWhiteSpace(draft.PublicBaseUrl))
+                return Results.BadRequest(new
+                { error = "Complete the instance URL and GitLab fields first (base URL, token, webhook secret)." });
+
+            var targets = new List<Naudit.Infrastructure.Setup.GitLabHookTarget>();
+            foreach (var p in body.Projects ?? [])
+                if (!string.IsNullOrWhiteSpace(p))
+                    targets.Add(new(Naudit.Infrastructure.Setup.GitLabHookTargetKind.Project, p.Trim()));
+            foreach (var g in body.Groups ?? [])
+                if (!string.IsNullOrWhiteSpace(g))
+                    targets.Add(new(Naudit.Infrastructure.Setup.GitLabHookTargetKind.Group, g.Trim()));
+            if (targets.Count == 0)
+                return Results.BadRequest(new { error = "Enter at least one project or group." });
+
+            var webhookUrl = $"{draft.PublicBaseUrl.TrimEnd('/')}/webhook/gitlab";
+            using var http = httpFactory.Create();
+            var results = await new Naudit.Infrastructure.Setup.GitLabHookCreator(http).CreateAsync(
+                draft.GitLabBaseUrl, draft.GitToken, webhookUrl, draft.WebhookSecret, targets, ctx.RequestAborted);
+            return Results.Ok(new
+            {
+                results = results.Select(r => new
+                {
+                    target = r.Target.IdOrPath,
+                    kind = r.Target.Kind.ToString().ToLowerInvariant(),
+                    ok = r.Ok,
+                    status = r.Status,
+                    detail = r.Detail,
+                }),
+            });
+        });
+
         group.MapPost("/apply", async (HttpContext ctx, NauditDbContext db, SetupDraftService drafts,
             Naudit.Infrastructure.Settings.SettingsService settings,
             Naudit.Infrastructure.Settings.EnvOverrides env, IAppRestarter restarter) =>
@@ -330,6 +370,9 @@ public sealed record AiTestRequest(string? Provider, string? Model, string? Endp
 /// (nicht persistiert); GitHubHost wandert in den Draft (Callback + Apply brauchen ihn).</summary>
 public sealed record GitHubManifestRequest(
     string? GitHubHost = null, string? Org = null, string? AppName = null, bool Public = false);
+
+/// <summary>Ziele der GitLab-Webhook-Anlage: Projekt-IDs/-Pfade und Gruppen-IDs/-Pfade.</summary>
+public sealed record GitLabHooksRequest(List<string>? Projects = null, List<string>? Groups = null);
 
 /// <summary>Wizard-Zwischenstand: API-Kontrakt UND (serialisiert) der DP-verschluesselte
 /// DB-Blob. Alle Felder optional — der Wizard fuellt sie schrittweise. GitToken ist je nach

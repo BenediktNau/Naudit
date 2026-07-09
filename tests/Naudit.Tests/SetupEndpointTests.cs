@@ -460,4 +460,64 @@ public class SetupEndpointTests
         Assert.Equal("/?setup=github-app-error&reason=conversion", cb.Headers.Location!.ToString());
         // Draft und state bleiben — erneuter Versuch generiert ohnehin einen frischen state (Spec: retrybar).
     }
+
+    [Fact]
+    public async Task GitLabHooks_ergebnisProZiel_hookUrlAusPublicBaseUrl()
+    {
+        using var app = new TestAppFactory();
+        var stub = new StubHttpMessageHandler(req =>
+            req.RequestUri!.AbsolutePath.Contains("/groups/")
+                ? new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{}") }
+                : req.Method == HttpMethod.Get
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") }
+                    : new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{}") });
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton(new Naudit.Web.SetupHttpClientFactory(() => new HttpClient(stub)))));
+        var client = await LoggedInAsync(factory);
+        await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            platform = "GitLab", gitLabBaseUrl = "https://gitlab.example.com",
+            gitToken = "glpat-x", webhookSecret = "hook-1", publicBaseUrl = "https://naudit.example.com",
+        });
+
+        var res = await client.PostAsJsonAsync("/api/setup/gitlab/hooks",
+            new { projects = new[] { "42" }, groups = new[] { "my-group" } });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var results = JsonDocument.Parse(await res.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("results").EnumerateArray().ToList();
+        Assert.Equal(2, results.Count);
+        var project = results.Single(r => r.GetProperty("kind").GetString() == "project");
+        Assert.True(project.GetProperty("ok").GetBoolean());
+        Assert.Equal("42", project.GetProperty("target").GetString());
+        var grp = results.Single(r => r.GetProperty("kind").GetString() == "group");
+        Assert.False(grp.GetProperty("ok").GetBoolean());
+        Assert.Equal(403, grp.GetProperty("status").GetInt32());
+        // Hook-URL kommt aus der PublicBaseUrl, das token-Feld ist das WebhookSecret:
+        Assert.Contains(stub.Calls, c => c.Body != null
+            && c.Body.Contains("https://naudit.example.com/webhook/gitlab") && c.Body.Contains("hook-1"));
+    }
+
+    [Fact]
+    public async Task GitLabHooks_ohneDraftDaten_ist400()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        var res = await client.PostAsJsonAsync("/api/setup/gitlab/hooks", new { projects = new[] { "1" } });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task GitLabHooks_ohneZiele_ist400()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        await client.PutAsJsonAsync("/api/setup/draft", new
+        {
+            platform = "GitLab", gitLabBaseUrl = "https://gitlab.example.com",
+            gitToken = "glpat-x", webhookSecret = "s", publicBaseUrl = "https://n.example",
+        });
+        var res = await client.PostAsJsonAsync("/api/setup/gitlab/hooks",
+            new { projects = Array.Empty<string>() });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
 }
