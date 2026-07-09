@@ -19,8 +19,11 @@ Open `http://localhost:8080` in a browser. With no configuration yet, Naudit ser
    protection note below).
 2. **Instance URL** — pre-filled from the request; used to build the webhook URLs shown
    at the end.
-3. **Git platform** — GitHub (fine-grained PAT) or GitLab (base URL + API token), plus a
-   generated webhook secret.
+3. **Git platform** — **GitHub App (recommended, one-click)** (the wizard creates the app
+   on GitHub via a manifest and pulls back the App ID/private key/webhook secret
+   automatically), a GitHub fine-grained PAT, or GitLab (base URL + API token). For GitLab
+   the wizard can also **create the webhooks for you** from project IDs/group paths
+   (idempotent — an existing hook is skipped); either way a webhook secret is generated.
 4. **AI provider** — Ollama, Anthropic, an OpenAI-compatible endpoint, or the Claude Code
    CLI, with a "Test connection" button (a failure here is only a warning — you can
    continue, e.g. if Ollama isn't reachable yet).

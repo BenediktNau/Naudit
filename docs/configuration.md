@@ -81,13 +81,13 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 
 | Key | Meaning |
 | --- | --- |
-| `Naudit:PublicBaseUrl` | The externally reachable base URL of this instance, e.g. `https://naudit.example.com`. Set by the [setup wizard](#setup-mode) (step 2) or manually; backs the webhook URLs shown on the wizard's completion page and (in a later PR) the GitHub App manifest redirect |
+| `Naudit:PublicBaseUrl` | The externally reachable base URL of this instance, e.g. `https://naudit.example.com`. Set by the [setup wizard](#setup-mode) (step 2) or manually; backs the webhook URLs shown on the wizard's completion page and the GitHub App manifest redirect URL |
 | `Naudit:Git:Platform` | `GitLab` (default) \| `GitHub` — selects the active platform |
 | `Naudit:GitLab:BaseUrl` | Base URL of the GitLab instance, e.g. `https://gitlab.example.com` |
 | `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) — global fallback |
 | `Naudit:GitLab:WebhookSecret` | Secret checked against the `X-Gitlab-Token` header |
 | `Naudit:GitLab:ProjectTokens:<n>:Project` / `:Token` | Optional per-project token override (`Project` = numeric project ID); falls back to `Naudit:GitLab:Token` (see [Per-project tokens](#per-project-tokens)) |
-| `Naudit:GitHub:BaseUrl` | Base URL of the GitHub API (default: `https://api.github.com`) |
+| `Naudit:GitHub:BaseUrl` | Base URL of the GitHub API (default: `https://api.github.com`). For **GitHub Enterprise (GHES)** the [setup wizard](webui.md#setup-wizard) derives the API base `{host}/api/v3` from the GHES web host — but **only in the `Auth=App` flow** (you enter the GHES host, not the API URL). In PAT mode (`Auth=Pat`) a GHES API URL must be set manually |
 | `Naudit:GitHub:Token` | Fine-grained PAT (see [Platform setup](platform-setup.md)) — global fallback |
 | `Naudit:GitHub:WebhookSecret` | Secret for HMAC-SHA256 verification (`X-Hub-Signature-256`) |
 | `Naudit:GitHub:ProjectTokens:<n>:Project` / `:Token` | Optional per-project fine-grained PAT (`Project` = `owner/repo`); falls back to `Naudit:GitHub:Token` (see [Per-project tokens](#per-project-tokens)) |

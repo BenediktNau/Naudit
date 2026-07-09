@@ -193,8 +193,11 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   Grafana-style — only while no admin exists — then draft/test-ai/apply), backed by
   `SetupDraftService` (a single DP-encrypted `SetupDraft` row) and rendered by the React
   `SetupGate`/`SetupWizard` (`src/frontend/src/components/setup/`) ahead of the AuthGate.
-  Only the **platform automation** (GitHub App manifest flow, GitLab webhook creation —
-  PR 3) remains outstanding.
+  The **platform automation** (PR 3) is now complete too: `POST /api/setup/github/manifest`
+  builds the GitHub App manifest and the browser form-POSTs it, `GET /api/setup/github/manifest-callback`
+  (anonymous, state-bound) exchanges the returned code into the draft, and `POST /api/setup/gitlab/hooks`
+  creates GitLab webhooks per target (idempotent) — HTTP in setup mode runs through the new
+  `SetupHttpClientFactory` seam (no `IHttpClientFactory` before `AddNauditInfrastructure`).
 - **Per-project git token:** `IGitTokenProvider` (`src/Naudit.Infrastructure/Git/`) resolves the
   git-API token from the review's `ProjectId` (per-project override → global fallback) via
   `ResolveTokenAsync` (async — implementations may mint tokens over HTTP, not just look them up).

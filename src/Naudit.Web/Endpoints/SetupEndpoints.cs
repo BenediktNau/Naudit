@@ -51,6 +51,41 @@ public static class SetupEndpoints
             return Results.Ok(new { username = acct.Username });
         });
 
+        // Browser-Redirect von GitHub — bewusst OHNE Cookie-Pflicht: Credential ist der
+        // unratbare, an den Draft gebundene, einmal verwendbare state (CSRF). So bricht der
+        // Flow nicht, wenn der Cookie den externen Redirect nicht ueberlebt. Antwort ist
+        // immer ein Redirect auf die SPA, nie JSON.
+        app.MapGet("/api/setup/github/manifest-callback", async (string? code, string? state,
+            HttpContext ctx, SetupDraftService drafts, SetupHttpClientFactory httpFactory) =>
+        {
+            var json = await drafts.LoadAsync(ctx.RequestAborted);
+            var draft = json is null ? null : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json);
+            if (draft is null || string.IsNullOrEmpty(code) || !StateMatches(draft.GitHubManifestState, state))
+                return Results.Redirect("/?setup=github-app-error&reason=state");
+
+            try
+            {
+                using var http = httpFactory.Create();
+                var conversion = await new Naudit.Infrastructure.Setup.GitHubManifestConverter(http)
+                    .ConvertAsync(draft.GitHubHost, code, ctx.RequestAborted);
+                var updated = draft with
+                {
+                    GitHubAppId = conversion.AppId,
+                    GitHubAppPrivateKey = conversion.PrivateKey,
+                    WebhookSecret = conversion.WebhookSecret, // GitHubs generiertes Secret ersetzt unseres
+                    GitHubAppSlug = conversion.Slug,
+                    GitHubManifestState = null,               // einmal verwendbar
+                };
+                await drafts.SaveAsync(System.Text.Json.JsonSerializer.Serialize(updated), ctx.RequestAborted);
+                return Results.Redirect("/?setup=github-app-created");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
+            {
+                // Draft + state bleiben — Fehler im Schritt, erneut versuchbar (Spec).
+                return Results.Redirect("/?setup=github-app-error&reason=conversion");
+            }
+        });
+
         var group = app.MapGroup("/api/setup").RequireAuthorization();
 
         group.MapGet("/draft", async (HttpContext ctx, NauditDbContext db, SetupDraftService drafts) =>
@@ -74,6 +109,11 @@ public static class SetupEndpoints
                 GitToken = !string.IsNullOrEmpty(incoming.GitToken)
                     ? incoming.GitToken : (samePlatform ? existing.GitToken : null),
                 AiApiKey = !string.IsNullOrEmpty(incoming.AiApiKey) ? incoming.AiApiKey : existing.AiApiKey,
+                // Serverseitig verwaltet (Manifest-Callback): PUT ignoriert eingehende Werte komplett.
+                GitHubAppId = samePlatform ? existing.GitHubAppId : null,
+                GitHubAppPrivateKey = samePlatform ? existing.GitHubAppPrivateKey : null,
+                GitHubAppSlug = samePlatform ? existing.GitHubAppSlug : null,
+                GitHubManifestState = samePlatform ? existing.GitHubManifestState : null,
             };
             await drafts.SaveAsync(System.Text.Json.JsonSerializer.Serialize(merged), ctx.RequestAborted);
             return Results.Ok(new { saved = true });
@@ -133,6 +173,80 @@ public static class SetupEndpoints
             }
         });
 
+        group.MapPost("/github/manifest", async (GitHubManifestRequest body, HttpContext ctx,
+            NauditDbContext db, SetupDraftService drafts) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+
+            var json = await drafts.LoadAsync(ctx.RequestAborted);
+            var existing = json is null ? new SetupDraft()
+                : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json)!;
+            if (string.IsNullOrWhiteSpace(existing.PublicBaseUrl))
+                return Results.BadRequest(new
+                { error = "Set the instance URL first — the manifest needs it for the webhook and redirect URLs." });
+
+            // state + host in den Draft: der Callback validiert dagegen und braucht den Host
+            // fuer die API-Base (GHES). Plattform-Wahl gleich mit persistieren.
+            var state = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+            var host = Naudit.Infrastructure.Setup.GitHubManifest.Normalize(body.GitHubHost);
+            var updated = existing with
+            {
+                Platform = "GitHub",
+                GitHubAuth = "App",
+                GitHubHost = host,
+                GitHubManifestState = state,
+            };
+            await drafts.SaveAsync(System.Text.Json.JsonSerializer.Serialize(updated), ctx.RequestAborted);
+
+            var appName = string.IsNullOrWhiteSpace(body.AppName) ? "naudit" : body.AppName.Trim();
+            return Results.Ok(new
+            {
+                action = Naudit.Infrastructure.Setup.GitHubManifest.CreateAppUrl(host, body.Org, state),
+                manifest = Naudit.Infrastructure.Setup.GitHubManifest.Build(
+                    existing.PublicBaseUrl, appName, body.Public),
+            });
+        });
+
+        group.MapPost("/gitlab/hooks", async (GitLabHooksRequest body, HttpContext ctx,
+            NauditDbContext db, SetupDraftService drafts, SetupHttpClientFactory httpFactory) =>
+        {
+            if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
+
+            var json = await drafts.LoadAsync(ctx.RequestAborted);
+            var draft = json is null ? null : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json);
+            if (draft is null || string.IsNullOrWhiteSpace(draft.GitLabBaseUrl)
+                || string.IsNullOrWhiteSpace(draft.GitToken) || string.IsNullOrWhiteSpace(draft.WebhookSecret)
+                || string.IsNullOrWhiteSpace(draft.PublicBaseUrl))
+                return Results.BadRequest(new
+                { error = "Complete the instance URL and GitLab fields first (base URL, token, webhook secret)." });
+
+            var targets = new List<Naudit.Infrastructure.Setup.GitLabHookTarget>();
+            foreach (var p in body.Projects ?? [])
+                if (!string.IsNullOrWhiteSpace(p))
+                    targets.Add(new(Naudit.Infrastructure.Setup.GitLabHookTargetKind.Project, p.Trim()));
+            foreach (var g in body.Groups ?? [])
+                if (!string.IsNullOrWhiteSpace(g))
+                    targets.Add(new(Naudit.Infrastructure.Setup.GitLabHookTargetKind.Group, g.Trim()));
+            if (targets.Count == 0)
+                return Results.BadRequest(new { error = "Enter at least one project or group." });
+
+            var webhookUrl = $"{draft.PublicBaseUrl.TrimEnd('/')}/webhook/gitlab";
+            using var http = httpFactory.Create();
+            var results = await new Naudit.Infrastructure.Setup.GitLabHookCreator(http).CreateAsync(
+                draft.GitLabBaseUrl, draft.GitToken, webhookUrl, draft.WebhookSecret, targets, ctx.RequestAborted);
+            return Results.Ok(new
+            {
+                results = results.Select(r => new
+                {
+                    target = r.Target.IdOrPath,
+                    kind = r.Target.Kind.ToString().ToLowerInvariant(),
+                    ok = r.Ok,
+                    status = r.Status,
+                    detail = r.Detail,
+                }),
+            });
+        });
+
         group.MapPost("/apply", async (HttpContext ctx, NauditDbContext db, SetupDraftService drafts,
             Naudit.Infrastructure.Settings.SettingsService settings,
             Naudit.Infrastructure.Settings.EnvOverrides env, IAppRestarter restarter) =>
@@ -182,10 +296,25 @@ public static class SetupEndpoints
         var draft = json is null ? new SetupDraft() : System.Text.Json.JsonSerializer.Deserialize<SetupDraft>(json)!;
         return Results.Ok(new
         {
-            draft = draft with { GitToken = null, AiApiKey = null },
+            draft = draft with
+            {
+                GitToken = null, AiApiKey = null,
+                GitHubAppPrivateKey = null, GitHubManifestState = null,
+            },
             hasGitToken = !string.IsNullOrEmpty(draft.GitToken),
             hasAiApiKey = !string.IsNullOrEmpty(draft.AiApiKey),
+            hasGitHubApp = !string.IsNullOrEmpty(draft.GitHubAppId)
+                && !string.IsNullOrEmpty(draft.GitHubAppPrivateKey),
         });
+    }
+
+    /// <summary>Constant-time-Vergleich des CSRF-states (Laengen-Differenz ⇒ false).</summary>
+    private static bool StateMatches(string? expected, string? actual)
+    {
+        if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(actual)) return false;
+        var e = System.Text.Encoding.UTF8.GetBytes(expected);
+        var a = System.Text.Encoding.UTF8.GetBytes(actual);
+        return e.Length == a.Length && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(e, a);
     }
 
     /// <summary>Draft → Setting-Keys. Nur die zur gewaehlten Plattform gehoerenden Keys —
@@ -204,8 +333,21 @@ public static class SetupEndpoints
         };
         if (string.Equals(d.Platform, "GitHub", StringComparison.OrdinalIgnoreCase))
         {
-            values["Naudit:GitHub:Auth"] = "Pat"; // PR 2 kennt nur den PAT-Pfad; App kommt mit dem Manifest-Flow (PR 3)
-            values["Naudit:GitHub:Token"] = d.GitToken;
+            var app = string.Equals(d.GitHubAuth, "App", StringComparison.OrdinalIgnoreCase);
+            values["Naudit:GitHub:Auth"] = app ? "App" : "Pat";
+            if (app)
+            {
+                values["Naudit:GitHub:App:AppId"] = d.GitHubAppId;
+                values["Naudit:GitHub:App:PrivateKey"] = d.GitHubAppPrivateKey;
+                // GHES: API-Base persistieren; github.com bleibt beim Options-Default.
+                var host = Naudit.Infrastructure.Setup.GitHubManifest.Normalize(d.GitHubHost);
+                if (host != Naudit.Infrastructure.Setup.GitHubManifest.DefaultWebHost)
+                    values["Naudit:GitHub:BaseUrl"] = Naudit.Infrastructure.Setup.GitHubManifest.ApiBase(host);
+            }
+            else
+            {
+                values["Naudit:GitHub:Token"] = d.GitToken;
+            }
             values["Naudit:GitHub:WebhookSecret"] = d.WebhookSecret;
         }
         else if (string.Equals(d.Platform, "GitLab", StringComparison.OrdinalIgnoreCase))
@@ -224,6 +366,14 @@ public sealed record SetupAdminRequest(string Username, string Password);
 /// <summary>Request-Body des AI-Verbindungstests; ApiKey leer ⇒ gespeicherter Draft-Wert.</summary>
 public sealed record AiTestRequest(string? Provider, string? Model, string? Endpoint, string? ApiKey);
 
+/// <summary>Request des Manifest-Starts. Org/AppName/Public gehen nur an GitHub
+/// (nicht persistiert); GitHubHost wandert in den Draft (Callback + Apply brauchen ihn).</summary>
+public sealed record GitHubManifestRequest(
+    string? GitHubHost = null, string? Org = null, string? AppName = null, bool Public = false);
+
+/// <summary>Ziele der GitLab-Webhook-Anlage: Projekt-IDs/-Pfade und Gruppen-IDs/-Pfade.</summary>
+public sealed record GitLabHooksRequest(List<string>? Projects = null, List<string>? Groups = null);
+
 /// <summary>Wizard-Zwischenstand: API-Kontrakt UND (serialisiert) der DP-verschluesselte
 /// DB-Blob. Alle Felder optional — der Wizard fuellt sie schrittweise. GitToken ist je nach
 /// Plattform der GitHub-PAT oder der GitLab-Token (api-Scope).</summary>
@@ -232,9 +382,15 @@ public sealed record SetupDraft(
     string? Platform = null,          // "GitHub" | "GitLab"
     string? GitToken = null,          // Secret: write-only ueber die API
     string? GitLabBaseUrl = null,
-    string? WebhookSecret = null,     // von Naudit generiert — bewusst sichtbar/kopierbar
+    string? WebhookSecret = null,     // von Naudit generiert bzw. von GitHub (Manifest) — bewusst sichtbar
     string? AiProvider = null,        // "Ollama" | "Anthropic" | "OpenAICompatible" | "ClaudeCode"
     string? AiModel = null,
     string? AiEndpoint = null,
     string? AiApiKey = null,          // Secret: write-only ueber die API
-    string? AccessGateMode = null);   // "Open" | "Registered"
+    string? AccessGateMode = null,    // "Open" | "Registered"
+    string? GitHubAuth = null,        // "Pat" | "App" — Wizard-Wahl, wie Naudit:GitHub:Auth
+    string? GitHubHost = null,        // Web-Host (Default https://github.com; GHES: eigener Host)
+    string? GitHubAppId = null,       // ab hier serverseitig: nur der Manifest-Callback schreibt
+    string? GitHubAppPrivateKey = null, // Secret: nie in GET, nie per PUT setzbar
+    string? GitHubAppSlug = null,     // fuer den Install-Link
+    string? GitHubManifestState = null); // CSRF-State des Manifest-Flows — nie in GET

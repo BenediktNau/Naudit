@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/api/client";
 import type { SetupDraftResponse, SetupStatusDto } from "@/api/types";
 import { Button } from "@/components/ui/Button";
@@ -21,17 +21,30 @@ export function SetupWizard({ status, onBypass }: { status: SetupStatusDto; onBy
   const [draft, setDraft] = useState<WizardDraft>({ ...emptyDraft, publicBaseUrl: status.suggestedPublicBaseUrl ?? "" });
   const [hasGitToken, setHasGitToken] = useState(false);
   const [hasAiApiKey, setHasAiApiKey] = useState(false);
+  const [hasGitHubApp, setHasGitHubApp] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
+  // Rueckkehr vom GitHub-Manifest-Redirect: /?setup=github-app-created | github-app-error&reason=…
+  // Query-Param sofort aus der URL entfernen (Reload/Bookmark soll nicht kleben bleiben).
+  const [manifestReturn] = useState(() => {
+    const value = new URLSearchParams(window.location.search).get("setup");
+    if (value) window.history.replaceState(null, "", window.location.pathname);
+    return value; // "github-app-created" | "github-app-error" | null
+  });
+  const manifestError =
+    manifestReturn === "github-app-error" ? "GitHub app creation failed — please try again." : null;
+
   const update = useCallback((patch: Partial<WizardDraft>) => setDraft((d) => ({ ...d, ...patch })), []);
 
   // Nach Schritt 1 (Session steht): gespeicherten Draft laden und lokalen State auffuellen.
-  async function loadDraft() {
+  // targetStep parametrisiert, damit die Manifest-Rueckkehr direkt auf den Plattform-Schritt springt.
+  const loadDraft = useCallback(async (targetStep = 1) => {
     const res = await api<SetupDraftResponse>("/api/setup/draft");
     setHasGitToken(res.hasGitToken);
     setHasAiApiKey(res.hasAiApiKey);
+    setHasGitHubApp(res.hasGitHubApp);
     setDraft((d) => ({
       ...d,
       publicBaseUrl: res.draft.publicBaseUrl ?? d.publicBaseUrl,
@@ -42,17 +55,37 @@ export function SetupWizard({ status, onBypass }: { status: SetupStatusDto; onBy
       aiModel: res.draft.aiModel ?? d.aiModel,
       aiEndpoint: res.draft.aiEndpoint ?? d.aiEndpoint,
       accessGateMode: (res.draft.accessGateMode ?? d.accessGateMode) as WizardDraft["accessGateMode"],
+      gitHubAuth: (res.draft.gitHubAuth ?? d.gitHubAuth) as WizardDraft["gitHubAuth"],
+      gitHubHost: res.draft.gitHubHost ?? d.gitHubHost,
+      gitHubAppId: res.draft.gitHubAppId ?? d.gitHubAppId,
+      gitHubAppSlug: res.draft.gitHubAppSlug ?? d.gitHubAppSlug,
     }));
-    setStep(1);
-  }
+    setStep(targetStep);
+  }, []);
 
-  // Draft bei jedem Weiter speichern — leere Secrets bedeuten serverseitig "behalten".
-  async function saveAndNext() {
+  // Draft speichern — leere Secrets bedeuten serverseitig "behalten". Kein Schrittwechsel.
+  const saveDraft = useCallback(async () => {
     await api("/api/setup/draft", { method: "PUT", body: JSON.stringify(draft) });
     if (draft.gitToken !== "") setHasGitToken(true);
     if (draft.aiApiKey !== "") setHasAiApiKey(true);
+  }, [draft]);
+
+  // Draft bei jedem Weiter speichern und einen Schritt vor.
+  async function saveAndNext() {
+    await saveDraft();
     setStep((s) => s + 1);
   }
+
+  // Manifest-Rueckkehr: Session sollte den Redirect ueberlebt haben — direkt zum Plattform-Schritt
+  // (Index 2). 401 ⇒ StepAdmin zeigt Login; dessen onDone springt dann ebenfalls zu Schritt 2.
+  // loadDraft laeuft ueber einen Microtask (nicht synchron im Effekt-Body — setState kommt ohnehin
+  // erst nach dem fetch-await). manifestReturn/loadDraft sind stabil ⇒ der Effekt laeuft einmal.
+  useEffect(() => {
+    if (!manifestReturn) return;
+    void Promise.resolve()
+      .then(() => loadDraft(2))
+      .catch(() => {});
+  }, [manifestReturn, loadDraft]);
 
   async function apply() {
     setApplying(true);
@@ -112,10 +145,20 @@ export function SetupWizard({ status, onBypass }: { status: SetupStatusDto; onBy
             </div>
           ) : (
             <>
-              {step === 0 && <StepAdmin adminExists={status.adminExists} onDone={() => void loadDraft()} />}
+              {step === 0 && (
+                <StepAdmin adminExists={status.adminExists} onDone={() => void loadDraft(manifestReturn ? 2 : 1)} />
+              )}
               {step === 1 && <StepInstance draft={draft} update={update} onNext={() => void saveAndNext()} />}
               {step === 2 && (
-                <StepPlatform draft={draft} hasGitToken={hasGitToken} update={update} onNext={() => void saveAndNext()} />
+                <StepPlatform
+                  draft={draft}
+                  hasGitToken={hasGitToken}
+                  hasGitHubApp={hasGitHubApp}
+                  manifestError={manifestError}
+                  update={update}
+                  save={saveDraft}
+                  onNext={() => void saveAndNext()}
+                />
               )}
               {step === 3 && (
                 <StepAi draft={draft} hasAiApiKey={hasAiApiKey} update={update} onNext={() => void saveAndNext()} />

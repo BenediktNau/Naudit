@@ -21,7 +21,32 @@ the **recommended** way to run Naudit against GitHub in production; see
   re-posts the same review as a plain `COMMENT` and logs a warning — only the verdict is lost,
   never the review content.)
 
-## 1. Create the app (once per deployment)
+## Automatic setup (wizard) — recommended
+
+The [setup wizard](webui.md#setup-wizard) can create the whole app for you in **one click** —
+no copying an App ID, private key, or webhook secret by hand. On the wizard's platform step pick
+**GitHub App (recommended)**; Naudit builds a prefilled manifest and your browser POSTs it to
+GitHub. You confirm **Create GitHub App** on GitHub, GitHub redirects back to Naudit, and the
+backend exchanges the returned code for the App ID, private key, webhook secret, and app slug and
+stores them in the draft. The wizard then shows an **Install the app** link. On **Apply**, the
+credentials land in the config automatically (`Naudit:GitHub:Auth=App` with `App:AppId`/
+`App:PrivateKey`/`WebhookSecret`) — you never touch the sections below.
+
+The callback (`GET /api/setup/github/manifest-callback`) is deliberately **anonymous** and
+protected by a single-use, constant-time-compared `state` bound to the encrypted draft, so the
+external redirect from GitHub can't fail on a lost cookie. If the exchange fails or the `state`
+doesn't match, the wizard shows an error and you can retry (a fresh `state` is minted each time).
+
+**GitHub Enterprise (GHES):** enter your GHES host on the platform step. Naudit derives the API
+base automatically — `https://github.com` ⇒ `https://api.github.com`, any other host ⇒
+`{host}/api/v3` — and Apply writes it to `Naudit:GitHub:BaseUrl` for you. Known limitation: the
+[install banner](#install-from-the-naudit-webui) below still builds its install link against
+`https://github.com` only, so on GHES use the link the wizard shows instead of the banner.
+
+The manual steps below remain fully supported for env-var/GitOps deployments or if you'd rather
+create the app yourself.
+
+## 1. Create the app manually (once per deployment)
 
 Either via the UI or the manifest flow — both produce the same app.
 

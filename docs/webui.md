@@ -37,10 +37,19 @@ The wizard runs before the login screen and walks through six steps:
 1. **Admin account** — create one, or sign in if one already exists.
 2. **Instance URL** — pre-filled from the request, editable; saved as
    `Naudit:PublicBaseUrl` (backs the webhook URLs shown at the end).
-3. **Git platform** — GitHub (PAT) or GitLab, with the token and a generated webhook
-   secret; the webhook itself is created **manually** by copying the shown URL/secret
-   into the platform (a GitHub App manifest flow and GitLab's webhook-creation API are
-   a separate, not-yet-built follow-up).
+3. **Git platform** — three options: **GitHub App** (recommended), **GitHub PAT**, or
+   **GitLab**, each with a generated webhook secret. **GitHub App** is one click: Naudit
+   builds a prefilled app manifest, the browser form-POSTs it to GitHub, and GitHub
+   redirects back to `GET /api/setup/github/manifest-callback`, which exchanges the returned
+   code (`POST {api}/app-manifests/{code}/conversions`) into the draft (App ID, private key,
+   webhook secret, slug) and shows an "Install the app" link. That **callback is
+   deliberately anonymous** — the external redirect must not fail on a lost cookie — so it
+   is guarded instead by a single-use, constant-time-compared `state` bound to the encrypted
+   draft (a replay or wrong `state` yields an error redirect, and a fresh `state` is minted
+   on each attempt). For **GitLab** the wizard can create the webhooks itself from entered
+   project IDs / group paths (idempotent — an existing hook URL is skipped, partial results
+   are shown per target); the **GitHub PAT** path still copies the shown URL/secret into the
+   platform manually.
 4. **AI provider** — Ollama / Anthropic / OpenAI-compatible / Claude Code, with a
    **"Test connection"** button that spins up a transient `IChatClient` from the draft
    values and sends a one-word prompt; a failure is shown but does **not** block
