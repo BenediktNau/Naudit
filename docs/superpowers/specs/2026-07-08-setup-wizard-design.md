@@ -215,6 +215,26 @@ Mit dem eingegebenen Token legt Naudit die Hooks selbst an:
 Eingabe: Projekt-IDs oder Gruppenpfad; Ergebnisliste **pro Projekt** (ok / 403 kein
 Zugriff / 404 falsche ID). Teilerfolge sind okay und sichtbar.
 
+### Praezisierungen aus der Umsetzung (PR 3)
+
+1. **Manifest-Callback bewusst anonym und state-gebunden.**
+   `GET /api/setup/github/manifest-callback` verlangt keinen Cookie — der externe
+   Redirect von GitHub darf nicht an Cookie-Verlust scheitern. Credential ist statt
+   dessen der unratbare, an den Draft gebundene, **einmal verwendbare** `state`
+   (constant-time verglichen); ein Replay oder falscher `state` ergibt einen
+   Fehler-Redirect, ein neuer Versuch generiert einen frischen `state`.
+2. **Org, App-Name und Public-Flag werden nicht persistiert** — sie gehen nur an GitHub.
+   Der App-**Slug** lebt ausschliesslich im Draft (fuer den Install-Link), nicht in den
+   Settings; zur Laufzeit holt `GitHubAppInstallationChecker` den Slug live ueber
+   `GET /app`.
+3. **GitLab-Hook-Anlage ist idempotent:** existiert am Ziel schon ein Hook mit derselben
+   URL, wird keiner angelegt (skip statt Duplikat), damit ein erneuter Versuch gefahrlos
+   ist.
+4. **GHES:** Apply setzt zusaetzlich `Naudit:GitHub:BaseUrl = {host}/api/v3` (Web-Host
+   `https://github.com` ⇒ `https://api.github.com`, jeder andere Host ⇒ `{host}/api/v3`).
+   Bekannte, akzeptierte Limitation: der Install-Link des Onboarding-Banners
+   (`GitHubAppInstallationChecker`) bleibt hart auf `https://github.com`.
+
 ## Settings-Seite (editierbar)
 
 Die bisher read-only Settings-Seite wird für Admins editierbar, gruppiert nach
