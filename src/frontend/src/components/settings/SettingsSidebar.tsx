@@ -17,7 +17,7 @@ export function SettingsSidebar({ active, onSelect, rawMode, onToggleRaw, hints 
             const on = active === c.id && !rawMode;
             return (
               <button
-                key={c.id} type="button" onClick={() => onSelect(c.id)}
+                key={c.id} type="button" onClick={() => { onToggleRaw(false); onSelect(c.id); }}
                 className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-[13px] transition-colors ${
                   on ? "bg-acc/12 font-semibold text-acc"
                      : `font-medium ${rawMode ? "text-ink3" : "text-ink2 hover:text-ink"}`
@@ -33,7 +33,7 @@ export function SettingsSidebar({ active, onSelect, rawMode, onToggleRaw, hints 
       <div className="mt-4 border-t border-hairline px-3 pt-4">
         <div className="flex items-center justify-between">
           <span className="text-[13px] font-medium text-ink2">Raw keys</span>
-          <Toggle on={rawMode} onChange={onToggleRaw} />
+          <Toggle on={rawMode} onChange={onToggleRaw} aria-label="Raw keys mode" />
         </div>
         <p className="mt-1 text-[11px] text-ink3">Show every setting as its config key</p>
       </div>

@@ -44,7 +44,7 @@ export function GitCategory({ ctx }: { ctx: SettingsCtx }) {
               </AuthChip>
               <AuthChip selected={usesApp} onClick={() => ctx.set("Naudit:GitHub:Auth", "App")}
                 disabled={ctx.locked("Naudit:GitHub:Auth")}>
-                GitHub App (bot)
+                {usesApp ? "✓ " : ""}GitHub App (bot)
               </AuthChip>
             </div>
 
@@ -79,6 +79,7 @@ export function GitCategory({ ctx }: { ctx: SettingsCtx }) {
                 <div className="text-[11.5px] text-ink3">APPROVE / REQUEST_CHANGES instead of a plain comment.</div>
               </div>
               <Toggle on={ctx.get("Naudit:GitHub:PostVerdict") === "true"}
+                aria-label="Post a real review verdict"
                 disabled={ctx.locked("Naudit:GitHub:PostVerdict")}
                 onChange={(v) => ctx.set("Naudit:GitHub:PostVerdict", v ? "true" : "false")} />
             </div>
@@ -99,6 +100,7 @@ export function GitCategory({ ctx }: { ctx: SettingsCtx }) {
                 <div className="text-[11.5px] text-ink3">Calls MR approve / unapprove from the verdict.</div>
               </div>
               <Toggle on={ctx.get("Naudit:GitLab:PostVerdict") === "true"}
+                aria-label="Post a real review verdict"
                 disabled={ctx.locked("Naudit:GitLab:PostVerdict")}
                 onChange={(v) => ctx.set("Naudit:GitLab:PostVerdict", v ? "true" : "false")} />
             </div>

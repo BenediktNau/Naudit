@@ -61,7 +61,11 @@ export function SettingsPage() {
   if (isLoading || !data) return <SettingsSkeleton />;
 
   const onSave = () => {
-    const changes = Object.entries(drafts).map(([key, value]) => ({ key, value: value === "" ? null : value }));
+    // Leerer Draft = Reset auf Default (null). Ausnahme: ein leer gelassenes Secret NICHT senden —
+    // sonst löscht "getippt, dann geleert" das gespeicherte Secret (das Feld ist per Kontrakt ohnehin leer).
+    const changes = Object.entries(drafts)
+      .filter(([key, value]) => !(value === "" && byKey.get(key)?.isSecret))
+      .map(([key, value]) => ({ key, value: value === "" ? null : value }));
     save.mutate(changes, { onSuccess: () => setDrafts({}) });
   };
 
