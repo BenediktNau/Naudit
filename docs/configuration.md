@@ -87,7 +87,7 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:GitLab:Token` | Access token with `api` scope (read diff, post comment) — global fallback |
 | `Naudit:GitLab:WebhookSecret` | Secret checked against the `X-Gitlab-Token` header |
 | `Naudit:GitLab:ProjectTokens:<n>:Project` / `:Token` | Optional per-project token override (`Project` = numeric project ID); falls back to `Naudit:GitLab:Token` (see [Per-project tokens](#per-project-tokens)) |
-| `Naudit:GitHub:BaseUrl` | Base URL of the GitHub API (default: `https://api.github.com`). The [setup wizard](webui.md#setup-wizard) sets this automatically for **GitHub Enterprise (GHES)** — a GHES web host `{host}` derives the API base `{host}/api/v3` — so you only enter the GHES host, not the API URL |
+| `Naudit:GitHub:BaseUrl` | Base URL of the GitHub API (default: `https://api.github.com`). For **GitHub Enterprise (GHES)** the [setup wizard](webui.md#setup-wizard) derives the API base `{host}/api/v3` from the GHES web host — but **only in the `Auth=App` flow** (you enter the GHES host, not the API URL). In PAT mode (`Auth=Pat`) a GHES API URL must be set manually |
 | `Naudit:GitHub:Token` | Fine-grained PAT (see [Platform setup](platform-setup.md)) — global fallback |
 | `Naudit:GitHub:WebhookSecret` | Secret for HMAC-SHA256 verification (`X-Hub-Signature-256`) |
 | `Naudit:GitHub:ProjectTokens:<n>:Project` / `:Token` | Optional per-project fine-grained PAT (`Project` = `owner/repo`); falls back to `Naudit:GitHub:Token` (see [Per-project tokens](#per-project-tokens)) |

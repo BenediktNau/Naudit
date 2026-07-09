@@ -24,8 +24,16 @@ public sealed class GitHubManifestConverter(HttpClient http)
         if (res.StatusCode != HttpStatusCode.Created)
             throw new InvalidOperationException($"GitHub manifest conversion failed ({(int)res.StatusCode}).");
 
-        var dto = JsonSerializer.Deserialize<ConversionDto>(body)
-            ?? throw new InvalidOperationException("GitHub manifest conversion returned an empty body.");
+        ConversionDto dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<ConversionDto>(body)
+                ?? throw new InvalidOperationException("GitHub manifest conversion returned an empty body.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("GitHub manifest conversion returned invalid JSON.", ex);
+        }
         if (dto.Id <= 0 || string.IsNullOrWhiteSpace(dto.Pem)
             || string.IsNullOrWhiteSpace(dto.WebhookSecret) || string.IsNullOrWhiteSpace(dto.Slug))
             throw new InvalidOperationException("GitHub manifest conversion returned incomplete app credentials.");

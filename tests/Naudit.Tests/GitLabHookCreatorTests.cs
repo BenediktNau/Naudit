@@ -90,4 +90,41 @@ public sealed class GitLabHookCreatorTests
         Assert.False(results.Single().Ok);
         Assert.Contains("no route to host", results.Single().Detail);
     }
+
+    [Fact]
+    public async Task KaputterJsonBody_istErgebnisKeineException()
+    {
+        // GET 200 mit unparsebarem Body: JsonException darf nicht durchschlagen (wirft nie).
+        var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.OK, "kein json"));
+        var results = await new GitLabHookCreator(new HttpClient(stub)).CreateAsync(
+            "https://gitlab.example.com", "t", "https://n.example/webhook/gitlab", "s",
+            [new GitLabHookTarget(GitLabHookTargetKind.Project, "1")]);
+        Assert.False(results.Single().Ok);
+        Assert.Contains("Invalid response", results.Single().Detail);
+    }
+
+    [Fact]
+    public async Task Timeout_istErgebnisKeineException()
+    {
+        // HttpClient-Timeout ⇒ TaskCanceledException (kein HttpRequestException) — darf nicht werfen.
+        var stub = new StubHttpMessageHandler(_ => throw new TaskCanceledException("timeout"));
+        var results = await new GitLabHookCreator(new HttpClient(stub)).CreateAsync(
+            "https://gitlab.example.com", "t", "https://n.example/webhook/gitlab", "s",
+            [new GitLabHookTarget(GitLabHookTargetKind.Project, "1")]);
+        Assert.False(results.Single().Ok);
+        Assert.Contains("timed out", results.Single().Detail);
+    }
+
+    [Fact]
+    public async Task ExpliziteCancellation_wirdNichtAlsTimeoutVerschluckt()
+    {
+        // Caller-Cancellation bleibt Cancellation — nicht als "timed out"-Ergebnis geschluckt.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var stub = new StubHttpMessageHandler(_ => throw new TaskCanceledException());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new GitLabHookCreator(new HttpClient(stub)).CreateAsync(
+                "https://gitlab.example.com", "t", "https://n.example/webhook/gitlab", "s",
+                [new GitLabHookTarget(GitLabHookTargetKind.Project, "1")], cts.Token));
+    }
 }

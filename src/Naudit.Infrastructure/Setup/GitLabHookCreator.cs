@@ -68,6 +68,15 @@ public sealed class GitLabHookCreator(HttpClient http)
         {
             return new(target, false, null, $"Network error: {ex.Message}");
         }
+        catch (JsonException ex)
+        {
+            return new(target, false, null, $"Invalid response from GitLab: {ex.Message}");
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            // HttpClient-Timeout — nicht die Caller-Cancellation (die bleibt Cancellation).
+            return new(target, false, null, $"Request timed out: {ex.Message}");
+        }
     }
 
     private static HttpRequestMessage NewRequest(HttpMethod method, string url, string token)

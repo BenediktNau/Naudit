@@ -63,4 +63,13 @@ public sealed class GitHubManifestConverterTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new GitHubManifestConverter(new HttpClient(stub)).ConvertAsync("https://github.com", "c"));
     }
+
+    [Fact]
+    public async Task Convert_201_aberKaputterBody_wirftInvalidOperation()
+    {
+        // 201 mit unparsebarem Body: JsonException wird zu InvalidOperationException (Contract).
+        var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.Created, "kein json"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new GitHubManifestConverter(new HttpClient(stub)).ConvertAsync("https://github.com", "c"));
+    }
 }
