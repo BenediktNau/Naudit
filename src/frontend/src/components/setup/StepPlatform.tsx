@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { api, ApiError } from "@/api/client";
-import type { GitHubManifestResponse } from "@/api/types";
+import type { GitHubManifestResponse, GitLabHookResultDto, GitLabHooksResponse } from "@/api/types";
 import { Button } from "@/components/ui/Button";
+import { Pill } from "@/components/ui/Pill";
 import { CopyRow, Field, inputCls, randomSecret, type WizardDraft } from "./shared";
 
 /** Schritt 3: Plattform-Wahl mit drei Karten — GitHub App (empfohlen, Ein-Klick-Manifest-Flow),
@@ -51,7 +52,9 @@ export function StepPlatform({ draft, hasGitToken, hasGitHubApp, manifestError, 
           ? tokenOk && /^https?:\/\/.+/.test(draft.gitLabBaseUrl)
           : false;
 
-  const showManualWebhook = selected === "GitHubPat" || selected === "GitLab";
+  // GitLab hat einen eigenen Webhook-Bereich (automatische Anlage + manueller Pfad); der
+  // geteilte Manuell-Block bleibt dem GitHub-PAT-Pfad vorbehalten.
+  const showManualWebhook = selected === "GitHubPat";
 
   return (
     <div className="flex flex-col gap-4">
@@ -107,17 +110,15 @@ export function StepPlatform({ draft, hasGitToken, hasGitHubApp, manifestError, 
         </Field>
       )}
 
+      {selected === "GitLab" && <GitLabWebhookPane draft={draft} hasGitToken={hasGitToken} save={save} />}
+
       {showManualWebhook && (
         <div className="flex flex-col gap-2">
           <div className="text-[12.5px] font-medium text-ink2">
-            Add this webhook in{" "}
-            {selected === "GitHubPat"
-              ? "your repository settings (Webhooks → Add webhook, event: pull requests)"
-              : "your project settings (Webhooks, trigger: merge request events)"}
-            :
+            Add this webhook in your repository settings (Webhooks → Add webhook, event: pull requests):
           </div>
-          <CopyRow label="Webhook URL" value={`${base}/webhook/${draft.platform.toLowerCase()}`} />
-          <CopyRow label={selected === "GitHubPat" ? "Webhook secret" : "Secret token"} value={draft.webhookSecret} />
+          <CopyRow label="Webhook URL" value={`${base}/webhook/github`} />
+          <CopyRow label="Webhook secret" value={draft.webhookSecret} />
         </div>
       )}
 
@@ -244,6 +245,96 @@ function GitHubAppPane({ draft, hasGitHubApp, manifestError, update, save }: {
       >
         {busy ? "starting…" : "Create GitHub App on GitHub →"}
       </Button>
+    </div>
+  );
+}
+
+/** GitLab-Pane: optionale automatische Webhook-Anlage (Projekt-/Gruppen-Ziele, ein Ergebnis pro
+ *  Ziel) plus der manuelle Copy-Paste-Pfad aus PR 2 darunter. Non-blocking — "Continue" haengt
+ *  weiter nur an Token + GitLab-URL; dieser Block ist reiner Komfort. */
+function GitLabWebhookPane({ draft, hasGitToken, save }: {
+  draft: WizardDraft;
+  hasGitToken: boolean;
+  save: () => Promise<void>;
+}) {
+  const [projects, setProjects] = useState("");
+  const [groups, setGroups] = useState("");
+  const [hookResults, setHookResults] = useState<GitLabHookResultDto[] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Eingabe auf Zeilen-/Komma-Trenner splitten, trimmen, Leere verwerfen.
+  const splitTargets = (raw: string) => raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+  const targetCount = splitTargets(projects).length + splitTargets(groups).length;
+  const tokenOk = draft.gitToken !== "" || hasGitToken;
+  const base = draft.publicBaseUrl.replace(/\/+$/, "");
+
+  // Draft zuerst sichern (der Endpoint liest Token/Secret/URLs aus dem Draft), dann Hooks anlegen.
+  async function createHooks() {
+    setCreating(true);
+    setErr(null);
+    try {
+      await save();
+      const res = await api<GitLabHooksResponse>("/api/setup/gitlab/hooks", {
+        method: "POST",
+        body: JSON.stringify({ projects: splitTargets(projects), groups: splitTargets(groups) }),
+      });
+      setHookResults(res.results);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Webhook creation failed.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 rounded-xl border border-border px-4 py-3">
+        <div className="text-[12.5px] font-medium text-ink2">Create webhooks automatically</div>
+        <Field label="Project IDs or paths" hint="One per line or comma-separated (e.g. 42 or group/project).">
+          <textarea
+            className={inputCls}
+            rows={3}
+            placeholder={"42\ngroup/project"}
+            value={projects}
+            onChange={(e) => setProjects(e.target.value)}
+          />
+        </Field>
+        <Field label="Groups (optional)" hint="Group IDs or paths — may require GitLab Premium.">
+          <input
+            className={inputCls}
+            placeholder="my-group, my-group/sub"
+            value={groups}
+            onChange={(e) => setGroups(e.target.value)}
+          />
+        </Field>
+        <Button
+          onClick={() => void createHooks()}
+          loading={creating}
+          disabled={!tokenOk || base === "" || targetCount === 0}
+          className="w-full py-2.5"
+        >
+          {creating ? "creating…" : "Create webhooks"}
+        </Button>
+        {err && <div className="font-mono text-xs text-danger">{err}</div>}
+        {hookResults && (
+          <div className="flex flex-col gap-1.5">
+            {hookResults.map((r, i) => (
+              <div key={`${r.target}-${i}`} className="flex items-start gap-2 font-mono text-xs">
+                <Pill kind={r.ok ? "ok" : "danger"}>{r.ok ? "✓ ok" : "⚠ failed"}</Pill>
+                <span className="min-w-0 break-all text-ink">{r.target}</span>
+                <span className="min-w-0 break-words text-ink3">{r.detail}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="text-[12.5px] font-medium text-ink2">Or add the webhook manually:</div>
+        <CopyRow label="Webhook URL" value={`${base}/webhook/gitlab`} />
+        <CopyRow label="Secret token" value={draft.webhookSecret} />
+      </div>
     </div>
   );
 }

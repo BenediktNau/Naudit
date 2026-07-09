@@ -158,3 +158,15 @@ export interface GitHubManifestResponse {
   action: string; // {host}/settings/apps/new?state=… (Form-POST-Ziel)
   manifest: Record<string, unknown>; // wird als Form-Feld "manifest" mitgeschickt
 }
+
+export interface GitLabHookResultDto {
+  target: string; // ID oder Pfad des Ziels (Projekt/Gruppe)
+  kind: "project" | "group";
+  ok: boolean;
+  status: number | null; // HTTP-Status der GitLab-API, null bei Netzwerkfehler
+  detail: string; // menschenlesbares Ergebnis pro Ziel
+}
+
+export interface GitLabHooksResponse {
+  results: GitLabHookResultDto[];
+}
