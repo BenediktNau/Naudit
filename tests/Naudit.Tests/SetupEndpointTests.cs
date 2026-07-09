@@ -358,4 +358,106 @@ public class SetupEndpointTests
         var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
         Assert.DoesNotContain(db.Settings, s => s.Key == "Naudit:GitHub:BaseUrl"); // Options-Default reicht
     }
+
+    private const string ConversionJson = """
+        { "id": 4711, "slug": "naudit-test", "pem": "PEM-geheim",
+          "webhook_secret": "hook-geheim", "client_id": "Iv1.x" }
+        """;
+
+    [Fact]
+    public async Task ManifestFlow_endToEnd_persistiertAppImDraft()
+    {
+        using var app = new TestAppFactory();
+        var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
+        { Content = new StringContent(ConversionJson) });
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton(new Naudit.Web.SetupHttpClientFactory(() => new HttpClient(stub)))));
+        var client = await LoggedInAsync(factory);
+        await client.PutAsJsonAsync("/api/setup/draft", new { publicBaseUrl = "https://naudit.example.com" });
+
+        // 1) Manifest anfordern: action-URL (mit state) + Manifest-JSON fuer den Form-POST.
+        var res = await client.PostAsJsonAsync("/api/setup/github/manifest",
+            new { org = "my-org", appName = "naudit", @public = true });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var action = doc.RootElement.GetProperty("action").GetString()!;
+        Assert.StartsWith("https://github.com/organizations/my-org/settings/apps/new?state=", action);
+        var state = action[(action.IndexOf("state=", StringComparison.Ordinal) + 6)..];
+        var manifest = doc.RootElement.GetProperty("manifest");
+        Assert.Equal("https://naudit.example.com/webhook/github",
+            manifest.GetProperty("hook_attributes").GetProperty("url").GetString());
+        Assert.Equal("https://naudit.example.com/api/setup/github/manifest-callback",
+            manifest.GetProperty("redirect_url").GetString());
+        Assert.True(manifest.GetProperty("public").GetBoolean());
+
+        // 2) Callback: anonym (frischer Client OHNE Cookie), Redirect nicht folgen — Location pruefen.
+        var raw = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var cb = await raw.GetAsync($"/api/setup/github/manifest-callback?code=code-123&state={state}");
+        Assert.Equal(HttpStatusCode.Redirect, cb.StatusCode);
+        Assert.Equal("/?setup=github-app-created", cb.Headers.Location!.ToString());
+        Assert.Contains("https://api.github.com/app-manifests/code-123/conversions",
+            stub.Calls.Select(c => c.Uri!.ToString()));
+
+        // 3) Draft traegt jetzt die App — PEM bleibt maskiert, Secret ist GitHubs generiertes.
+        var draftDoc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.True(draftDoc.RootElement.GetProperty("hasGitHubApp").GetBoolean());
+        Assert.Equal("naudit-test", draftDoc.RootElement.GetProperty("draft").GetProperty("gitHubAppSlug").GetString());
+        Assert.Equal("4711", draftDoc.RootElement.GetProperty("draft").GetProperty("gitHubAppId").GetString());
+        Assert.Equal("hook-geheim", draftDoc.RootElement.GetProperty("draft").GetProperty("webhookSecret").GetString());
+        Assert.Equal(JsonValueKind.Null,
+            draftDoc.RootElement.GetProperty("draft").GetProperty("gitHubAppPrivateKey").ValueKind);
+
+        // 4) state ist einmal verwendbar: derselbe Callback nochmal ⇒ Fehler-Redirect.
+        var replay = await raw.GetAsync($"/api/setup/github/manifest-callback?code=code-123&state={state}");
+        Assert.Equal("/?setup=github-app-error&reason=state", replay.Headers.Location!.ToString());
+    }
+
+    [Fact]
+    public async Task ManifestCallback_falscherState_ruftGitHubNichtUndSetztNichts()
+    {
+        using var app = new TestAppFactory();
+        var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
+        { Content = new StringContent(ConversionJson) });
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton(new Naudit.Web.SetupHttpClientFactory(() => new HttpClient(stub)))));
+        var client = await LoggedInAsync(factory);
+        await client.PutAsJsonAsync("/api/setup/draft", new { publicBaseUrl = "https://naudit.example.com" });
+        await client.PostAsJsonAsync("/api/setup/github/manifest", new { @public = false });
+
+        var raw = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var cb = await raw.GetAsync("/api/setup/github/manifest-callback?code=c&state=falsch");
+        Assert.Equal("/?setup=github-app-error&reason=state", cb.Headers.Location!.ToString());
+        Assert.Empty(stub.Calls);
+        var draftDoc = JsonDocument.Parse(await client.GetStringAsync("/api/setup/draft"));
+        Assert.False(draftDoc.RootElement.GetProperty("hasGitHubApp").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Manifest_ohneInstanzUrl_ist400()
+    {
+        using var app = new TestAppFactory();
+        var client = await LoggedInAsync(SetupMode(app));
+        var res = await client.PostAsJsonAsync("/api/setup/github/manifest", new { @public = false });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task ManifestCallback_fehlgeschlagenerExchange_redirectetMitConversionFehler()
+    {
+        using var app = new TestAppFactory();
+        var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        { Content = new StringContent("""{"message":"Not Found"}""") });
+        var factory = SetupMode(app, b => b.ConfigureServices(s =>
+            s.AddSingleton(new Naudit.Web.SetupHttpClientFactory(() => new HttpClient(stub)))));
+        var client = await LoggedInAsync(factory);
+        await client.PutAsJsonAsync("/api/setup/draft", new { publicBaseUrl = "https://naudit.example.com" });
+        var action = JsonDocument.Parse(await (await client.PostAsJsonAsync("/api/setup/github/manifest",
+            new { @public = false })).Content.ReadAsStringAsync()).RootElement.GetProperty("action").GetString()!;
+        var state = action[(action.IndexOf("state=", StringComparison.Ordinal) + 6)..];
+
+        var raw = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var cb = await raw.GetAsync($"/api/setup/github/manifest-callback?code=abgelaufen&state={state}");
+        Assert.Equal("/?setup=github-app-error&reason=conversion", cb.Headers.Location!.ToString());
+        // Draft und state bleiben — erneuter Versuch generiert ohnehin einen frischen state (Spec: retrybar).
+    }
 }
