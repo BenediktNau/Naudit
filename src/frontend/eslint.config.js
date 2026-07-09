@@ -11,6 +11,13 @@ export default tseslint.config(
     files: ["**/*.{ts,tsx}"],
     languageOptions: { ecmaVersion: 2022, globals: globals.browser },
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
-    rules: { ...reactHooks.configs.recommended.rules },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // Unterstrich-Praefix markiert bewusst ungenutzte Parameter/Variablen (z.B. Kategorie-Stubs).
+      "@typescript-eslint/no-unused-vars": ["error", {
+        args: "after-used", argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_", destructuredArrayIgnorePattern: "^_",
+      }],
+    },
   },
 );
