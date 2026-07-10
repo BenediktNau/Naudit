@@ -24,7 +24,7 @@ public static class AuthEndpoints
         app.MapPost("/auth/logout", async (HttpContext ctx) =>
         {
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            return Results.Ok();
+            return Results.NoContent();
         });
 
         // Externe Provider: nur mappen, wenn aktiviert — abgeschaltet ⇒ 404, Button existiert im SPA nicht.
