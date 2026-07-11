@@ -170,3 +170,15 @@ export interface GitLabHookResultDto {
 export interface GitLabHooksResponse {
   results: GitLabHookResultDto[];
 }
+
+export interface ClaudeSessionDto {
+  configured: boolean;
+  updatedAtUtc: string | null;
+  coolingDownUntil: string | null;
+  gitAuthorLogin: string | null;
+}
+
+export interface ClaudeSessionTest {
+  ok: boolean;
+  error: string | null;
+}
