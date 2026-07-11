@@ -102,6 +102,8 @@ public static class DependencyInjection
                     // Auth wird pro Request in GitHubPlatform gesetzt (Per-Projekt-Token), nicht als Default-Header.
                     ConfigureGitHubClient(http, opt.BaseUrl);
                 });
+                // Autor-Session-Routing: der Login steht auf GitHub schon im Request (Webhook-Mapping).
+                services.AddSingleton<IAuthorLoginResolver>(new PassthroughAuthorLoginResolver());
                 break;
 
             default: // GitPlatformKind.GitLab
@@ -113,6 +115,12 @@ public static class DependencyInjection
                     var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                     // Auth (PRIVATE-TOKEN) wird pro Request in GitLabPlatform gesetzt (Per-Projekt-Token).
+                });
+                // Autor-Auflösung braucht denselben Host wie die GitLab-API (eigener typed Client).
+                services.AddHttpClient<IAuthorLoginResolver, GitLabAuthorLoginResolver>((sp, http) =>
+                {
+                    var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
+                    http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                 });
                 break;
         }
