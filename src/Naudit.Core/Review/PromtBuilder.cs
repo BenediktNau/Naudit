@@ -30,7 +30,8 @@ public static class PromptBuilder
 
     public static IList<ChatMessage> Build(
         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
-        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null)
+        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
+        bool toolsAvailable = false)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# Merge Request: {request.Title}");
@@ -45,6 +46,7 @@ public static class PromptBuilder
 
         AppendContext(sb, context);
         AppendFindings(sb, findings ?? []);
+        AppendToolGuidance(sb, toolsAvailable);
 
         return new List<ChatMessage>
         {
@@ -169,6 +171,19 @@ public static class PromptBuilder
         AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
+    }
+
+    // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
+    // Ohne Hinweis ruft das Modell das Tool nie oder ständig — beides verbrennt Budget.
+    private static void AppendToolGuidance(StringBuilder sb, bool toolsAvailable)
+    {
+        if (!toolsAvailable)
+            return;
+        sb.AppendLine();
+        sb.AppendLine("# Tools available");
+        sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
+            "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
+            "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
     }
 
     private static void AppendCategory(StringBuilder sb, string heading, IEnumerable<ScanFinding> items)

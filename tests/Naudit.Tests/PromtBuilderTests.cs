@@ -212,4 +212,24 @@ public class PromptBuilderTests
     {
         Assert.Contains("Repository context", PromptBuilder.DefaultSystemPrompt);
     }
+
+    [Fact]
+    public void Build_withoutTools_hasNoToolGuidance()
+    {
+        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
+            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+
+        Assert.DoesNotContain("Tools available", msgs[1].Text);
+    }
+
+    [Fact]
+    public void Build_withTools_rendersToolGuidance()
+    {
+        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
+            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")],
+            findings: null, context: null, toolsAvailable: true);
+
+        Assert.Contains("Tools available", msgs[1].Text);
+        Assert.Contains("documentation", msgs[1].Text);
+    }
 }
