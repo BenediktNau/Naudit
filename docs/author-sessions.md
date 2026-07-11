@@ -40,6 +40,15 @@ promise is part of the profile UI and of this document.
   (as any provider error does today). No review is lost to a rate-limited subscription.
 - **Attribution:** the review audit stores which account's session carried a review
   (`AiSessionAccountId`), so the dashboard can show the distribution.
+- **Trust model of the git login:** the MR author's login (the join key) is trustworthy —
+  it comes from the HMAC-verified GitHub webhook, the GitLab API, or the shared-secret
+  `POST /review`. The **account-side** `gitAuthorLogin` (which login an account claims), by
+  contrast, is trusted as declared: it is auto-filled from the verified username for
+  GitHub-OAuth accounts but can be overridden, and is fully self-asserted for GitLab/OIDC/
+  local accounts (Naudit cannot verify an external identity against a local account). The
+  worst case is self-inflicted — a user who claims a login they do not own only spends
+  **their own** subscription on someone else's MRs; a token is never used against its
+  owner's wishes and never leaks.
 - **Storage:** tokens are encrypted at rest with ASP.NET Data Protection (purpose
   `Naudit.AiSessions`) and are write-only — the API never returns them.
 - **Isolation:** every CLI run gets its own `CLAUDE_CONFIG_DIR`; parallel runs with
