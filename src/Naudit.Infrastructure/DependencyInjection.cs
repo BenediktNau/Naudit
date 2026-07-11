@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
+using Naudit.Infrastructure.Ai.ClaudeCode;
 using Naudit.Infrastructure.Context;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
@@ -45,6 +46,12 @@ public static class DependencyInjection
 
         // Router-Naht: ohne Autor-Sessions (Task 8 schaltet um) immer der globale Client.
         services.AddSingleton<IAiClientRouter>(sp => new SingleClientRouter(sp.GetRequiredService<IChatClient>()));
+
+        // Autor-Sessions: Optionen + Cooldown-Registry (Registry auch bei Enabled=false harmlos —
+        // die Profil-API zeigt darüber den Cooldown-Status an).
+        var authorSessions = configuration.GetSection("Naudit:Ai:AuthorSessions").Get<AuthorSessionsOptions>() ?? new AuthorSessionsOptions();
+        services.AddSingleton(authorSessions);
+        services.AddSingleton<SessionHealthRegistry>();
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
