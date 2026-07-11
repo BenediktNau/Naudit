@@ -84,6 +84,25 @@ public class AuthorSessionRouterTests
     }
 
     [Fact]
+    public async Task UndecryptableToken_returnsGlobalClient()
+    {
+        using var db = new TestDb();
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider());
+        var accountId = await SeedAccountWithToken(db, svc);
+        var account = await db.Context.Accounts.FindAsync(accountId);
+        account!.ClaudeSessionToken = "CfDJ8-kaputt-nicht-entschluesselbar"; // fremder Ciphertext, nicht entschlüsselbar
+        await db.Context.SaveChangesAsync();
+        var global = new FakeChatClient("GLOBAL");
+        var router = Router(svc, new FixedAuthorResolver("alice"), new SessionHealthRegistry(),
+            new StubProcessRunner(_ => throw new InvalidOperationException("kein CLI-Lauf erwartet")), global);
+
+        var selection = await router.SelectAsync(Request);
+
+        Assert.Same(global, selection.Client);
+        Assert.Null(selection.UsedSessionAccountId());
+    }
+
+    [Fact]
     public async Task HappyPath_runsCliWithAuthorToken_andAttributesSession()
     {
         using var db = new TestDb();
