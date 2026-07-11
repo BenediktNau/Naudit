@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Ui;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -53,5 +54,20 @@ public class EfReviewAuditSinkTests
         await sink.RecordAsync(Audit());
 
         Assert.Equal(acct.Id, (await db.Projects.SingleAsync()).AccountId);
+    }
+
+    [Fact]
+    public async Task Record_persistsAiSessionAccountId()
+    {
+        using var db = new TestDb();
+        var acct = new AccountEntity { Username = "alice", Provider = AccountProvider.GitHub, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow };
+        db.Context.Accounts.Add(acct);
+        await db.Context.SaveChangesAsync();
+        var sink = new EfReviewAuditSink(db.Context, NullLogger<EfReviewAuditSink>.Instance);
+
+        await sink.RecordAsync(new ReviewAudit("o/r", 1, "T", ReviewVerdict.Approve, "S", [], 1, 1, "m",
+            AiSessionAccountId: acct.Id));
+
+        Assert.Equal(acct.Id, db.Context.Reviews.Single().AiSessionAccountId);
     }
 }

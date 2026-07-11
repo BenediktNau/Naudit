@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddDbContext<NauditDbContext>(o => DatabaseOptions.ConfigureDbContext(o, dbOptions));
         services.AddScoped<Settings.SettingsService>();
         services.AddScoped<AccountService>();
+        services.AddScoped<Ui.ClaudeSessionService>();
         services.AddScoped<Setup.SetupDraftService>();
         return services;
     }
