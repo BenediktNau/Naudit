@@ -10,6 +10,7 @@
 
 ## Global Constraints
 
+- **Branch base is `main`** (feature branch `feat/mcp-context7`). The author-sessions `IAiClientRouter` seam is **not** on this base — `ReviewService` takes `IChatClient chatClient` directly and calls `chatClient.GetResponseAsync(...)`. Do not introduce or assume a router.
 - **Solution file is `Naudit.slnx`** (XML solution). `dotnet test Naudit.sln` fails with MSB1009 — always use `Naudit.slnx`.
 - **Core rule:** `Naudit.Core` depends only on `Microsoft.Extensions.AI.Abstractions`. `AITool`/`AIFunction`/`ChatOptions`/`ChatMessage` live in that package and are allowed; the `ModelContextProtocol.*` SDK must **not** be referenced from Core.
 - **Code comments are in German; docs/ are in English.**
@@ -109,16 +110,14 @@ In `tests/Naudit.Tests/ReviewServiceTests.cs`, first update the `CreateService` 
         FakeWorkspaceProvider? workspace = null,
         IPromptRedactor? redactor = null,
         IContextCollector? contextCollector = null,
-        IReviewAuditSink? auditSink = null,
-        IAiClientRouter? router = null,
         IReviewToolProvider? toolProvider = null)
-        => new(router ?? new SingleClientRouter(chat), git, options,
+        => new(chat, git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
             new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
-            auditSink ?? new FakeReviewAuditSink(),
+            new FakeReviewAuditSink(),
             toolProvider ?? new NullReviewToolProvider());
 ```
 
@@ -198,9 +197,7 @@ Then set the tools right before the chat call. Replace:
 
 ```csharp
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
-        // Routing pro Review: Autor-Session oder globaler Client (Feature aus ⇒ immer global).
-        var selection = await aiRouter.SelectAsync(request, ct);
-        var response = await selection.Client.GetResponseAsync(messages, chatOptions, ct);
+        var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
 ```
 
 with:
@@ -213,14 +210,12 @@ with:
         if (tools.Count > 0)
             chatOptions.Tools = [.. tools];
 
-        // Routing pro Review: Autor-Session oder globaler Client (Feature aus ⇒ immer global).
-        var selection = await aiRouter.SelectAsync(request, ct);
-        var response = await selection.Client.GetResponseAsync(messages, chatOptions, ct);
+        var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
 ```
 
 - [ ] **Step 7: Register the default in DI**
 
-In `src/Naudit.Infrastructure/DependencyInjection.cs`, immediately after the `IAiClientRouter` registration (`services.AddSingleton<IAiClientRouter>(...)`), add:
+In `src/Naudit.Infrastructure/DependencyInjection.cs`, immediately after the `services.AddSingleton(aiOptions);` line (which follows the `AddSingleton<IChatClient>` registration), add:
 
 ```csharp
         // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
