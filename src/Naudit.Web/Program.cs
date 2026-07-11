@@ -353,6 +353,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
     // WebUI-Endpoints: immer gemappt (die UI ist immer an — sie ist im Recovery-Modus das Reparaturwerkzeug).
     app.MapAuthEndpoints(uiConfig);
+    app.MapClaudeSessionEndpoints();
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
     app.MapSettingsEndpoints();
