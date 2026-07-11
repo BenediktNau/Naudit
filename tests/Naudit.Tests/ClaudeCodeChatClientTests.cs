@@ -158,4 +158,72 @@ public class ClaudeCodeChatClientTests
 
         Assert.Null(response.Usage);
     }
+
+    [Fact]
+    public async Task GetResponseAsync_mcpDisabled_keepsTodaysArgs()
+    {
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub,
+            new Naudit.Infrastructure.Mcp.McpOptions { Enabled = false });
+
+        await client.GetResponseAsync(Messages());
+
+        var args = stub.LastSpec!.Arguments.ToList();
+        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);
+        Assert.Equal("", args[args.IndexOf("--tools") + 1]);   // Tools aus
+        Assert.DoesNotContain("--mcp-config", args);
+        Assert.DoesNotContain("--allowedTools", args);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_mcpEnabled_addsMcpConfig_allowlist_andRaisesMaxTurns()
+    {
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            MaxIterations = 5,
+            Servers =
+            {
+                new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-1" },
+            },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        await client.GetResponseAsync(Messages());
+
+        var args = stub.LastSpec!.Arguments.ToList();
+        Assert.Equal("5", args[args.IndexOf("--max-turns") + 1]);         // Loop erlaubt
+        Assert.Contains("--mcp-config", args);
+        Assert.Contains("--allowedTools", args);
+        // Allowlist enthält NUR das MCP-Tool des Servers — kein Bash/Edit/Read.
+        var allow = args[args.IndexOf("--allowedTools") + 1];
+        Assert.Contains("mcp__context7", allow);
+        Assert.DoesNotContain("Bash", allow);
+        Assert.DoesNotContain("Edit", allow);
+        Assert.DoesNotContain("Read", allow);
+        Assert.DoesNotContain("--tools", args);   // ersetzt durch die Allowlist
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_mcpEnabled_mcpConfigJson_containsServerUrl()
+    {
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        await client.GetResponseAsync(Messages());
+
+        var args = stub.LastSpec!.Arguments.ToList();
+        var json = args[args.IndexOf("--mcp-config") + 1];
+        Assert.Contains("context7", json);
+        Assert.Contains("https://mcp.context7.com/mcp", json);
+    }
 }

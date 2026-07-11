@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
+using Naudit.Infrastructure.Mcp;
 using Naudit.Infrastructure.Process;
 
 namespace Naudit.Infrastructure.Ai.ClaudeCode;
@@ -9,8 +10,10 @@ namespace Naudit.Infrastructure.Ai.ClaudeCode;
 /// <summary>
 /// IChatClient-Adapter, der die `claude` CLI headless aufruft (Abo-Auth statt API-Key).
 /// Reiner Single-Shot: System-Prompt überschrieben, Diff über stdin, Tools aus, ein Turn.
+/// MCP optional (mcp): Server per --mcp-config registriert, --allowedTools NUR auf die
+/// MCP-Server beschränkt (kein Bash/Edit/Read/Write), --max-turns auf McpOptions.MaxIterations erhöht.
 /// </summary>
-public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner) : IChatClient
+public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
@@ -27,11 +30,27 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
 
         // ChatOptions (z. B. ResponseFormat=Json) hat in der CLI kein Äquivalent: JSON wird allein über
         // den System-Prompt erzwungen; --output-format json betrifft nur das Envelope, nicht den Modelltext.
-        // Tools aus, ein Turn, JSON-Envelope; Reihenfolge egal, aber --tools muss ein Folge-Argument "" haben.
-        var args = new List<string>
+        // MCP an ⇒ Loop erlauben (--max-turns N), Server registrieren (--mcp-config) und AUSSCHLIESSLICH
+        // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
+        // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
+        var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
+        var args = new List<string> { "-p", "--output-format", "json", "--model", model };
+        if (mcpEnabled)
         {
-            "-p", "--output-format", "json", "--max-turns", "1", "--tools", "", "--model", model,
-        };
+            args.Add("--max-turns");
+            args.Add(mcp!.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add("--mcp-config");
+            args.Add(BuildMcpConfigJson(mcp));
+            args.Add("--allowedTools");
+            args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
+        }
+        else
+        {
+            args.Add("--max-turns");
+            args.Add("1");
+            args.Add("--tools");
+            args.Add("");   // Tools aus (heutiges Verhalten)
+        }
         // ReviewService liefert immer einen nicht-leeren System-Prompt (DefaultSystemPrompt). Fehlte er,
         // fiele claude auf seine Default-Coding-Agent-Persona zurück (lieferte kein Review-JSON).
         if (!string.IsNullOrEmpty(system))
@@ -95,6 +114,33 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         => serviceKey is null && serviceType.IsInstanceOfType(this) ? this : null;
 
     public void Dispose() { }
+
+    // Baut das Claude-Code --mcp-config-JSON aus der geteilten McpOptions-Config.
+    // http ⇒ { "type":"http", "url":..., "headers": { "Authorization":"Bearer <key>" } };
+    // stdio ⇒ { "command":..., "args":[...] }.
+    private static string BuildMcpConfigJson(McpOptions mcp)
+    {
+        var servers = new Dictionary<string, object>();
+        foreach (var s in mcp.Servers)
+        {
+            if (string.Equals(s.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
+            {
+                servers[s.Name] = new Dictionary<string, object?>
+                {
+                    ["command"] = s.Command,
+                    ["args"] = s.Arguments ?? new List<string>(),
+                };
+            }
+            else
+            {
+                var entry = new Dictionary<string, object?> { ["type"] = "http", ["url"] = s.Url };
+                if (!string.IsNullOrWhiteSpace(s.ApiKey))
+                    entry["headers"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {s.ApiKey}" };
+                servers[s.Name] = entry;
+            }
+        }
+        return JsonSerializer.Serialize(new Dictionary<string, object> { ["mcpServers"] = servers });
+    }
 
     // Entfernt umschließende ```json … ``` / ``` … ```-Fences, falls das Modell welche setzt.
     private static string StripJsonFences(string s)
