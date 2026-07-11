@@ -7,7 +7,7 @@ using Naudit.Core.Models;
 namespace Naudit.Core.Review;
 
 public sealed class ReviewService(
-    IChatClient chatClient,
+    IAiClientRouter aiRouter,
     IGitPlatform gitPlatform,
     ReviewOptions options,
     IWorkspaceProvider workspaceProvider,
@@ -46,7 +46,9 @@ public sealed class ReviewService(
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
-        var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
+        // Routing pro Review: Autor-Session oder globaler Client (Feature aus ⇒ immer global).
+        var selection = await aiRouter.SelectAsync(request, ct);
+        var response = await selection.Client.GetResponseAsync(messages, chatOptions, ct);
 
         // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
@@ -84,7 +86,7 @@ public sealed class ReviewService(
         var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
         await gitPlatform.PostReviewAsync(request, summary, inline, verdict, ct);
-        await RecordAuditAsync(request, verdict, summary, inline, orphans, response, ct);
+        await RecordAuditAsync(request, verdict, summary, inline, orphans, response, selection.UsedSessionAccountId(), ct);
         return new ReviewResult(summary, verdict);
     }
 
@@ -93,7 +95,7 @@ public sealed class ReviewService(
     private async Task RecordAuditAsync(
         ReviewRequest request, ReviewVerdict verdict, string summary,
         IReadOnlyList<InlineComment> inline, IReadOnlyList<OrphanComment> orphans,
-        ChatResponse response, CancellationToken ct)
+        ChatResponse response, int? aiSessionAccountId, CancellationToken ct)
     {
         try
         {
@@ -105,7 +107,7 @@ public sealed class ReviewService(
 
             var audit = new ReviewAudit(request.ProjectId, request.MergeRequestIid, request.Title,
                 verdict, summary, findings,
-                response.Usage?.InputTokenCount, response.Usage?.OutputTokenCount, response.ModelId);
+                response.Usage?.InputTokenCount, response.Usage?.OutputTokenCount, response.ModelId, aiSessionAccountId);
             await auditSink.RecordAsync(audit, ct);
         }
         catch (Exception) when (!ct.IsCancellationRequested)

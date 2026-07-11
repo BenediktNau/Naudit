@@ -17,14 +17,16 @@ public class ReviewServiceTests
         IEnumerable<ISastAnalyzer>? analyzers = null,
         FakeWorkspaceProvider? workspace = null,
         IPromptRedactor? redactor = null,
-        IContextCollector? contextCollector = null)
-        => new(chat, git, options,
+        IContextCollector? contextCollector = null,
+        IReviewAuditSink? auditSink = null,
+        IAiClientRouter? router = null)
+        => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
             new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
-            new FakeReviewAuditSink());
+            auditSink ?? new FakeReviewAuditSink());
 
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
@@ -437,5 +439,20 @@ public class ReviewServiceTests
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
         Assert.Equal(1, git.PostCallCount);
         Assert.DoesNotContain("# Repository context", chat.LastMessages![1].Text!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_recordsSessionAccountId_fromRouter()
+    {
+        var chat = new FakeChatClient("""{"summary":"s","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var sink = new FakeReviewAuditSink();
+        var router = new FakeAiClientRouter(chat, sessionAccountId: 7);
+
+        await CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            auditSink: sink, router: router).ReviewAsync(Request);
+
+        Assert.Equal(7, Assert.Single(sink.Recorded).AiSessionAccountId);
+        Assert.Equal(Request, router.LastRequest);
     }
 }

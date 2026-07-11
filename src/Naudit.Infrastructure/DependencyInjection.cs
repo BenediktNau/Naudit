@@ -42,6 +42,9 @@ public static class DependencyInjection
         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
 
+        // Router-Naht: ohne Autor-Sessions (Task 8 schaltet um) immer der globale Client.
+        services.AddSingleton<IAiClientRouter>(sp => new SingleClientRouter(sp.GetRequiredService<IChatClient>()));
+
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
         if (string.IsNullOrWhiteSpace(reviewOptions.SystemPrompt))
