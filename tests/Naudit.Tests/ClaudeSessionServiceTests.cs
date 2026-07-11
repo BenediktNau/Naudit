@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Ui;
 using Naudit.Tests.Fakes;
@@ -97,5 +98,39 @@ public class ClaudeSessionServiceTests
 
         // Keyring weg / fremder Ciphertext ⇒ null statt Crash (Semantik wie DbSettingsLoader).
         Assert.Null(Service(db).DecryptToken(acct));
+    }
+
+    [Fact]
+    public async Task DeletingAccount_nullsReviewAttribution_keepsReview()
+    {
+        using var db = new TestDb();
+        var acct = Account(db);
+        var project = new ProjectEntity
+        {
+            PlatformProjectId = "owner/repo",
+            FirstReviewedAt = DateTime.UtcNow,
+            LastReviewedAt = DateTime.UtcNow,
+        };
+        var review = new ReviewEntity
+        {
+            Project = project, PrNumber = 1, Title = "T", Verdict = "approve", Summary = "S",
+            CreatedAt = DateTime.UtcNow, AiSessionAccountId = acct.Id,
+        };
+        db.Context.Reviews.Add(review);
+        await db.Context.SaveChangesAsync();
+        var reviewId = review.Id;
+
+        // ChangeTracker leeren: Account und Review sind danach untracked. Der Fix-up beim
+        // Löschen muss also wirklich über die DB (FK-Constraint "ON DELETE SET NULL",
+        // SQLite `PRAGMA foreign_keys`) laufen — nicht bloß über EFs In-Memory-Graph.
+        db.Context.ChangeTracker.Clear();
+        var reloadedAcct = await db.Context.Accounts.SingleAsync(a => a.Id == acct.Id);
+        db.Context.Accounts.Remove(reloadedAcct);
+        await db.Context.SaveChangesAsync();
+        db.Context.ChangeTracker.Clear();
+
+        var reloadedReview = await db.Context.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
+        Assert.Null(reloadedReview.AiSessionAccountId);   // Zuordnung weg …
+        Assert.Empty(await db.Context.Accounts.ToListAsync());   // … Account wirklich gelöscht, Review bleibt (kein Cascade-Delete).
     }
 }
