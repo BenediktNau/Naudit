@@ -42,6 +42,9 @@ public static class DependencyInjection
         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
 
+        // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
+        services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
+
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
         if (string.IsNullOrWhiteSpace(reviewOptions.SystemPrompt))

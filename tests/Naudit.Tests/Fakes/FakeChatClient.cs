@@ -5,10 +5,12 @@ namespace Naudit.Tests.Fakes;
 internal sealed class FakeChatClient(string responseText) : IChatClient
 {
     public List<ChatMessage>? LastMessages { get; private set; }
+    public ChatOptions? LastOptions { get; private set; }
 
     public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
         LastMessages = messages.ToList();
+        LastOptions = options;
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText)));
     }
 

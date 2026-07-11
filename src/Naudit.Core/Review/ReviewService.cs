@@ -15,7 +15,8 @@ public sealed class ReviewService(
     IFindingReducer findingReducer,
     IPromptRedactor redactor,
     IContextCollector contextCollector,
-    IReviewAuditSink auditSink)
+    IReviewAuditSink auditSink,
+    IReviewToolProvider toolProvider)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -46,6 +47,12 @@ public sealed class ReviewService(
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
+        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
+        // über den Function-Invocation-Wrapper des Clients (Infrastructure).
+        var tools = await toolProvider.GetToolsAsync(request, ct);
+        if (tools.Count > 0)
+            chatOptions.Tools = [.. tools];
+
         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
 
         // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
