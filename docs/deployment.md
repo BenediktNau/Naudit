@@ -120,7 +120,7 @@ Naudit__Ai__ApiKey=<nvidia-key>       # 🔒 secret
 # Claude Code CLI (your Claude Pro/Max subscription, not an API key):
 Naudit__Ai__Provider=ClaudeCode
 Naudit__Ai__Model=sonnet
-CLAUDE_CODE_OAUTH_TOKEN=<claude-setup-token>   # 🔒 secret — needs the derived image (see below)
+CLAUDE_CODE_OAUTH_TOKEN=<claude-setup-token>   # 🔒 secret
 ```
 
 After deploying, point the platform webhook at `https://<your-coolify-domain>/webhook/github`
@@ -144,30 +144,30 @@ Naudit__ForwardedHeaders__KnownNetworks__0=10.0.0.0/8     # or trusted CIDR netw
 
 ## Claude Code CLI provider (subscription)
 
-The `ClaudeCode` AI provider does not call an HTTP API — it shells out to the `claude`
-CLI as a local subprocess and authenticates with a **Claude Pro/Max subscription** (no
-API key, no per-token billing). The CLI must therefore live **inside the container**, so it
-is **not** part of the public `ghcr.io/benediktnau/naudit` image. Use the derived image
-[`deploy/coolify/Dockerfile`](../deploy/coolify/Dockerfile) — `FROM …/naudit:latest` plus the
-pinned, checksum-verified `claude` binary — for your own instance only:
+The `ClaudeCode` AI provider (and [author sessions](author-sessions.md)) do not call an
+HTTP API — they shell out to the `claude` CLI as a local subprocess and authenticate with
+a **Claude Pro/Max subscription** (no API key, no per-token billing). The CLI ships pinned
+and checksum-verified **inside the main `ghcr.io/benediktnau/naudit` image itself** — no
+derived image or extra build step needed, just the env vars below.
+
+> **`deploy/coolify/Dockerfile` is obsolete for this purpose.** It used to add the `claude`
+> binary on top of the base image; since the main image now ships the CLI, it is reduced to
+> `FROM ghcr.io/benediktnau/naudit:latest` and kept only as a stable Coolify build point for
+> deployments that already point at it — new deployments should use the prebuilt image
+> directly and can ignore it.
 
 1. **Generate an OAuth token** once, locally, where a browser login is possible:
    ```bash
    claude setup-token   # prints a 1-year token bound to your subscription
    ```
-2. **Deploy the derived image in Coolify** — set the resource's Build Pack to **Dockerfile**
-   and point it at `deploy/coolify/Dockerfile` instead of the prebuilt image. Coolify rebuilds
-   it on each deploy. Coolify runs a plain `docker build`, which reuses a cached `:latest`
-   **base**; to also pull a fresh base each time, add `--pull` to the build command in the
-   resource's build settings.
-3. **Set the env vars** (in addition to the platform/webhook ones):
+2. **Set the env vars** (in addition to the platform/webhook ones):
    ```bash
    Naudit__Ai__Provider=ClaudeCode
    Naudit__Ai__Model=sonnet                       # optional; defaults to sonnet
    CLAUDE_CODE_OAUTH_TOKEN=<token from step 1>    # 🔒 secret
    ```
 
-**Updating the CLI:** nothing to do — each Coolify rebuild resolves the newest `stable`
+**Updating the CLI:** rebuild the main image — each build resolves the newest `stable`
 release, downloads the binary, and verifies its SHA256 against the checksum in that version's
 `manifest.json` (the build fails on a mismatch). BuildKit only re-downloads when the
 version actually changed. To **pin or roll back** (e.g. a bad Claude Code release), build
@@ -176,12 +176,11 @@ with `--build-arg CLAUDE_CODE_VERSION=<version>` instead of the empty default.
 **Caveats:**
 
 - The token expires after **1 year** with no auto-refresh — regenerate it then.
-- "Always latest" means a broken Claude Code release lands on the next deploy — use the
+- "Always latest" means a broken Claude Code release lands on the next image build — use the
   `CLAUDE_CODE_VERSION` build-arg to pin back if that happens.
 - Integrity is **checksum-only**: the binary is checked against the SHA256 in `manifest.json`.
   Anthropic GPG-signs that manifest (`manifest.json.sig`), but this build does not verify the
   signature — it guards against a corrupt download, not a compromised upstream.
-- The derived image is ~250 MB larger than the base (the self-contained `claude` binary).
 
 ## Automatic deploy on each release
 

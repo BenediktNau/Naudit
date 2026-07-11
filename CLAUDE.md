@@ -222,6 +222,13 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   per login) and derive the install
   deep-link from the app slug (`GET /app`); fail-quiet (API error ⇒ `installed: null`, no banner).
   The SPA renders the banner on the dashboard + pending screen and a status row on the profile.
+- **Author sessions (bring your own subscription):** `IAiClientRouter` (Core `Abstractions`)
+  selects the chat client per review; `SingleClientRouter` (default, feature off) returns the
+  global `IChatClient`, `AuthorSessionRouter` (`src/Naudit.Infrastructure/Ai/ClaudeCode/`) routes
+  MRs to the author's own Claude subscription (token stored DP-encrypted per account, profile
+  page/`/api/me/claude-session`), wrapped in `FallbackChatClient` (any author failure ⇒ in-memory
+  cooldown + one retry on the global client). Toggle `Naudit:Ai:AuthorSessions:Enabled`
+  (default `false` = today's behaviour). See `docs/author-sessions.md`.
 
 ### CI/CD & container
 
