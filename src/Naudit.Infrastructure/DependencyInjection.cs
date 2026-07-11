@@ -12,6 +12,7 @@ using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
+using Naudit.Infrastructure.Mcp;
 using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
@@ -39,6 +40,12 @@ public static class DependencyInjection
     {
         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
+
+        // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
+        // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
+        var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
+        services.AddSingleton(mcpOptions);
+
         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
 
