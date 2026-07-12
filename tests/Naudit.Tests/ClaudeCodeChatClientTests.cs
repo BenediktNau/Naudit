@@ -210,11 +210,20 @@ public class ClaudeCodeChatClientTests
     [Fact]
     public async Task GetResponseAsync_mcpEnabled_mcpConfigJson_containsServerUrl()
     {
-        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        // --mcp-config trägt jetzt einen DATEIPFAD (nicht mehr JSON auf argv) — Inhalt im Responder lesen,
+        // solange die Datei existiert (RunAsync läuft synchron, vor dem finally-Cleanup).
+        string? capturedConfig = null;
+        var stub = new StubProcessRunner(spec =>
+        {
+            var a = spec.Arguments.ToList();
+            var i = a.IndexOf("--mcp-config");
+            if (i >= 0) capturedConfig = File.ReadAllText(a[i + 1]);
+            return new ProcessResult(0, Envelope("OK"), "");
+        });
         var mcp = new Naudit.Infrastructure.Mcp.McpOptions
         {
             Enabled = true,
-            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
+            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-secret" } },
         };
         var client = new ClaudeCodeChatClient(
             new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
@@ -222,8 +231,30 @@ public class ClaudeCodeChatClientTests
         await client.GetResponseAsync(Messages());
 
         var args = stub.LastSpec!.Arguments.ToList();
-        var json = args[args.IndexOf("--mcp-config") + 1];
-        Assert.Contains("context7", json);
-        Assert.Contains("https://mcp.context7.com/mcp", json);
+        var configPath = args[args.IndexOf("--mcp-config") + 1];
+        Assert.False(configPath.TrimStart().StartsWith('{'));   // Pfad, kein inline-JSON
+        Assert.NotNull(capturedConfig);
+        Assert.Contains("context7", capturedConfig!);
+        Assert.Contains("https://mcp.context7.com/mcp", capturedConfig!);
+
+        // Der ApiKey darf nirgends auf argv landen (ps/`/proc/<pid>/cmdline`-sichtbar).
+        Assert.All(args, a => Assert.DoesNotContain("sk-secret", a));
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_mcpServerNameWithSpace_throws()
+    {
+        // Ein Name mit Space würde in --allowedTools zu zusätzlichen, ungeprüften Tokens aufsplitten
+        // (potenziell eingebaute Tools wieder freigeben) — fail-closed statt fail-open.
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            Servers = { new() { Name = "c7 Bash", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
     }
 }

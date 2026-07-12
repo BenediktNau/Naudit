@@ -34,13 +34,30 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
         // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
         var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
-        var args = new List<string> { "-p", "--output-format", "json", "--model", model };
+        var args = new List<string> { "-p", "--output-format", "json" };
+        string? mcpConfigPath = null;
         if (mcpEnabled)
         {
+            // Fail-closed: ein Server-Name mit Space/Sonderzeichen würde die --allowedTools-Allowlist
+            // aufsprengen (mehr Tokens als beabsichtigt) und könnte so eingebaute Tools wieder freigeben.
+            foreach (var s in mcp!.Servers)
+                if (!IsValidServerName(s.Name))
+                    throw new InvalidOperationException(
+                        $"MCP-Server-Name '{s.Name}' ist ungültig — erlaubt sind nur [A-Za-z0-9_-].");
+
+            // Das --mcp-config-JSON enthält den ApiKey im Klartext (Authorization-Bearer-Header) — darf
+            // NICHT auf argv landen (sichtbar via ps/`/proc/<pid>/cmdline`). Stattdessen in eine 0600-Temp-
+            // Datei schreiben und nur den PFAD an die CLI übergeben; die Datei lebt für die Dauer des
+            // CLI-Laufs und wird danach im finally-Block best-effort gelöscht.
+            mcpConfigPath = Path.Combine(Path.GetTempPath(), $"naudit-mcp-{Guid.NewGuid():N}.json");
+            await File.WriteAllTextAsync(mcpConfigPath, BuildMcpConfigJson(mcp), cancellationToken);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(mcpConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
             args.Add("--max-turns");
-            args.Add(mcp!.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add(mcp.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
             args.Add("--mcp-config");
-            args.Add(BuildMcpConfigJson(mcp));
+            args.Add(mcpConfigPath);
             args.Add("--allowedTools");
             args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
         }
@@ -51,6 +68,10 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             args.Add("--tools");
             args.Add("");   // Tools aus (heutiges Verhalten)
         }
+        // --model IMMER als letztes Flag vor --system-prompt anhängen, in beiden Zweigen — damit der
+        // MCP-aus-Pfad byte-identisch zum Stand vor diesem Feature bleibt.
+        args.Add("--model");
+        args.Add(model);
         // ReviewService liefert immer einen nicht-leeren System-Prompt (DefaultSystemPrompt). Fehlte er,
         // fiele claude auf seine Default-Coding-Agent-Persona zurück (lieferte kein Review-JSON).
         if (!string.IsNullOrEmpty(system))
@@ -72,34 +93,53 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             WorkingDirectory: Path.GetTempPath(), // neutrales CWD: kein ambient CLAUDE.md
             Timeout: TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
 
-        var result = await runner.RunAsync(spec, cancellationToken);
-
-        if (result.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"claude beendete mit Exit-Code {result.ExitCode}. stderr: {result.StdErr}");
-
-        var envelope = JsonSerializer.Deserialize<ClaudeResult>(result.StdOut, JsonOpts)
-            ?? throw new InvalidOperationException("claude lieferte kein parsebares JSON-Envelope.");
-
-        if (envelope.IsError || envelope.Subtype != "success")
-            throw new InvalidOperationException(
-                $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
-
-        // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
-        var text = StripJsonFences(envelope.Result ?? "");
-        if (string.IsNullOrWhiteSpace(text))
-            throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
-
-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
+        try
         {
-            // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
-            // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
-            // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
-            Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
-                ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
-                : null,
-        };
+            var result = await runner.RunAsync(spec, cancellationToken);
+
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException(
+                    $"claude beendete mit Exit-Code {result.ExitCode}. stderr: {result.StdErr}");
+
+            var envelope = JsonSerializer.Deserialize<ClaudeResult>(result.StdOut, JsonOpts)
+                ?? throw new InvalidOperationException("claude lieferte kein parsebares JSON-Envelope.");
+
+            if (envelope.IsError || envelope.Subtype != "success")
+                throw new InvalidOperationException(
+                    $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
+
+            // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
+            var text = StripJsonFences(envelope.Result ?? "");
+            if (string.IsNullOrWhiteSpace(text))
+                throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
+
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
+            {
+                // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
+                // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
+                // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
+                Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
+                    ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
+                    : null,
+            };
+        }
+        finally
+        {
+            // Best-effort: die Temp-Datei enthielt den ApiKey, soll nicht liegen bleiben. Löschfehler
+            // (z. B. bereits weg) sind egal — Cancellation wird hier NICHT abgefangen.
+            if (mcpConfigPath is not null)
+            {
+                try { File.Delete(mcpConfigPath); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
     }
+
+    // Nur [A-Za-z0-9_-] — der Name landet 1:1 (als "mcp__<name>") in der --allowedTools-Allowlist;
+    // ein Space/Sonderzeichen würde zusätzliche, ungeprüfte Allowlist-Tokens einschleusen.
+    private static bool IsValidServerName(string name)
+        => System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z0-9_-]+$");
 
     // ReviewService nutzt nur die non-streaming Variante; hier ein dünner Wrapper übers Einzelergebnis.
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
