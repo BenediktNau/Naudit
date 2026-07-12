@@ -112,6 +112,9 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Review:Context:MaxUsagesPerSymbol` | Max call-sites shown per changed symbol (default `5`) |
 | `Naudit:Review:Context:MaxTreeDepth` | Directory-tree depth in the overview (default `3`) |
 | `Naudit:Review:Context:ReadmeMaxLines` | README head length in the overview (default `50`) |
+| `Naudit:Review:Mcp:Enabled` | Let the review LLM call MCP tools (Context7 live docs) — **default `false`**, byte-identical single-shot when off (see [MCP tools](mcp-tools.md)) |
+| `Naudit:Review:Mcp:MaxIterations` | Tool round-trip cap per review, both provider paths (default `4`) |
+| `Naudit:Review:Mcp:Servers:<n>:Name` / `:Transport` / `:Url` / `:Command` / `:Arguments` / `:ApiKey` | Configured MCP servers — env/appsettings-only, list-shaped like `ProjectTokens` (see [MCP tools](mcp-tools.md)) |
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
@@ -126,6 +129,17 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 > With `Naudit:GitHub:Auth = App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are
 > **ignored** — every request uses a freshly minted GitHub App installation token instead. See
 > [GitHub App setup](github-app.md) for creating the app, its permissions, and the install step.
+
+## MCP tools (review runtime)
+
+`Naudit:Review:Mcp:*` lets the review LLM call MCP tools (currently Context7, for live library
+docs) instead of judging the diff on training-cutoff knowledge alone. `Enabled` (default `false`)
+and `MaxIterations` (default `4`, the tool round-trip cap) are DB-manageable via the Settings page
+like most other keys; `Servers` is a list — like `ProjectTokens` — so it (including the per-server
+`ApiKey` secret) stays env-var/appsettings-only. Off by default, the review is byte-identical to
+today's single-shot; an unreachable server degrades to a tool-less review rather than failing it.
+See [MCP tools](mcp-tools.md) for the full config block and how the two AI-provider paths (MEAI vs.
+the ClaudeCode CLI) deliver the tools to the model.
 
 ## Choosing an AI provider
 
