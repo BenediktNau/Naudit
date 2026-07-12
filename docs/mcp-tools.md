@@ -43,6 +43,10 @@ disabled, the CLI args are byte-identical to before this feature (`--tools ""`, 
 - **Opt-in.** `Naudit:Review:Mcp:Enabled=false` is the default: `chatOptions.Tools` stays null (no
   MEAI wrapping happens), the CLI args are unchanged, and the review is exactly today's
   byte-identical single-shot.
+- **New egress.** Enabling MCP opens an outbound channel this self-hosted bot didn't have before:
+  once tools are on, the model sends library/API identifiers derived from the diff to the
+  configured MCP server (e.g. `context7.com`) to resolve documentation. Opt in only once you're
+  comfortable with that data leaving your deployment.
 - **Fail-open.** A configured server that's unreachable (startup or first use) is caught, logged,
   and dropped — the review runs **tool-less**, the same way a failed SAST checkout degrades to a
   diff-only review. A successful tool list is cached for the process lifetime (server host is

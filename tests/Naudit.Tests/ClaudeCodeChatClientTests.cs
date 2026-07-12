@@ -242,6 +242,36 @@ public class ClaudeCodeChatClientTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_mcpEnabled_mcpConfigFile_hasUserOnlyPermissions()
+    {
+        // Die Temp-Datei trägt den ApiKey im Klartext — muss ab Erzeugung (nicht erst nachträglich
+        // per chmod) auf 0600 stehen. Perms im Responder lesen, solange die Datei noch existiert.
+        UnixFileMode? capturedMode = null;
+        var stub = new StubProcessRunner(spec =>
+        {
+            var a = spec.Arguments.ToList();
+            var i = a.IndexOf("--mcp-config");
+            if (i >= 0 && !OperatingSystem.IsWindows())
+                capturedMode = File.GetUnixFileMode(a[i + 1]);
+            return new ProcessResult(0, Envelope("OK"), "");
+        });
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-secret" } },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        await client.GetResponseAsync(Messages());
+
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, capturedMode);
+        else
+            Assert.Null(capturedMode);
+    }
+
+    [Fact]
     public async Task GetResponseAsync_mcpServerNameWithSpace_throws()
     {
         // Ein Name mit Space würde in --allowedTools zu zusätzlichen, ungeprüften Tokens aufsplitten

@@ -50,9 +50,12 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             // Datei schreiben und nur den PFAD an die CLI übergeben; die Datei lebt für die Dauer des
             // CLI-Laufs und wird danach im finally-Block best-effort gelöscht.
             mcpConfigPath = Path.Combine(Path.GetTempPath(), $"naudit-mcp-{Guid.NewGuid():N}.json");
-            await File.WriteAllTextAsync(mcpConfigPath, BuildMcpConfigJson(mcp), cancellationToken);
+            var fileOpts = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
             if (!OperatingSystem.IsWindows())
-                File.SetUnixFileMode(mcpConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                fileOpts.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;   // 0600 schon bei Erzeugung
+            await using (var fs = new FileStream(mcpConfigPath, fileOpts))
+            await using (var w = new StreamWriter(fs))
+                await w.WriteAsync(BuildMcpConfigJson(mcp));
 
             args.Add("--max-turns");
             args.Add(mcp.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -139,7 +142,7 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
     // Nur [A-Za-z0-9_-] — der Name landet 1:1 (als "mcp__<name>") in der --allowedTools-Allowlist;
     // ein Space/Sonderzeichen würde zusätzliche, ungeprüfte Allowlist-Tokens einschleusen.
     private static bool IsValidServerName(string name)
-        => System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z0-9_-]+$");
+        => System.Text.RegularExpressions.Regex.IsMatch(name, @"\A[A-Za-z0-9_-]+\z");
 
     // ReviewService nutzt nur die non-streaming Variante; hier ein dünner Wrapper übers Einzelergebnis.
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(

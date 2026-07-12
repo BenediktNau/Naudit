@@ -45,13 +45,16 @@ public static class DependencyInjection
         // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
         var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
         services.AddSingleton(mcpOptions);
+        // Eine Bedingung, zweimal gebraucht (Client-Wrap + Tool-Provider-Registrierung) — als lokale
+        // Variable extrahiert, damit die beiden Stellen nie auseinanderlaufen können.
+        var mcpForMeaiProvider = mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode;
 
         // Global-Client. Bei aktivem MCP + MEAI-Provider mit Function-Invocation-Loop umhüllen
         // (Cap = MaxIterations). ClaudeCode ist ein eigener IChatClient (CLI-natives MCP) und wird NICHT umhüllt.
         services.AddSingleton<IChatClient>(sp =>
         {
             var client = AiClientFactory.Create(aiOptions, mcpOptions);
-            if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
+            if (mcpForMeaiProvider)
                 client = client.AsBuilder()
                     .UseFunctionInvocation(sp.GetService<ILoggerFactory>(),
                         c => c.MaximumIterationsPerRequest = mcpOptions.MaxIterations)
@@ -62,7 +65,7 @@ public static class DependencyInjection
 
         // MCP-Tools: MEAI-Provider + MCP an ⇒ echte MCP-Tools (Function-Invocation nutzt ChatOptions.Tools);
         // sonst No-Op (MCP aus, oder ClaudeCode ⇒ CLI-natives MCP über --mcp-config).
-        if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
+        if (mcpForMeaiProvider)
         {
             services.AddSingleton<IMcpToolConnector>(sp => new McpClientToolConnector(sp.GetRequiredService<ILoggerFactory>()));
             services.AddSingleton<IReviewToolProvider>(sp => new McpReviewToolProvider(
