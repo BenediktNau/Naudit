@@ -5,9 +5,11 @@ CLI** (Claude Code) in headless mode instead of calling an SDK/HTTP endpoint. It
 is **subscription instead of API key**: the CLI authenticates with your logged-in Claude
 account (Pro/Max), so reviews are not billed per token.
 
-It is a plain provider swap behind the MEAI abstraction — the review is still a single
-pass over the diff returning the same JSON. It is **not** an agentic review (no repository
-access, no tools).
+It is a plain provider swap behind the MEAI abstraction — by default the review is still a
+single pass over the diff returning the same JSON, **not** an agentic review (no repository
+access, no tools). This changes only if you enable MCP tools: with `Naudit:Review:Mcp`
+configured, the CLI path becomes multi-turn and may call the allow-listed MCP tools — see
+[MCP tools](mcp-tools.md).
 
 ## Precondition
 
@@ -54,5 +56,6 @@ run reports no `usage`, the counts stay null (no fabricated zero).
 
 - No Dockerfile changes here — `claude` is an environment precondition. Baking Node + the
   CLI into the deployed image is a separate, later step.
-- No agentic review (no repo access / tools / MCP), no streaming, no multi-turn sessions.
+- No agentic review by default (no repo access / tools / MCP), no streaming, no multi-turn
+  sessions — unless MCP tools are enabled via `Naudit:Review:Mcp` (see [MCP tools](mcp-tools.md)).
 - Future hardening option: `claude --json-schema` for schema-validated structured output.
