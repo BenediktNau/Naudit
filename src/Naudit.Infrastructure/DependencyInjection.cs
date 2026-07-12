@@ -46,11 +46,34 @@ public static class DependencyInjection
         var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
         services.AddSingleton(mcpOptions);
 
-        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions, mcpOptions));
+        // Global-Client. Bei aktivem MCP + MEAI-Provider mit Function-Invocation-Loop umhüllen
+        // (Cap = MaxIterations). ClaudeCode ist ein eigener IChatClient (CLI-natives MCP) und wird NICHT umhüllt.
+        services.AddSingleton<IChatClient>(sp =>
+        {
+            var client = AiClientFactory.Create(aiOptions, mcpOptions);
+            if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
+                client = client.AsBuilder()
+                    .UseFunctionInvocation(sp.GetService<ILoggerFactory>(),
+                        c => c.MaximumIterationsPerRequest = mcpOptions.MaxIterations)
+                    .Build();
+            return client;
+        });
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
 
-        // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
-        services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
+        // MCP-Tools: MEAI-Provider + MCP an ⇒ echte MCP-Tools (Function-Invocation nutzt ChatOptions.Tools);
+        // sonst No-Op (MCP aus, oder ClaudeCode ⇒ CLI-natives MCP über --mcp-config).
+        if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
+        {
+            services.AddSingleton<IMcpToolConnector>(sp => new McpClientToolConnector(sp.GetRequiredService<ILoggerFactory>()));
+            services.AddSingleton<IReviewToolProvider>(sp => new McpReviewToolProvider(
+                mcpOptions,
+                sp.GetRequiredService<IMcpToolConnector>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<McpReviewToolProvider>()));
+        }
+        else
+        {
+            services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
+        }
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
