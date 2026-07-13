@@ -70,3 +70,9 @@ src/Naudit.Web/wwwroot/
 
 # Claude-Code-Arbeitsverzeichnis (lokale Worktrees/Session-Dateien)
 .claude/
+
+# Umgebungsspezifische Deploy-Konfiguration (interne Hosts, Tags) gehoert in ein
+# separates internes Deploy-Repo, nie hierher — dieses Repo wird nach GitHub
+# gespiegelt. values.yaml (die Chart-Defaults) bleibt bewusst versioniert.
+deploy/helm/naudit/values-*.yaml
+deploy/k8s/*.local.yaml

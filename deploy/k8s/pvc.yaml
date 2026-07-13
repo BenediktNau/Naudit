@@ -1,0 +1,16 @@
+# Persistenter Speicher fuer die SQLite-DB (Settings, Accounts, Review-Historie,
+# Data-Protection-Keys). Entfaellt komplett bei Naudit__Db__Provider=Postgres.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: naudit-data
+  namespace: naudit
+  labels:
+    app.kubernetes.io/name: naudit
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: <nur setzen, wenn nicht die Default-StorageClass gelten soll>

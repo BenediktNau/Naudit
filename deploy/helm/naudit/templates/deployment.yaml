@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "naudit.fullname" . }}
+  labels:
+    {{- include "naudit.labels" . | nindent 4 }}
+spec:
+  # Fest 1 Replica (bewusst kein values-Schalter): SQLite ist Single-Writer,
+  # die ReviewQueue ist in-memory, der Settings-Restart-Loop wirkt pro Prozess.
+  replicas: 1
+  strategy:
+    # RWO-Volume + SQLite: alte Instanz muss beendet sein, bevor die neue startet.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "naudit.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "naudit.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: naudit
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Bootstrap (env-only, wird VOR der DB gelesen) — alles Weitere
+            # konfiguriert der Admin auf der Settings-Seite (liegt in der DB).
+            - name: Naudit__Db__Provider
+              value: {{ .Values.db.provider | quote }}
+            {{- if eq .Values.db.provider "Sqlite" }}
+            - name: Naudit__Db__ConnectionString
+              value: "Data Source=/data/naudit.db"
+            {{- else }}
+            - name: Naudit__Db__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "naudit.bootstrapSecretName" . }}
+                  key: db-connection-string
+            {{- end }}
+            - name: Naudit__Ui__Admin__Username
+              value: {{ .Values.admin.username | quote }}
+            - name: Naudit__Ui__Admin__InitialPassword
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "naudit.bootstrapSecretName" . }}
+                  key: admin-initial-password
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if eq .Values.db.provider "Sqlite" }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+          # Erster Start migriert die DB, bevor der Host lauscht.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- if eq .Values.db.provider "Sqlite" }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "naudit.fullname" .)) }}
+          {{- else }}
+          # Nur fuer Wegwerf-Tests: DB ist bei jedem Pod-Neustart weg.
+          emptyDir: {}
+          {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

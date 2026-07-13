@@ -4,6 +4,11 @@ Naudit ships as a container to `ghcr.io/benediktnau/naudit` and is deployed by *
 This page covers the container setup, the full environment-variable template, automatic
 deployment on each release, and what the release pipeline does internally.
 
+Running on **Kubernetes** instead? Ready-made plain manifests live in
+[`deploy/k8s/`](../deploy/k8s/README.md) and the same setup as a Helm chart in
+[`deploy/helm/naudit/`](../deploy/helm/naudit) — the container facts below
+(image, port, health check, env template) apply there unchanged.
+
 For the meaning of each `Naudit:*` key see [Configuration](configuration.md).
 
 ## Container basics
