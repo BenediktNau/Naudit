@@ -30,6 +30,8 @@ public sealed class RoundRobinSessionRouter(
 
         // Ein Cursor-Schritt pro Review; ab dort das erste Konto mit entschlüsselbarem Token nehmen
         // (undekryptierbare überspringen, nicht global fallen).
+        // Der prozessglobale Cursor modulo der (ggf. wechselnden) eligible-Liste ergibt bei stabilem
+        // Pool eine exakte Rotation, bei Churn eine über die Zeit gemittelte Streuung — so gewollt, keine Unfairness.
         var start = cursor.Next() % eligible.Count;
         for (var i = 0; i < eligible.Count; i++)
         {

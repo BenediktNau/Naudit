@@ -114,6 +114,21 @@ public class ClaudeSessionEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_shareInPoolWithLogin_noStoredToken_returns204()
+    {
+        var client = await LoggedInApp();
+
+        // Opt-in + Login (z. B. GitHub-Login vorausgefüllt), aber noch kein Token ⇒ trotzdem 204,
+        // KEIN „token required" (Regression: der Login-Wert darf den Opt-in-Erfolg nicht verdecken).
+        var put = await client.PutAsJsonAsync("/api/me/claude-session", new { shareInPool = true, gitAuthorLogin = "someone" });
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+
+        var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
+        Assert.True(after.GetProperty("shareInPool").GetBoolean());
+        Assert.False(after.GetProperty("configured").GetBoolean());   // Opt-in gesetzt, aber weiterhin kein Token
+    }
+
+    [Fact]
     public async Task Test_runsCliWithStoredToken_andReportsOk()
     {
         ProcessSpec? seen = null;
