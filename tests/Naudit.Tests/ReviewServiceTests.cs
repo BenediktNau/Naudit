@@ -17,14 +17,16 @@ public class ReviewServiceTests
         IEnumerable<ISastAnalyzer>? analyzers = null,
         FakeWorkspaceProvider? workspace = null,
         IPromptRedactor? redactor = null,
-        IContextCollector? contextCollector = null)
+        IContextCollector? contextCollector = null,
+        IReviewRoundtripCounter? roundtrips = null)
         => new(chat, git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
             new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
-            new FakeReviewAuditSink());
+            new FakeReviewAuditSink(),
+            roundtrips ?? new FakeRoundtripCounter());
 
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
@@ -437,5 +439,94 @@ public class ReviewServiceTests
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
         Assert.Equal(1, git.PostCallCount);
         Assert.DoesNotContain("# Repository context", chat.LastMessages![1].Text!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_skipsWebhookReview_whenRoundtripLimitReached()
+    {
+        var chat = new FakeChatClient("""{"summary":"## Review","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { MaxRoundtrips = 3 },
+            roundtrips: new FakeRoundtripCounter(count: 3));
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.True(result.Skipped);
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+        Assert.Null(git.PostedMarkdown);          // nichts gepostet …
+        Assert.Null(chat.LastMessages);           // … und das LLM nie befragt
+    }
+
+    [Fact]
+    public async Task ReviewAsync_ciTrigger_reviewsDespiteLimit()
+    {
+        // Das CI-Gate braucht immer ein frisches Verdict — POST /review ist nie limitiert.
+        var chat = new FakeChatClient("""{"summary":"## Review","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var counter = new FakeRoundtripCounter(count: 99);
+        var service = CreateService(chat, git, new ReviewOptions { MaxRoundtrips = 3 }, roundtrips: counter);
+
+        var result = await service.ReviewAsync(Request with { Trigger = ReviewTrigger.Ci });
+
+        Assert.False(result.Skipped);
+        Assert.NotNull(git.PostedMarkdown);
+        Assert.Equal(0, counter.CallCount);       // Ci fragt den Zähler gar nicht erst
+    }
+
+    [Fact]
+    public async Task ReviewAsync_zeroMaxRoundtrips_meansUnlimited()
+    {
+        var chat = new FakeChatClient("""{"summary":"## Review","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var counter = new FakeRoundtripCounter(count: 99);
+        var service = CreateService(chat, git, new ReviewOptions { MaxRoundtrips = 0 }, roundtrips: counter);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.False(result.Skipped);
+        Assert.Equal(0, counter.CallCount);       // Limit aus ⇒ kein Zähler-Roundtrip
+    }
+
+    [Fact]
+    public async Task ReviewAsync_appendsLimitNotice_onLastAllowedReview()
+    {
+        // count=2, Limit=3 ⇒ dieses Review ist Nr. 3 (das letzte) und trägt den Hinweis.
+        var chat = new FakeChatClient("""{"summary":"## Review","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { MaxRoundtrips = 3 },
+            roundtrips: new FakeRoundtripCounter(count: 2));
+
+        await service.ReviewAsync(Request);
+
+        Assert.Contains("Roundtrip-Limit erreicht (3/3)", git.PostedMarkdown!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_noLimitNotice_beforeLastReview()
+    {
+        // count=0, Limit=3 ⇒ Review Nr. 1 — noch kein Hinweis.
+        var chat = new FakeChatClient("""{"summary":"## Review","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { MaxRoundtrips = 3 },
+            roundtrips: new FakeRoundtripCounter(count: 0));
+
+        await service.ReviewAsync(Request);
+
+        Assert.DoesNotContain("Roundtrip-Limit", git.PostedMarkdown!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_reviewsNormally_whenCounterThrows()
+    {
+        // Fail-open: das Review ist der Wert, das Limit nur die Kostenbremse.
+        var chat = new FakeChatClient("""{"summary":"## Review","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { MaxRoundtrips = 3 },
+            roundtrips: new FakeRoundtripCounter(throws: true));
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.False(result.Skipped);
+        Assert.NotNull(git.PostedMarkdown);
     }
 }

@@ -11,6 +11,10 @@ public sealed class ReviewOptions
 
     /// <summary>Kontext-Anreicherung aus dem Checkout (Naudit:Review:Context).</summary>
     public ReviewContextOptions Context { get; set; } = new();
+
+    /// <summary>Max. automatische (Webhook-)Reviews pro MR/PR; danach werden Pushes übersprungen.
+    /// 0 (oder negativ) = unbegrenzt. Der CI-Trigger (POST /review) ist nie limitiert.</summary>
+    public int MaxRoundtrips { get; set; } = 3;
 }
 
 /// <summary>Ab wann ein Review blockt (request_changes). Default: nur bestätigtes High/Critical.</summary>

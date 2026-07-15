@@ -13,7 +13,8 @@ public class ReviewAuditSinkTests
     private static ReviewService CreateService(IChatClient chat, IGitPlatform git, IReviewAuditSink sink) =>
         new(chat, git, new ReviewOptions { SystemPrompt = "s" },
             new FakeWorkspaceProvider(), [], new FakeFindingReducer(),
-            new NullPromptRedactor(), new FakeContextCollector(), sink);
+            new NullPromptRedactor(), new FakeContextCollector(), sink,
+            new FakeRoundtripCounter());
 
     [Fact]
     public async Task ReviewAsync_recordsAudit_withVerdictAndFindings()
