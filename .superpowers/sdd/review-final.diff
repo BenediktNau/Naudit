@@ -1,0 +1,2976 @@
+# Review package: f2fe20f410ab0e26a44786108d01f64211364303..9bc51d2
+
+## Commits
+9bc51d2 docs(mcp): claudecode-provider.md — Agentik-Aussage bei aktivem MCP relativieren
+b0478eb docs(mcp): MCP-Tools in der Review-Runtime + Konfiguration
+cb3ccc5 feat(mcp): echter McpClientToolConnector + DI-Verdrahtung (Function-Invocation-Loop)
+b779dcb fix(mcp): ClaudeCode-CLI härten — Secret aus argv (Temp-Datei), Server-Namen validieren, Off-Args byte-identisch
+563414d feat(mcp): ClaudeCode-CLI-Pfad — --mcp-config + MCP-only-Allowlist + --max-turns
+ebd6380 feat(mcp): McpReviewToolProvider — Server aggregieren, fail-open, cachen
+544536f feat(mcp): McpOptions binden (Naudit:Review:Mcp) + Settings-Katalog-Scalars
+496053c feat(review): Prompt-Guidance fürs Docs-Werkzeug (nur wenn Tools angeboten)
+f74b2b1 feat(review): IReviewToolProvider-Naht — ChatOptions.Tools aus Core (No-Op-Default)
+77caa1d docs(plan): Slice A auf main-Basis anpassen (kein IAiClientRouter)
+38360c0 docs(plan): Slice A (MCP-Client + Context7) — Implementierungsplan
+8e42dfb docs(spec): MCP-Tools in der Review-Runtime (Context7) — Slice A Design
+
+## Files changed
+ docs/claudecode-provider.md                        |   11 +-
+ docs/configuration.md                              |   14 +
+ docs/mcp-tools.md                                  |  105 ++
+ .../plans/2026-07-11-mcp-context7-review.md        | 1201 ++++++++++++++++++++
+ .../specs/2026-07-11-mcp-context7-review-design.md |  218 ++++
+ .../Abstractions/IReviewToolProvider.cs            |   18 +
+ src/Naudit.Core/Review/PromtBuilder.cs             |   17 +-
+ src/Naudit.Core/Review/ReviewService.cs            |   12 +-
+ src/Naudit.Infrastructure/Ai/AiClientFactory.cs    |    6 +-
+ .../Ai/ClaudeCode/ClaudeCodeChatClient.cs          |  148 ++-
+ src/Naudit.Infrastructure/DependencyInjection.cs   |   35 +-
+ src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs |   10 +
+ .../Mcp/McpClientToolConnector.cs                  |   49 +
+ src/Naudit.Infrastructure/Mcp/McpOptions.cs        |   26 +
+ .../Mcp/McpReviewToolProvider.cs                   |   55 +
+ .../Naudit.Infrastructure.csproj                   |    1 +
+ .../Settings/SettingsCatalog.cs                    |    2 +
+ src/Naudit.Web/Program.cs                          |    4 +-
+ tests/Naudit.Tests/ClaudeCodeChatClientTests.cs    |   99 ++
+ tests/Naudit.Tests/Fakes/FakeChatClient.cs         |    2 +
+ tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs   |   31 +
+ tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs |   12 +
+ tests/Naudit.Tests/McpDiCompositionTests.cs        |   63 +
+ tests/Naudit.Tests/McpOptionsTests.cs              |   39 +
+ tests/Naudit.Tests/McpReviewToolProviderTests.cs   |   67 ++
+ tests/Naudit.Tests/PromtBuilderTests.cs            |   20 +
+ tests/Naudit.Tests/ReviewAuditSinkTests.cs         |    3 +-
+ tests/Naudit.Tests/ReviewServiceTests.cs           |   34 +-
+ 28 files changed, 2257 insertions(+), 45 deletions(-)
+
+## Diff
+diff --git a/docs/claudecode-provider.md b/docs/claudecode-provider.md
+index 730f3c0..32344f0 100644
+--- a/docs/claudecode-provider.md
++++ b/docs/claudecode-provider.md
+@@ -1,20 +1,22 @@
+ # ClaudeCode provider (local `claude` CLI)
+ 
+ The `ClaudeCode` AI provider runs the review through the **locally installed `claude`
+ CLI** (Claude Code) in headless mode instead of calling an SDK/HTTP endpoint. Its purpose
+ is **subscription instead of API key**: the CLI authenticates with your logged-in Claude
+ account (Pro/Max), so reviews are not billed per token.
+ 
+-It is a plain provider swap behind the MEAI abstraction — the review is still a single
+-pass over the diff returning the same JSON. It is **not** an agentic review (no repository
+-access, no tools).
++It is a plain provider swap behind the MEAI abstraction — by default the review is still a
++single pass over the diff returning the same JSON, **not** an agentic review (no repository
++access, no tools). This changes only if you enable MCP tools: with `Naudit:Review:Mcp`
++configured, the CLI path becomes multi-turn and may call the allow-listed MCP tools — see
++[MCP tools](mcp-tools.md).
+ 
+ ## Precondition
+ 
+ `claude` must be installed and authenticated **on the machine that runs Naudit** (this is
+ not installed or managed by Naudit):
+ 
+ ```bash
+ # Install (see the Claude Code docs for your platform)
+ npm install -g @anthropic-ai/claude-code
+ 
+@@ -47,12 +49,13 @@ is posted.
+ 
+ The envelope's `usage` object (`input_tokens`/`output_tokens`) is mapped onto the MEAI
+ `ChatResponse.Usage`, so the review audit and dashboard count this provider's token usage
+ like the API provider does — even though a Pro/Max subscription is not billed per token. If a
+ run reports no `usage`, the counts stay null (no fabricated zero).
+ 
+ ## Non-goals
+ 
+ - No Dockerfile changes here — `claude` is an environment precondition. Baking Node + the
+   CLI into the deployed image is a separate, later step.
+-- No agentic review (no repo access / tools / MCP), no streaming, no multi-turn sessions.
++- No agentic review by default (no repo access / tools / MCP), no streaming, no multi-turn
++  sessions — unless MCP tools are enabled via `Naudit:Review:Mcp` (see [MCP tools](mcp-tools.md)).
+ - Future hardening option: `claude --json-schema` for schema-validated structured output.
+diff --git a/docs/configuration.md b/docs/configuration.md
+index 7fdcbd3..b3d2866 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -105,35 +105,49 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
+ | `Naudit:Review:Gate:MinSeverity` | Lowest finding severity that can block the merge — `Info` \| `Low` \| `Medium` \| `High` \| `Critical` (default `High`) (see [Review gate](review-gate.md)) |
+ | `Naudit:Review:Gate:MinConfidence` | Lowest LLM confidence that can block the merge — `Low` \| `Medium` \| `High` (default `Medium`) |
+ | `Naudit:Review:Context:Enabled` | Enrich the prompt with surrounding code / usages / repo overview from the checkout — **default `true`** (see [Review context](review-context.md)) |
+ | `Naudit:Review:Context:MaxChars` | Character budget for the context section (default `40000`) |
+ | `Naudit:Review:Context:FullFileMaxLines` | Changed file ≤ this ⇒ whole file in context; larger ⇒ block excerpts (default `400`) |
+ | `Naudit:Review:Context:BlockPadLines` | ± fallback window around a hunk anchor when the block heuristic is too tight (default `30`) |
+ | `Naudit:Review:Context:UsageSnippetLines` | ± lines around each call-site (default `3`) |
+ | `Naudit:Review:Context:MaxUsagesPerSymbol` | Max call-sites shown per changed symbol (default `5`) |
+ | `Naudit:Review:Context:MaxTreeDepth` | Directory-tree depth in the overview (default `3`) |
+ | `Naudit:Review:Context:ReadmeMaxLines` | README head length in the overview (default `50`) |
++| `Naudit:Review:Mcp:Enabled` | Let the review LLM call MCP tools (Context7 live docs) — **default `false`**, byte-identical single-shot when off (see [MCP tools](mcp-tools.md)) |
++| `Naudit:Review:Mcp:MaxIterations` | Tool round-trip cap per review, both provider paths (default `4`) |
++| `Naudit:Review:Mcp:Servers:<n>:Name` / `:Transport` / `:Url` / `:Command` / `:Arguments` / `:ApiKey` | Configured MCP servers — env/appsettings-only, list-shaped like `ProjectTokens` (see [MCP tools](mcp-tools.md)) |
+ | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
+ | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
+ | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
+ | `Naudit:AccessGate:Mode` | `Open` (default) — every project with a valid webhook secret is reviewed \| `Registered` — only projects of active WebUI accounts (see [WebUI › Access model](webui.md#access-model)) |
+ | `Naudit:Db:Provider` | `Sqlite` (default) \| `Postgres` — persistence backend (same schema/migrations for both) — **bootstrap key, env-only** |
+ | `Naudit:Db:ConnectionString` | Connection string for the chosen backend — **bootstrap key, env-only**. App default `Data Source=data/naudit.db` (relative path, for the self-contained-binary case); the container image overrides this to `Data Source=/data/naudit.db` (mount a volume!) or Postgres `Host=…;Database=…;Username=…;Password=…` |
+ | `Naudit:Ui:Admin:Username` / `:InitialPassword` | Seed admin, created once on first start with an empty database (secret!) — env-only, not yet DB-managed |
+ | `Naudit:Ui:Admins` | Usernames that get the admin role on (external) sign-in — env-only, not yet DB-managed (list-shaped) |
+ | `Naudit:Ui:Auth:GitHub:Enabled` / `:ClientId` / `:ClientSecret` | GitHub-OAuth self-service sign-in (opt-in; secret!) |
+ | `Naudit:Ui:Auth:Oidc:Enabled` / `:Authority` / `:ClientId` / `:ClientSecret` | OIDC/Keycloak self-service sign-in (opt-in; secret!) |
+ 
+ > With `Naudit:GitHub:Auth = App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are
+ > **ignored** — every request uses a freshly minted GitHub App installation token instead. See
+ > [GitHub App setup](github-app.md) for creating the app, its permissions, and the install step.
+ 
++## MCP tools (review runtime)
++
++`Naudit:Review:Mcp:*` lets the review LLM call MCP tools (currently Context7, for live library
++docs) instead of judging the diff on training-cutoff knowledge alone. `Enabled` (default `false`)
++and `MaxIterations` (default `4`, the tool round-trip cap) are DB-manageable via the Settings page
++like most other keys; `Servers` is a list — like `ProjectTokens` — so it (including the per-server
++`ApiKey` secret) stays env-var/appsettings-only. Off by default, the review is byte-identical to
++today's single-shot; an unreachable server degrades to a tool-less review rather than failing it.
++See [MCP tools](mcp-tools.md) for the full config block and how the two AI-provider paths (MEAI vs.
++the ClaudeCode CLI) deliver the tools to the model.
++
+ ## Choosing an AI provider
+ 
+ Only the **configuration** changes, no code:
+ 
+ ```bash
+ # Ollama (local) — default, no API key
+ dotnet user-secrets set "Naudit:Ai:Provider" "Ollama"                  --project src/Naudit.Web
+ dotnet user-secrets set "Naudit:Ai:Model"    "llama3.1"               --project src/Naudit.Web
+ dotnet user-secrets set "Naudit:Ai:Endpoint" "http://localhost:11434" --project src/Naudit.Web
+ 
+diff --git a/docs/mcp-tools.md b/docs/mcp-tools.md
+new file mode 100644
+index 0000000..2f93df1
+--- /dev/null
++++ b/docs/mcp-tools.md
+@@ -0,0 +1,105 @@
++# MCP tools in the review runtime
++
++Naudit is now an **MCP client**: the reviewing LLM can call tools at review time, not just read
++the diff and static-analysis grounding it's handed. The first (and currently only) tool wired in
++is [Context7](https://context7.com) — live, up-to-date library documentation. When a diff uses an
++API from a fast-moving library, the model would otherwise judge it against training-cutoff
++knowledge alone and either miss real misuse or invent false positives against an API shape that
++has since changed. Context7 needs **no running target app**, which is why it's the first tool: it
++delivers value immediately and de-risks the agentic-loop plumbing for future, app-dependent tools.
++
++> Playwright/browser tooling and dynamic security testing (DAST) are separate, **future** slices
++> (they need a sandboxed App-Runner to build and run the changed code first). This feature is the
++> MCP-client plumbing plus Context7 only — no running-app tooling ships here.
++
++## Two provider paths, one config source
++
++Both paths read the same `Naudit:Review:Mcp` server list; they only differ in how the tools reach
++the model:
++
++| | MEAI providers (OpenAICompatible, Ollama, Anthropic-SDK) | ClaudeCode CLI |
++| --- | --- | --- |
++| Tool delivery | `ChatOptions.Tools`, built by `McpReviewToolProvider` (`src/Naudit.Infrastructure/Mcp/`) from the MCP SDK's `McpClientTool : AIFunction` | `--mcp-config <path>` — the server list as JSON, written to a **0600 temp file** (never argv, since it can carry the `ApiKey`) and deleted again after the CLI run |
++| Loop | `IChatClient.AsBuilder().UseFunctionInvocation()`, capped by `MaximumIterationsPerRequest` | `--max-turns N` (today's single-shot uses `1`) |
++| Tool allowance | implicit — whatever tools are in the request | `--allowedTools "mcp__<server>"` per configured server, **and nothing else** |
++
++For the MEAI providers, `AiClientFactory`'s client is wrapped with the MEAI function-invocation
++middleware only when MCP is enabled; `Naudit.Core`'s `IReviewToolProvider` (the only new Core
++abstraction — it returns MEAI `AITool`s, so Core stays MEAI-only) supplies the tool list via
++`McpReviewToolProvider`, which fans out to every configured server and aggregates their tools.
++
++For the ClaudeCode CLI, the tools don't travel through `ChatOptions.Tools` at all — the CLI is
++its own `IChatClient` that ignores it. Instead `ClaudeCodeChatClient` is handed the same
++`McpOptions` directly and builds `--mcp-config` + `--allowedTools` itself. Critically, the
++allowlist names **only** the configured MCP servers (`mcp__<server>`) — the CLI's built-in
++file/shell tools (Bash, Edit, Read, Write) stay off in both the MCP-on and MCP-off case. A review
++bot must not gain host shell/file access from untrusted diff context. Each configured server
++`Name` is validated against `^[A-Za-z0-9_-]+$` before it's used to build the allowlist string, so
++a stray space or special character in the config can't smuggle extra tokens into it. When MCP is
++disabled, the CLI args are byte-identical to before this feature (`--tools ""`, `--max-turns 1`).
++
++## Opt-in and fail-open
++
++- **Opt-in.** `Naudit:Review:Mcp:Enabled=false` is the default: `chatOptions.Tools` stays null (no
++  MEAI wrapping happens), the CLI args are unchanged, and the review is exactly today's
++  byte-identical single-shot.
++- **Fail-open.** A configured server that's unreachable (startup or first use) is caught, logged,
++  and dropped — the review runs **tool-less**, the same way a failed SAST checkout degrades to a
++  diff-only review. A successful tool list is cached for the process lifetime (server host is
++  fixed, the tool catalog is stable); an empty result is **not** cached, so the next review retries
++  a server that has since come back up.
++- **Tool errors mid-review** (MEAI path) surface to the model as a tool result via the
++  function-invocation middleware; the model proceeds and a review is still produced.
++
++## Configuration
++
++```jsonc
++"Naudit": {
++  "Review": {
++    "Mcp": {
++      "Enabled": false,          // opt-in master switch — default off, byte-identical single-shot
++      "MaxIterations": 4,        // tool round-trip cap per review, both provider paths
++      "Servers": [
++        {
++          "Name": "context7",              // ^[A-Za-z0-9_-]+$ — used verbatim in the CLI allowlist
++          "Transport": "http",             // "http" | "stdio"
++          "Url": "https://mcp.context7.com/mcp",  // http transport
++          "ApiKey": "YOUR_CONTEXT7_KEY"     // optional secret; sent as an Authorization: Bearer header
++          // "Command": "npx",              // stdio transport instead of Url
++          // "Arguments": ["-y", "some-mcp-server"]
++        }
++      ]
++    }
++  }
++}
++```
++
++- `Enabled` and `MaxIterations` are plain scalars in `SettingsCatalog` — **DB-manageable** via the
++  WebUI Settings page like most other `Naudit:*` keys (see
++  [Configuration › Where configuration lives](configuration.md#where-configuration-lives)).
++- `Servers` is a **list**, so — following the `ProjectTokens`/`Ui:Admins` precedent — it stays
++  env-var/appsettings-only rather than a DB-managed catalog entry, including the per-server
++  `ApiKey`. Set it via user-secrets, environment variables, or your deployment's secret
++  management, never in `appsettings.json`.
++- Context7's exact expected auth header may evolve; `ApiKey`, when set, is sent as
++  `Authorization: Bearer <ApiKey>` on the http transport (and merged into the `--mcp-config` JSON
++  as a `headers` entry for the CLI path). Context7 also works without a key at a lower rate limit.
++
++## Iteration cap
++
++`MaxIterations` bounds how many tool round-trips a single review may make (MEAI:
++`MaximumIterationsPerRequest`; CLI: `--max-turns`) before the model is asked for its final answer.
++The agentic loop is token- and latency-expensive compared to today's one-shot call, so both paths
++share the same cap — a review always completes, it just stops calling tools once the budget is
++spent.
++
++## Extending
++
++The seam is `Naudit.Core.Abstractions.IReviewToolProvider` (returns MEAI `AITool`s; the default
++`NullReviewToolProvider` returns none, keeping non-MCP deployments untouched). The MCP-specific
++wiring — `McpOptions`, `IMcpToolConnector`/`McpClientToolConnector` (the real `ModelContextProtocol`
++SDK connection), and `McpReviewToolProvider` — lives entirely in
++`src/Naudit.Infrastructure/Mcp/`; Core never references the `ModelContextProtocol` package. A
++future tool (or a future App-Runner-backed Playwright/DAST slice) is another server entry plus, if
++it needs more than MCP gives for free, another `IReviewToolProvider`/`IMcpToolConnector`
++implementation — not a change to `Naudit.Core`.
+diff --git a/docs/superpowers/plans/2026-07-11-mcp-context7-review.md b/docs/superpowers/plans/2026-07-11-mcp-context7-review.md
+new file mode 100644
+index 0000000..eb2e179
+--- /dev/null
++++ b/docs/superpowers/plans/2026-07-11-mcp-context7-review.md
+@@ -0,0 +1,1201 @@
++# MCP tools in the review runtime (Context7) — Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Make Naudit an MCP client so the review LLM can call tools at review time, and land the first tool — Context7 (live library docs) — behind an opt-in, fail-open switch, without breaking the Core rule.
++
++**Architecture:** A new Core abstraction `IReviewToolProvider` returns MEAI `AITool`s; `ReviewService` sets `chatOptions.Tools` from it. Two provider paths share one config: MEAI providers get tools via `ChatOptions.Tools` + a `UseFunctionInvocation` loop; the ClaudeCode CLI gets them via `--mcp-config` + a MCP-only `--allowedTools` allowlist. Everything is off by default and degrades to today's single-shot when a server is unreachable.
++
++**Tech Stack:** .NET 10, Microsoft.Extensions.AI 10.7.0 (`AsBuilder`/`UseFunctionInvocation`/`FunctionInvokingChatClient.MaximumIterationsPerRequest`), ModelContextProtocol.Core 1.4.1 (`McpClient.CreateAsync`, `HttpClientTransport`, `StdioClientTransport`, `McpClientTool : AIFunction`), xUnit.
++
++## Global Constraints
++
++- **Branch base is `main`** (feature branch `feat/mcp-context7`). The author-sessions `IAiClientRouter` seam is **not** on this base — `ReviewService` takes `IChatClient chatClient` directly and calls `chatClient.GetResponseAsync(...)`. Do not introduce or assume a router.
++- **Solution file is `Naudit.slnx`** (XML solution). `dotnet test Naudit.sln` fails with MSB1009 — always use `Naudit.slnx`.
++- **Core rule:** `Naudit.Core` depends only on `Microsoft.Extensions.AI.Abstractions`. `AITool`/`AIFunction`/`ChatOptions`/`ChatMessage` live in that package and are allowed; the `ModelContextProtocol.*` SDK must **not** be referenced from Core.
++- **Code comments are in German; docs/ are in English.**
++- **MEAI/MCP member names are version-sensitive.** A missing-member build error at these spots means a package-version mismatch, not a logic bug.
++- **Opt-in, fail-open:** with `Naudit:Review:Mcp:Enabled=false` the request/CLI args must be byte-identical to today. An unreachable server or tool error must never fail a review.
++- **Commit after every task.** German commit messages, following the repo style. End commit bodies with the two trailer lines used by this repo (`Co-Authored-By:` and `Claude-Session:`).
++
++---
++
++## File Structure
++
++**Create:**
++- `src/Naudit.Core/Abstractions/IReviewToolProvider.cs` — Core seam + `NullReviewToolProvider` (no-op default).
++- `src/Naudit.Infrastructure/Mcp/McpOptions.cs` — `McpOptions` + `McpServerConfig` (binds `Naudit:Review:Mcp`).
++- `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs` — internal per-server connector seam.
++- `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs` — orchestration: aggregate servers, fail-open, cache.
++- `src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs` — real MCP SDK wiring (manual-E2E only).
++- `tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs` — returns a fixed tool list.
++- `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs` — per-server fake (returns tools or throws).
++- `tests/Naudit.Tests/McpReviewToolProviderTests.cs` — orchestration/fail-open/cache tests.
++- `docs/mcp-tools.md` — feature doc.
++
++**Modify:**
++- `src/Naudit.Core/Review/ReviewService.cs` — inject `IReviewToolProvider`, set `chatOptions.Tools`, pass `hasTools` to `PromptBuilder`.
++- `src/Naudit.Core/Review/PromtBuilder.cs` — `toolsAvailable` param + guidance block.
++- `src/Naudit.Infrastructure/Ai/AiClientFactory.cs` — `Create(AiOptions, McpOptions?)`, pass MCP to ClaudeCode.
++- `src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs` — accept `McpOptions`, emit `--mcp-config`/`--allowedTools`/`--max-turns` when enabled.
++- `src/Naudit.Infrastructure/DependencyInjection.cs` — bind `McpOptions`, register the right `IReviewToolProvider`, wrap the MEAI client with `UseFunctionInvocation`.
++- `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs` — two scalar entries.
++- `src/Naudit.Infrastructure/Naudit.Infrastructure.csproj` — add `ModelContextProtocol.Core` package.
++- `tests/Naudit.Tests/Fakes/FakeChatClient.cs` — capture `LastOptions`.
++- `tests/Naudit.Tests/ReviewServiceTests.cs` — helper + new tests.
++- `tests/Naudit.Tests/PromtBuilderTests.cs` — guidance-block tests.
++- `tests/Naudit.Tests/ClaudeCodeChatClientTests.cs` — CLI-path tests.
++- `docs/configuration.md` — MCP section link.
++
++---
++
++## Task 1: Core tool seam + ReviewService wiring (behavior unchanged)
++
++**Files:**
++- Create: `src/Naudit.Core/Abstractions/IReviewToolProvider.cs`
++- Modify: `src/Naudit.Core/Review/ReviewService.cs`
++- Modify: `src/Naudit.Infrastructure/DependencyInjection.cs`
++- Modify: `tests/Naudit.Tests/Fakes/FakeChatClient.cs`
++- Create: `tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs`
++- Modify: `tests/Naudit.Tests/ReviewServiceTests.cs`
++
++**Interfaces:**
++- Produces: `IReviewToolProvider.GetToolsAsync(ReviewRequest, CancellationToken) → Task<IReadOnlyList<AITool>>`; `NullReviewToolProvider` (returns `[]`). `ReviewService` primary ctor gains a trailing `IReviewToolProvider toolProvider` parameter.
++
++- [ ] **Step 1: Extend `FakeChatClient` to capture the options**
++
++In `tests/Naudit.Tests/Fakes/FakeChatClient.cs`, add a property and set it in `GetResponseAsync`:
++
++```csharp
++public List<ChatMessage>? LastMessages { get; private set; }
++public ChatOptions? LastOptions { get; private set; }
++
++public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
++{
++    LastMessages = messages.ToList();
++    LastOptions = options;
++    return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText)));
++}
++```
++
++- [ ] **Step 2: Add the fake tool provider**
++
++Create `tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++using Naudit.Core.Abstractions;
++using Naudit.Core.Models;
++
++namespace Naudit.Tests.Fakes;
++
++// Liefert eine feste Tool-Liste — für ReviewService-Tests (kein echter MCP-Server nötig).
++internal sealed class FakeReviewToolProvider(params AITool[] tools) : IReviewToolProvider
++{
++    public Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++        => Task.FromResult<IReadOnlyList<AITool>>(tools);
++}
++```
++
++- [ ] **Step 3: Write the failing tests**
++
++In `tests/Naudit.Tests/ReviewServiceTests.cs`, first update the `CreateService` helper to accept and default the new dependency (add the parameter and pass it last to the ctor):
++
++```csharp
++    private static ReviewService CreateService(
++        Microsoft.Extensions.AI.IChatClient chat,
++        Naudit.Core.Abstractions.IGitPlatform git,
++        ReviewOptions options,
++        IEnumerable<ISastAnalyzer>? analyzers = null,
++        FakeWorkspaceProvider? workspace = null,
++        IPromptRedactor? redactor = null,
++        IContextCollector? contextCollector = null,
++        IReviewToolProvider? toolProvider = null)
++        => new(chat, git, options,
++            workspace ?? new FakeWorkspaceProvider(),
++            analyzers ?? Array.Empty<ISastAnalyzer>(),
++            new FakeFindingReducer(),
++            redactor ?? new NullPromptRedactor(),
++            contextCollector ?? new FakeContextCollector(),
++            new FakeReviewAuditSink(),
++            toolProvider ?? new NullReviewToolProvider());
++```
++
++Then add two tests:
++
++```csharp
++    [Fact]
++    public async Task ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull()
++    {
++        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
++        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
++
++        await service.ReviewAsync(Request);
++
++        Assert.Null(chat.LastOptions!.Tools);   // Feature aus ⇒ identischer Single-Shot
++    }
++
++    [Fact]
++    public async Task ReviewAsync_withTools_populatesChatOptionsTools()
++    {
++        var tool = Microsoft.Extensions.AI.AIFunctionFactory.Create(() => "doc", "get_docs");
++        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
++        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
++            toolProvider: new FakeReviewToolProvider(tool));
++
++        await service.ReviewAsync(Request);
++
++        Assert.NotNull(chat.LastOptions!.Tools);
++        Assert.Single(chat.LastOptions.Tools!);
++        Assert.Equal("get_docs", chat.LastOptions.Tools![0].Name);
++    }
++```
++
++- [ ] **Step 4: Run tests to verify they fail**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ReviewServiceTests"`
++Expected: BUILD FAIL — `IReviewToolProvider` / `NullReviewToolProvider` do not exist yet.
++
++- [ ] **Step 5: Create the Core seam**
++
++Create `src/Naudit.Core/Abstractions/IReviewToolProvider.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++using Naudit.Core.Models;
++
++namespace Naudit.Core.Abstractions;
++
++/// <summary>Liefert die Tools, die dem LLM für diesen Review angeboten werden (leer = keine).
++/// MEAI-Abstraktion AITool ist erlaubt; das Bauen aus MCP-Servern passiert in Infrastructure.</summary>
++public interface IReviewToolProvider
++{
++    Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default);
++}
++
++/// <summary>Default ohne MCP: keine Tools — identischer Single-Shot wie heute.</summary>
++public sealed class NullReviewToolProvider : IReviewToolProvider
++{
++    public Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++        => Task.FromResult<IReadOnlyList<AITool>>([]);
++}
++```
++
++- [ ] **Step 6: Wire it into `ReviewService`**
++
++In `src/Naudit.Core/Review/ReviewService.cs`, add the ctor parameter (append after `auditSink`):
++
++```csharp
++    IContextCollector contextCollector,
++    IReviewAuditSink auditSink,
++    IReviewToolProvider toolProvider)
++```
++
++Then set the tools right before the chat call. Replace:
++
++```csharp
++        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++        var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
++```
++
++with:
++
++```csharp
++        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
++        // über den Function-Invocation-Wrapper des Clients (Infrastructure).
++        var tools = await toolProvider.GetToolsAsync(request, ct);
++        if (tools.Count > 0)
++            chatOptions.Tools = [.. tools];
++
++        var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
++```
++
++- [ ] **Step 7: Register the default in DI**
++
++In `src/Naudit.Infrastructure/DependencyInjection.cs`, immediately after the `services.AddSingleton(aiOptions);` line (which follows the `AddSingleton<IChatClient>` registration), add:
++
++```csharp
++        // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
++        services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
++```
++
++- [ ] **Step 8: Run tests to verify they pass**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ReviewServiceTests"`
++Expected: PASS (all existing ReviewServiceTests + the two new ones).
++
++- [ ] **Step 9: Commit**
++
++```bash
++git add src/Naudit.Core/Abstractions/IReviewToolProvider.cs src/Naudit.Core/Review/ReviewService.cs \
++        src/Naudit.Infrastructure/DependencyInjection.cs tests/Naudit.Tests/Fakes/FakeChatClient.cs \
++        tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs tests/Naudit.Tests/ReviewServiceTests.cs
++git commit -m "feat(review): IReviewToolProvider-Naht — ChatOptions.Tools aus Core (No-Op-Default)"
++```
++
++---
++
++## Task 2: PromptBuilder tool-guidance block
++
++**Files:**
++- Modify: `src/Naudit.Core/Review/PromtBuilder.cs`
++- Modify: `src/Naudit.Core/Review/ReviewService.cs`
++- Modify: `tests/Naudit.Tests/PromtBuilderTests.cs`
++
++**Interfaces:**
++- Consumes: nothing new.
++- Produces: `PromptBuilder.Build(string, ReviewRequest, IReadOnlyList<CodeChange>, IReadOnlyList<ScanFinding>?, ReviewContext?, bool toolsAvailable = false)` — new trailing optional param.
++
++- [ ] **Step 1: Write the failing tests**
++
++In `tests/Naudit.Tests/PromtBuilderTests.cs`, add:
++
++```csharp
++    [Fact]
++    public void Build_withoutTools_hasNoToolGuidance()
++    {
++        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
++            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++
++        Assert.DoesNotContain("Tools available", msgs[1].Text);
++    }
++
++    [Fact]
++    public void Build_withTools_rendersToolGuidance()
++    {
++        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
++            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")],
++            findings: null, context: null, toolsAvailable: true);
++
++        Assert.Contains("Tools available", msgs[1].Text);
++        Assert.Contains("documentation", msgs[1].Text);
++    }
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~PromtBuilderTests"`
++Expected: BUILD FAIL — `Build` has no `toolsAvailable` parameter.
++
++- [ ] **Step 3: Add the parameter and guidance block**
++
++In `src/Naudit.Core/Review/PromtBuilder.cs`, change the `Build` signature:
++
++```csharp
++    public static IList<ChatMessage> Build(
++        string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
++        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
++        bool toolsAvailable = false)
++```
++
++Then, inside `Build`, after `AppendFindings(sb, findings ?? []);` and before the `return`, add:
++
++```csharp
++        AppendToolGuidance(sb, toolsAvailable);
++```
++
++And add the helper method (below `AppendFindings`):
++
++```csharp
++    // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
++    // Ohne Hinweis ruft das Modell das Tool nie oder ständig — beides verbrennt Budget.
++    private static void AppendToolGuidance(StringBuilder sb, bool toolsAvailable)
++    {
++        if (!toolsAvailable)
++            return;
++        sb.AppendLine();
++        sb.AppendLine("# Tools available");
++        sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
++            "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
++            "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
++    }
++```
++
++- [ ] **Step 4: Pass the flag from `ReviewService`**
++
++In `src/Naudit.Core/Review/ReviewService.cs`, the tool fetch now happens before `PromptBuilder.Build`. Move the tool fetch above the `messages` line and pass `hasTools`. Replace this block:
++
++```csharp
++        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
++
++        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
++        // über den Function-Invocation-Wrapper des Clients (Infrastructure).
++        var tools = await toolProvider.GetToolsAsync(request, ct);
++        if (tools.Count > 0)
++            chatOptions.Tools = [.. tools];
++```
++
++with:
++
++```csharp
++        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
++        // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
++        var tools = await toolProvider.GetToolsAsync(request, ct);
++        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
++            toolsAvailable: tools.Count > 0);
++
++        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++        if (tools.Count > 0)
++            chatOptions.Tools = [.. tools];
++```
++
++- [ ] **Step 5: Run tests to verify they pass**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~PromtBuilderTests|FullyQualifiedName~ReviewServiceTests"`
++Expected: PASS.
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add src/Naudit.Core/Review/PromtBuilder.cs src/Naudit.Core/Review/ReviewService.cs tests/Naudit.Tests/PromtBuilderTests.cs
++git commit -m "feat(review): Prompt-Guidance fürs Docs-Werkzeug (nur wenn Tools angeboten)"
++```
++
++---
++
++## Task 3: `McpOptions` config binding + SettingsCatalog entries
++
++**Files:**
++- Create: `src/Naudit.Infrastructure/Mcp/McpOptions.cs`
++- Modify: `src/Naudit.Infrastructure/DependencyInjection.cs`
++- Modify: `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs`
++- Modify: `tests/Naudit.Tests/` — add `McpOptionsTests.cs`
++
++**Interfaces:**
++- Produces: `McpOptions { bool Enabled; int MaxIterations; List<McpServerConfig> Servers }`; `McpServerConfig { string Name; string Transport; string? Url; string? Command; List<string>? Arguments; string? ApiKey }`. Registered as a singleton `McpOptions` in DI.
++
++- [ ] **Step 1: Write the failing test**
++
++Create `tests/Naudit.Tests/McpOptionsTests.cs`:
++
++```csharp
++using Microsoft.Extensions.Configuration;
++using Naudit.Infrastructure.Mcp;
++using Naudit.Infrastructure.Settings;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpOptionsTests
++{
++    [Fact]
++    public void Binds_enabled_iterations_and_serverList()
++    {
++        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
++        {
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:MaxIterations"] = "6",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Transport"] = "http",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++            ["Naudit:Review:Mcp:Servers:0:ApiKey"] = "sk-123",
++        }).Build();
++
++        var opts = config.GetSection("Naudit:Review:Mcp").Get<McpOptions>()!;
++
++        Assert.True(opts.Enabled);
++        Assert.Equal(6, opts.MaxIterations);
++        var server = Assert.Single(opts.Servers);
++        Assert.Equal("context7", server.Name);
++        Assert.Equal("https://mcp.context7.com/mcp", server.Url);
++        Assert.Equal("sk-123", server.ApiKey);
++    }
++
++    [Fact]
++    public void Catalog_hasEnabledAndMaxIterationsScalars()
++    {
++        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Mcp:Enabled", out _));
++        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Mcp:MaxIterations", out _));
++    }
++}
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~McpOptionsTests"`
++Expected: BUILD FAIL — `McpOptions` does not exist.
++
++- [ ] **Step 3: Create `McpOptions`**
++
++Create `src/Naudit.Infrastructure/Mcp/McpOptions.cs`:
++
++```csharp
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Naudit:Review:Mcp — MCP-Tools in der Review-Runtime. Enabled=false ⇒ heutiger Single-Shot.</summary>
++public sealed class McpOptions
++{
++    /// <summary>Master-Schalter. Aus ⇒ keine Tools, kein Function-Invocation-Loop.</summary>
++    public bool Enabled { get; set; }
++
++    /// <summary>Obergrenze der Tool-Runden pro Review (Token-/Latenz-Schutz). Beide Provider-Pfade.</summary>
++    public int MaxIterations { get; set; } = 4;
++
++    /// <summary>Konfigurierte MCP-Server (Liste ⇒ env-/appsettings-geformt, wie ProjectTokens).</summary>
++    public List<McpServerConfig> Servers { get; set; } = new();
++}
++
++/// <summary>Ein MCP-Server. Transport "http" (Url) oder "stdio" (Command/Arguments).
++/// ApiKey (Secret) wird bei http als Authorization-Bearer-Header gesetzt.</summary>
++public sealed class McpServerConfig
++{
++    public string Name { get; set; } = "";
++    public string Transport { get; set; } = "http";
++    public string? Url { get; set; }
++    public string? Command { get; set; }
++    public List<string>? Arguments { get; set; }
++    public string? ApiKey { get; set; }
++}
++```
++
++- [ ] **Step 4: Bind it in DI**
++
++In `src/Naudit.Infrastructure/DependencyInjection.cs`, bind `mcpOptions` **immediately after** `var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();` and **before** the `services.AddSingleton<IChatClient>(...)` line — so Tasks 5–6 (which change that registration) can use it:
++
++```csharp
++        // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
++        // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
++        var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
++        services.AddSingleton(mcpOptions);
++```
++
++Add the using at the top of the file if not present:
++
++```csharp
++using Naudit.Infrastructure.Mcp;
++```
++
++- [ ] **Step 5: Add the two scalar catalog entries**
++
++In `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs`, add to the `All` list after the `Naudit:Review:Gate:MinConfidence` entry:
++
++```csharp
++        new("Naudit:Review:Mcp:Enabled", false),
++        new("Naudit:Review:Mcp:MaxIterations", false),
++```
++
++(The per-server `Servers:*` keys — including `ApiKey` — stay env-only, following the `ProjectTokens`/`Ui:Admins` list-shaped precedent noted in the catalog's own comment.)
++
++- [ ] **Step 6: Run test to verify it passes**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~McpOptionsTests"`
++Expected: PASS.
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add src/Naudit.Infrastructure/Mcp/McpOptions.cs src/Naudit.Infrastructure/DependencyInjection.cs \
++        src/Naudit.Infrastructure/Settings/SettingsCatalog.cs tests/Naudit.Tests/McpOptionsTests.cs
++git commit -m "feat(mcp): McpOptions binden (Naudit:Review:Mcp) + Settings-Katalog-Scalars"
++```
++
++---
++
++## Task 4: `McpReviewToolProvider` orchestration (fail-open + cache)
++
++**Files:**
++- Create: `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs`
++- Create: `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs`
++- Create: `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs`
++- Create: `tests/Naudit.Tests/McpReviewToolProviderTests.cs`
++
++**Interfaces:**
++- Consumes: `McpOptions`, `McpServerConfig` (Task 3); `IReviewToolProvider` (Task 1).
++- Produces: `IMcpToolConnector.ConnectAndListAsync(McpServerConfig, CancellationToken) → Task<IReadOnlyList<AITool>>`; `McpReviewToolProvider(McpOptions, IMcpToolConnector, ILogger<McpReviewToolProvider>)`.
++
++- [ ] **Step 1: Add the connector seam and the fake**
++
++Create `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Verbindet EINEN MCP-Server und listet dessen Tools als MEAI-AITool. Seam, damit
++/// McpReviewToolProvider ohne echten Server getestet wird (echte Impl: McpClientToolConnector).</summary>
++public interface IMcpToolConnector
++{
++    Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default);
++}
++```
++
++Create `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++using Naudit.Infrastructure.Mcp;
++
++namespace Naudit.Tests.Fakes;
++
++// Pro Server-Name: entweder eine Tool-Liste oder eine Exception (für Fail-open-Tests). Zählt Aufrufe.
++internal sealed class FakeMcpToolConnector : IMcpToolConnector
++{
++    private readonly Dictionary<string, Func<IReadOnlyList<AITool>>> _byServer = new();
++    public int CallCount { get; private set; }
++
++    public FakeMcpToolConnector Returns(string server, params AITool[] tools)
++    {
++        _byServer[server] = () => tools;
++        return this;
++    }
++
++    public FakeMcpToolConnector Throws(string server)
++    {
++        _byServer[server] = () => throw new InvalidOperationException($"boom:{server}");
++        return this;
++    }
++
++    public Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default)
++    {
++        CallCount++;
++        if (_byServer.TryGetValue(server.Name, out var f))
++            return Task.FromResult(f());
++        return Task.FromResult<IReadOnlyList<AITool>>([]);
++    }
++}
++```
++
++- [ ] **Step 2: Write the failing tests**
++
++Create `tests/Naudit.Tests/McpReviewToolProviderTests.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++using Microsoft.Extensions.Logging.Abstractions;
++using Naudit.Core.Models;
++using Naudit.Infrastructure.Mcp;
++using Naudit.Tests.Fakes;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpReviewToolProviderTests
++{
++    private static readonly ReviewRequest Request = new("1", 1, "T");
++
++    private static McpServerConfig Server(string name) => new() { Name = name, Transport = "http", Url = "http://x" };
++    private static AITool Tool(string name) => AIFunctionFactory.Create(() => "r", name);
++
++    private static McpReviewToolProvider Provider(McpOptions opts, IMcpToolConnector connector)
++        => new(opts, connector, NullLogger<McpReviewToolProvider>.Instance);
++
++    [Fact]
++    public async Task Disabled_returnsEmpty_andNeverCallsConnector()
++    {
++        var connector = new FakeMcpToolConnector().Returns("a", Tool("t"));
++        var opts = new McpOptions { Enabled = false, Servers = { Server("a") } };
++
++        var tools = await Provider(opts, connector).GetToolsAsync(Request);
++
++        Assert.Empty(tools);
++        Assert.Equal(0, connector.CallCount);
++    }
++
++    [Fact]
++    public async Task Aggregates_toolsFromAllServers()
++    {
++        var connector = new FakeMcpToolConnector().Returns("a", Tool("t1")).Returns("b", Tool("t2"));
++        var opts = new McpOptions { Enabled = true, Servers = { Server("a"), Server("b") } };
++
++        var tools = await Provider(opts, connector).GetToolsAsync(Request);
++
++        Assert.Equal(2, tools.Count);
++    }
++
++    [Fact]
++    public async Task FailingServer_isSkipped_othersStillReturn()
++    {
++        var connector = new FakeMcpToolConnector().Throws("a").Returns("b", Tool("t2"));
++        var opts = new McpOptions { Enabled = true, Servers = { Server("a"), Server("b") } };
++
++        var tools = await Provider(opts, connector).GetToolsAsync(Request);
++
++        var tool = Assert.Single(tools);
++        Assert.Equal("t2", tool.Name);
++    }
++
++    [Fact]
++    public async Task Caches_nonEmptyResult_acrossCalls()
++    {
++        var connector = new FakeMcpToolConnector().Returns("a", Tool("t1"));
++        var opts = new McpOptions { Enabled = true, Servers = { Server("a") } };
++        var provider = Provider(opts, connector);
++
++        await provider.GetToolsAsync(Request);
++        await provider.GetToolsAsync(Request);
++
++        Assert.Equal(1, connector.CallCount);   // zweiter Review nutzt den Cache
++    }
++}
++```
++
++- [ ] **Step 3: Run tests to verify they fail**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~McpReviewToolProviderTests"`
++Expected: BUILD FAIL — `McpReviewToolProvider` does not exist.
++
++- [ ] **Step 4: Implement the provider**
++
++Create `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++using Microsoft.Extensions.Logging;
++using Naudit.Core.Abstractions;
++using Naudit.Core.Models;
++
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Baut die MEAI-Tools aus den konfigurierten MCP-Servern. Fail-open: ein nicht
++/// erreichbarer Server ⇒ dieser Server fällt weg, der Review läuft (tool-los) weiter — wie ein
++/// fehlgeschlagener SAST-Checkout → diff-only. Erfolgreiche Tool-Liste wird für die Prozesslaufzeit
++/// gecacht (Server-Host fix, Katalog stabil); ein leeres Ergebnis wird NICHT gecacht (nächster
++/// Review versucht erneut, damit ein zwischenzeitlich erreichbarer Server aufgenommen wird).</summary>
++public sealed class McpReviewToolProvider(
++    McpOptions options, IMcpToolConnector connector, ILogger<McpReviewToolProvider> logger) : IReviewToolProvider
++{
++    private readonly SemaphoreSlim _gate = new(1, 1);
++    private IReadOnlyList<AITool>? _cached;
++
++    public async Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++    {
++        if (!options.Enabled || options.Servers.Count == 0)
++            return [];
++
++        if (_cached is { Count: > 0 })
++            return _cached;
++
++        await _gate.WaitAsync(ct);
++        try
++        {
++            if (_cached is { Count: > 0 })
++                return _cached;
++
++            var tools = new List<AITool>();
++            foreach (var server in options.Servers)
++            {
++                try
++                {
++                    tools.AddRange(await connector.ConnectAndListAsync(server, ct));
++                }
++                catch (Exception ex) when (!ct.IsCancellationRequested)
++                {
++                    logger.LogWarning(ex, "MCP-Server {Server} nicht erreichbar — Review läuft ohne dessen Tools.", server.Name);
++                }
++            }
++
++            if (tools.Count > 0)
++                _cached = tools;   // nur Erfolg cachen
++            return tools;
++        }
++        finally
++        {
++            _gate.Release();
++        }
++    }
++}
++```
++
++- [ ] **Step 5: Run tests to verify they pass**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~McpReviewToolProviderTests"`
++Expected: PASS (all four).
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs \
++        tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs tests/Naudit.Tests/McpReviewToolProviderTests.cs
++git commit -m "feat(mcp): McpReviewToolProvider — Server aggregieren, fail-open, cachen"
++```
++
++---
++
++## Task 5: ClaudeCode CLI path (`--mcp-config` / `--allowedTools` / `--max-turns`)
++
++**Files:**
++- Modify: `src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs`
++- Modify: `src/Naudit.Infrastructure/Ai/AiClientFactory.cs`
++- Modify: `src/Naudit.Infrastructure/DependencyInjection.cs`
++- Modify: `tests/Naudit.Tests/ClaudeCodeChatClientTests.cs`
++
++**Interfaces:**
++- Consumes: `McpOptions` (Task 3).
++- Produces: `AiClientFactory.Create(AiOptions, McpOptions?)`; `ClaudeCodeChatClient(AiOptions, IProcessRunner, McpOptions?)`.
++
++- [ ] **Step 1: Write the failing tests**
++
++In `tests/Naudit.Tests/ClaudeCodeChatClientTests.cs`, add a small helper and three tests. The `Client` helper currently builds a client without `McpOptions`; add an overload path — the client's third ctor arg is the new `McpOptions?` (null = today's behaviour):
++
++```csharp
++    [Fact]
++    public async Task GetResponseAsync_mcpDisabled_keepsTodaysArgs()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub,
++            new Naudit.Infrastructure.Mcp.McpOptions { Enabled = false });
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);
++        Assert.Equal("", args[args.IndexOf("--tools") + 1]);   // Tools aus
++        Assert.DoesNotContain("--mcp-config", args);
++        Assert.DoesNotContain("--allowedTools", args);
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpEnabled_addsMcpConfig_allowlist_andRaisesMaxTurns()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            MaxIterations = 5,
++            Servers =
++            {
++                new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-1" },
++            },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        Assert.Equal("5", args[args.IndexOf("--max-turns") + 1]);         // Loop erlaubt
++        Assert.Contains("--mcp-config", args);
++        Assert.Contains("--allowedTools", args);
++        // Allowlist enthält NUR das MCP-Tool des Servers — kein Bash/Edit/Read.
++        var allow = args[args.IndexOf("--allowedTools") + 1];
++        Assert.Contains("mcp__context7", allow);
++        Assert.DoesNotContain("Bash", allow);
++        Assert.DoesNotContain("Edit", allow);
++        Assert.DoesNotContain("Read", allow);
++        Assert.DoesNotContain("--tools", args);   // ersetzt durch die Allowlist
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpEnabled_mcpConfigJson_containsServerUrl()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        var json = args[args.IndexOf("--mcp-config") + 1];
++        Assert.Contains("context7", json);
++        Assert.Contains("https://mcp.context7.com/mcp", json);
++    }
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ClaudeCodeChatClientTests"`
++Expected: BUILD FAIL — the 3-arg `ClaudeCodeChatClient` ctor does not exist.
++
++- [ ] **Step 3: Add the MCP branch to `ClaudeCodeChatClient`**
++
++In `src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs`, add the using:
++
++```csharp
++using Naudit.Infrastructure.Mcp;
++```
++
++Change the primary constructor to accept optional `McpOptions`:
++
++```csharp
++public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
++```
++
++Replace the args-building block. Current:
++
++```csharp
++        var args = new List<string>
++        {
++            "-p", "--output-format", "json", "--max-turns", "1", "--tools", "", "--model", model,
++        };
++```
++
++with:
++
++```csharp
++        // MCP an ⇒ Loop erlauben (--max-turns N), Server registrieren (--mcp-config) und AUSSCHLIESSLICH
++        // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
++        // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
++        var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
++        var args = new List<string> { "-p", "--output-format", "json", "--model", model };
++        if (mcpEnabled)
++        {
++            args.Add("--max-turns");
++            args.Add(mcp!.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
++            args.Add("--mcp-config");
++            args.Add(BuildMcpConfigJson(mcp));
++            args.Add("--allowedTools");
++            args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
++        }
++        else
++        {
++            args.Add("--max-turns");
++            args.Add("1");
++            args.Add("--tools");
++            args.Add("");   // Tools aus (heutiges Verhalten)
++        }
++```
++
++Add the helper method (place it near `StripJsonFences`), building the Claude Code `--mcp-config` shape (`{"mcpServers":{ "<name>": { ... } }}`):
++
++```csharp
++    // Baut das Claude-Code --mcp-config-JSON aus der geteilten McpOptions-Config.
++    // http ⇒ { "type":"http", "url":..., "headers": { "Authorization":"Bearer <key>" } };
++    // stdio ⇒ { "command":..., "args":[...] }.
++    private static string BuildMcpConfigJson(McpOptions mcp)
++    {
++        var servers = new Dictionary<string, object>();
++        foreach (var s in mcp.Servers)
++        {
++            if (string.Equals(s.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
++            {
++                servers[s.Name] = new Dictionary<string, object?>
++                {
++                    ["command"] = s.Command,
++                    ["args"] = s.Arguments ?? new List<string>(),
++                };
++            }
++            else
++            {
++                var entry = new Dictionary<string, object?> { ["type"] = "http", ["url"] = s.Url };
++                if (!string.IsNullOrWhiteSpace(s.ApiKey))
++                    entry["headers"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {s.ApiKey}" };
++                servers[s.Name] = entry;
++            }
++        }
++        return JsonSerializer.Serialize(new Dictionary<string, object> { ["mcpServers"] = servers });
++    }
++```
++
++- [ ] **Step 4: Thread `McpOptions` through `AiClientFactory`**
++
++In `src/Naudit.Infrastructure/Ai/AiClientFactory.cs`, add the using:
++
++```csharp
++using Naudit.Infrastructure.Mcp;
++```
++
++Change the signature and the ClaudeCode case:
++
++```csharp
++    public static IChatClient Create(AiOptions options, McpOptions? mcp = null)
++```
++
++```csharp
++            case AiProvider.ClaudeCode:
++                // Kein RequireApiKey: die CLI authentifiziert über die Umgebung (Abo statt Key).
++                // MCP-Config wird an den CLI-Client durchgereicht (CLI-natives MCP, nicht ChatOptions.Tools).
++                return new ClaudeCodeChatClient(options, new SystemProcessRunner(), mcp);
++```
++
++- [ ] **Step 5: Pass `mcpOptions` at the DI call site**
++
++In `src/Naudit.Infrastructure/DependencyInjection.cs`, `mcpOptions` is already bound just above this registration (Task 3, Step 4). Change the `IChatClient` registration from:
++
++```csharp
++        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
++```
++
++to:
++
++```csharp
++        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions, mcpOptions));
++```
++
++(Task 6 replaces this lambda again to add the function-invocation wrapper.)
++
++- [ ] **Step 6: Run tests to verify they pass**
++
++Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ClaudeCodeChatClientTests"`
++Expected: PASS (existing arg tests still green because MCP defaults to off; three new tests pass).
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs src/Naudit.Infrastructure/Ai/AiClientFactory.cs \
++        src/Naudit.Infrastructure/DependencyInjection.cs tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
++git commit -m "feat(mcp): ClaudeCode-CLI-Pfad — --mcp-config + MCP-only-Allowlist + --max-turns"
++```
++
++---
++
++## Task 6: Real MCP connector + package + DI wiring (function-invocation)
++
++**Files:**
++- Modify: `src/Naudit.Infrastructure/Naudit.Infrastructure.csproj`
++- Create: `src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs`
++- Modify: `src/Naudit.Infrastructure/DependencyInjection.cs`
++- Create: `tests/Naudit.Tests/McpDiCompositionTests.cs`
++
++**Interfaces:**
++- Consumes: `IMcpToolConnector`, `McpReviewToolProvider` (Task 4); `McpOptions` (Task 3); `IReviewToolProvider`/`NullReviewToolProvider` (Task 1).
++- Produces: `McpClientToolConnector : IMcpToolConnector`; conditional DI registration.
++
++- [ ] **Step 1: Add the `ModelContextProtocol.Core` package**
++
++In `src/Naudit.Infrastructure/Naudit.Infrastructure.csproj`, add inside the `<ItemGroup>` with the other `PackageReference`s:
++
++```xml
++    <PackageReference Include="ModelContextProtocol.Core" Version="1.4.1" />
++```
++
++Run: `dotnet restore Naudit.slnx`
++Expected: restore succeeds, `ModelContextProtocol.Core 1.4.1` resolved.
++
++- [ ] **Step 2: Implement the real connector**
++
++Create `src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs`:
++
++```csharp
++using Microsoft.Extensions.AI;
++using Microsoft.Extensions.Logging;
++using ModelContextProtocol.Client;
++using ModelContextProtocol.Protocol;
++
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Echte MCP-Anbindung über das ModelContextProtocol-SDK. NUR manuell E2E getestet
++/// (wie der reale Git-/LLM-Pfad) — die Orchestrierung/Fail-open deckt McpReviewToolProviderTests ab.
++/// Der McpClient bleibt über die zurückgegebenen Tool-Referenzen am Leben (Tool-Aufruf ruft über ihn),
++/// die Verbindung lebt bewusst für die Prozesslaufzeit (Singleton-Provider cached die Tools).</summary>
++public sealed class McpClientToolConnector(ILoggerFactory loggerFactory) : IMcpToolConnector
++{
++    public async Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default)
++    {
++        var transport = BuildTransport(server);
++        var client = await McpClient.CreateAsync(transport, null, loggerFactory, ct);
++        // Overload-Disambiguierung: getypter null-Params-Wert (SDK-Version-sensibel).
++        var tools = await client.ListToolsAsync((ListToolsRequestParams?)null, ct);
++        return [.. tools];   // McpClientTool : AIFunction : AITool
++    }
++
++    // http ⇒ HttpClientTransport (Streamable-HTTP/SSE auto), ApiKey als Authorization-Bearer-Header.
++    // stdio ⇒ StdioClientTransport (lokaler Prozess).
++    private IClientTransport BuildTransport(McpServerConfig server)
++    {
++        if (string.Equals(server.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
++        {
++            return new StdioClientTransport(new StdioClientTransportOptions
++            {
++                Name = server.Name,
++                Command = server.Command ?? throw new InvalidOperationException($"MCP-Server {server.Name}: Command fehlt (stdio)."),
++                Arguments = server.Arguments,
++            });
++        }
++
++        var options = new HttpClientTransportOptions
++        {
++            Name = server.Name,
++            Endpoint = new Uri(server.Url ?? throw new InvalidOperationException($"MCP-Server {server.Name}: Url fehlt (http).")),
++            TransportMode = HttpTransportMode.AutoDetect,
++        };
++        if (!string.IsNullOrWhiteSpace(server.ApiKey))
++            options.AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {server.ApiKey}" };
++        return new HttpClientTransport(options, loggerFactory);
++    }
++}
++```
++
++> **Note for the implementer:** the `McpClient.CreateAsync` / `ListToolsAsync` overloads and `HttpClientTransportOptions` property names are pinned to `ModelContextProtocol.Core 1.4.1` (verified against its XML docs). If a build error appears here after a package bump, it is a version-name drift, not a logic bug — reconcile against the new package's `ModelContextProtocol.Core.xml`. The exact Context7 auth header may differ from `Authorization: Bearer`; confirm during manual E2E (Step 6) and adjust `AdditionalHeaders`.
++
++- [ ] **Step 3: Wire the conditional DI registration**
++
++In `src/Naudit.Infrastructure/DependencyInjection.cs`:
++
++First, wrap the MEAI client with the function-invocation loop. Change the `IChatClient` registration (from Task 5) to:
++
++```csharp
++        // Global-Client. Bei aktivem MCP + MEAI-Provider mit Function-Invocation-Loop umhüllen
++        // (Cap = MaxIterations). ClaudeCode ist ein eigener IChatClient (CLI-natives MCP) und wird NICHT umhüllt.
++        services.AddSingleton<IChatClient>(sp =>
++        {
++            var client = AiClientFactory.Create(aiOptions, mcpOptions);
++            if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
++                client = client.AsBuilder()
++                    .UseFunctionInvocation(sp.GetService<ILoggerFactory>(),
++                        c => c.MaximumIterationsPerRequest = mcpOptions.MaxIterations)
++                    .Build();
++            return client;
++        });
++```
++
++Then, replace the default `NullReviewToolProvider` registration (added in Task 1) with the conditional one:
++
++```csharp
++        // MCP-Tools: MEAI-Provider + MCP an ⇒ echte MCP-Tools (Function-Invocation nutzt ChatOptions.Tools);
++        // sonst No-Op (MCP aus, oder ClaudeCode ⇒ CLI-natives MCP über --mcp-config).
++        if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
++        {
++            services.AddSingleton<IMcpToolConnector>(sp => new McpClientToolConnector(sp.GetRequiredService<ILoggerFactory>()));
++            services.AddSingleton<IReviewToolProvider>(sp => new McpReviewToolProvider(
++                mcpOptions,
++                sp.GetRequiredService<IMcpToolConnector>(),
++                sp.GetRequiredService<ILoggerFactory>().CreateLogger<McpReviewToolProvider>()));
++        }
++        else
++        {
++            services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
++        }
++```
++
++Ensure `using Microsoft.Extensions.AI;` is present (for `AsBuilder`/`UseFunctionInvocation`) — it is used elsewhere; add if the build complains.
++
++- [ ] **Step 4: Write the DI composition test**
++
++Create `tests/Naudit.Tests/McpDiCompositionTests.cs`:
++
++```csharp
++using Microsoft.Extensions.Configuration;
++using Microsoft.Extensions.DependencyInjection;
++using Naudit.Core.Abstractions;
++using Naudit.Infrastructure;
++using Naudit.Infrastructure.Mcp;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpDiCompositionTests
++{
++    private static ServiceProvider Build(Dictionary<string, string?> settings)
++    {
++        var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
++        var services = new ServiceCollection();
++        services.AddLogging();
++        services.AddNauditInfrastructure(config);
++        return services.BuildServiceProvider();
++    }
++
++    [Fact]
++    public void McpDisabled_resolvesNullToolProvider()
++    {
++        using var sp = Build(new Dictionary<string, string?>
++        {
++            ["Naudit:Ai:Provider"] = "OpenAICompatible",
++            ["Naudit:Ai:ApiKey"] = "k",
++            ["Naudit:Review:Mcp:Enabled"] = "false",
++        });
++
++        Assert.IsType<NullReviewToolProvider>(sp.GetRequiredService<IReviewToolProvider>());
++    }
++
++    [Fact]
++    public void McpEnabled_meaiProvider_resolvesMcpToolProvider()
++    {
++        using var sp = Build(new Dictionary<string, string?>
++        {
++            ["Naudit:Ai:Provider"] = "OpenAICompatible",
++            ["Naudit:Ai:ApiKey"] = "k",
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++        });
++
++        Assert.IsType<McpReviewToolProvider>(sp.GetRequiredService<IReviewToolProvider>());
++    }
++
++    [Fact]
++    public void McpEnabled_claudeCodeProvider_stillResolvesNullToolProvider()
++    {
++        using var sp = Build(new Dictionary<string, string?>
++        {
++            ["Naudit:Ai:Provider"] = "ClaudeCode",
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++        });
++
++        // ClaudeCode nutzt CLI-natives MCP ⇒ kein ChatOptions.Tools-Provider.
++        Assert.IsType<NullReviewToolProvider>(sp.GetRequiredService<IReviewToolProvider>());
++    }
++}
++```
++
++> **Note:** `AddNauditInfrastructure` reads more than the AI section (git platform, DB, etc.). If building the full provider requires additional config keys or a DB, mirror the setup used by the existing infrastructure/DI tests in this project (check `TestAppFactory.cs` / any existing `*DiTests`/`DependencyInjection` test for the minimal key set and DB bootstrap) and reuse that pattern here. If a full `BuildServiceProvider()` is impractical in a unit test, assert the registration instead by inspecting the `IServiceCollection` (find the `ServiceDescriptor` for `IReviewToolProvider` and assert its `ImplementationType`/instance) without building the provider.
++
++- [ ] **Step 5: Run the full suite**
++
++Run: `dotnet test Naudit.slnx`
++Expected: PASS (whole suite, including the new DI composition tests).
++
++- [ ] **Step 6: Manual E2E (real Context7)**
++
++This is the real-path verification (CI never hits a live MCP server, mirroring the project's manual end-to-end convention).
++
++1. Set config (user-secrets on the Web project), e.g. for an OpenAI-compatible provider:
++   ```bash
++   dotnet user-secrets set "Naudit:Review:Mcp:Enabled" "true" --project src/Naudit.Web
++   dotnet user-secrets set "Naudit:Review:Mcp:Servers:0:Name" "context7" --project src/Naudit.Web
++   dotnet user-secrets set "Naudit:Review:Mcp:Servers:0:Transport" "http" --project src/Naudit.Web
++   dotnet user-secrets set "Naudit:Review:Mcp:Servers:0:Url" "https://mcp.context7.com/mcp" --project src/Naudit.Web
++   # optional: dotnet user-secrets set "Naudit:Review:Mcp:Servers:0:ApiKey" "<context7-key>" --project src/Naudit.Web
++   ```
++2. `dotnet run --project src/Naudit.Web`, trigger a review (webhook or `POST /review`) on a diff that uses a well-known library API.
++3. Confirm in the logs that the tool was offered and (for a relevant diff) called, and that a valid review JSON still came back. If the Context7 server rejects the auth header, adjust `AdditionalHeaders` / the `--mcp-config` `headers` shape per Context7's docs.
++4. Repeat with `Naudit:Ai:Provider=ClaudeCode` to exercise the CLI `--mcp-config` path (requires the `claude` CLI logged in).
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add src/Naudit.Infrastructure/Naudit.Infrastructure.csproj src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs \
++        src/Naudit.Infrastructure/DependencyInjection.cs tests/Naudit.Tests/McpDiCompositionTests.cs
++git commit -m "feat(mcp): echter McpClientToolConnector + DI-Verdrahtung (Function-Invocation-Loop)"
++```
++
++---
++
++## Task 7: Documentation
++
++**Files:**
++- Create: `docs/mcp-tools.md`
++- Modify: `docs/configuration.md`
++
++- [ ] **Step 1: Write `docs/mcp-tools.md`**
++
++Create `docs/mcp-tools.md` (English, matching the other docs) covering:
++
++- What it does: the review LLM can call MCP tools at review time; the first tool is Context7 (live library docs).
++- The two provider paths (MEAI `ChatOptions.Tools` + function-invocation loop; ClaudeCode CLI `--mcp-config` + MCP-only `--allowedTools`), and that the built-in CLI file/shell tools stay off.
++- Opt-in and fail-open behaviour (`Naudit:Review:Mcp:Enabled=false` ⇒ today's single-shot; unreachable server ⇒ tool-less review).
++- The full config block (from the spec), including that the per-server `ApiKey` is env-only (list-shaped), while `Enabled`/`MaxIterations` are DB-manageable via Settings.
++- The iteration cap (`MaxIterations`) and why it exists (token/latency).
++- A pointer that Playwright/DAST are separate future slices (B/C), not part of this.
++
++- [ ] **Step 2: Link it from `docs/configuration.md`**
++
++Add a short "MCP tools (review runtime)" subsection to `docs/configuration.md` that summarizes the `Naudit:Review:Mcp:*` keys and links to `docs/mcp-tools.md`.
++
++- [ ] **Step 3: Commit**
++
++```bash
++git add docs/mcp-tools.md docs/configuration.md
++git commit -m "docs(mcp): MCP-Tools in der Review-Runtime + Konfiguration"
++```
++
++---
++
++## Self-Review notes (for the implementer)
++
++- **Spec coverage:** Core-thin seam (Task 1), prompt guidance (Task 2), config + catalog (Task 3), fail-open/cache orchestration (Task 4), ClaudeCode CLI path with MCP-only allowlist (Task 5), real connector + function-invocation + iteration cap + conditional wiring (Task 6), docs (Task 7). Every spec section maps to a task.
++- **Core rule:** only `IReviewToolProvider` (returning MEAI `AITool`) and `NullReviewToolProvider` live in Core; all `ModelContextProtocol.*` usage is in `Naudit.Infrastructure/Mcp/`. Verified: `Naudit.Core.csproj` references only `Microsoft.Extensions.AI.Abstractions`.
++- **No behaviour change when off:** Task 1 keeps `ChatOptions.Tools` null with the null provider; Task 5 keeps the ClaudeCode args byte-identical (`--tools ""`, `--max-turns 1`) when MCP is off; Task 6 only wraps the client and swaps the provider when `Enabled && provider != ClaudeCode`.
++- **Version-sensitive spots flagged:** MEAI `MaximumIterationsPerRequest`/`UseFunctionInvocation` and the MCP SDK `McpClient.CreateAsync`/`ListToolsAsync`/`HttpClientTransportOptions` are pinned to the verified package versions with an implementer note in Task 6.
+diff --git a/docs/superpowers/specs/2026-07-11-mcp-context7-review-design.md b/docs/superpowers/specs/2026-07-11-mcp-context7-review-design.md
+new file mode 100644
+index 0000000..50de636
+--- /dev/null
++++ b/docs/superpowers/specs/2026-07-11-mcp-context7-review-design.md
+@@ -0,0 +1,218 @@
++# MCP tools in the review runtime (Context7) — Design
++
++*2026-07-11 · Naudit*
++
++## Problem
++
++The review is single-shot: `IGitPlatform.GetChangesAsync` → grounding → `PromptBuilder.Build` →
++one `IChatClient.GetResponseAsync` → post. The LLM reviews the diff against only what the prompt
++carries. It has no way to fetch information it doesn't already know — most acutely, **up-to-date
++library documentation**. When a diff uses an API from a fast-moving library, the model reviews it
++against its training-cutoff knowledge and either misses real misuse or invents false positives
++against an API shape that has since changed.
++
++This is the first slice ("A") of a larger idea: make Naudit an **MCP client** so the review LLM
++can call tools at review time. This slice wires the MCP plumbing and lands **one** tool —
++[Context7](https://context7.com) (live library docs) — because it delivers value with **no running
++target app**, and it de-risks the agentic-loop change for later dynamic slices (Playwright/DAST).
++
++**Non-goals (this slice):**
++
++- Any running-app tooling — Playwright, a browser, DAST. That needs the App-Runner (slice B) and
++  is explicitly out of scope here.
++- A general tool marketplace / arbitrary user-supplied tool registry. This slice ships the Context7
++  seam and one configured server list; more servers are config, not code.
++- Post-LLM filtering or tool-driven verdicts. Tool output is grounding only; the verdict stays
++  LLM-driven through the existing severity/confidence gate (`docs/review-gate.md`).
++
++## Decomposition context
++
++The full idea (raised 2026-07-11) is three independent subsystems, each its own spec → plan → build:
++
++- **A — MCP client in Naudit (this spec).** Naudit becomes an MCP client; the review becomes an
++  agentic loop; Context7 is the first tool. Needs no running app.
++- **B — App-Runner.** Checkout → build & run the changed code (Dockerfile/compose contract) →
++  healthcheck → URL → teardown, sandboxed. The foundation for anything dynamic. Largest, riskiest.
++- **C — Dynamic security testing** on top of B: LLM-drives-Playwright exploratory and/or a real
++  scanner (ZAP/Nuclei) as a new `ISastAnalyzer`-style grounding source.
++
++Slice A is deliberately first: smallest, no App-Runner risk, proves the loop plumbing.
++
++## Decisions (settled during brainstorming, 2026-07-11)
++
++1. **MCP lives in the review runtime**, not just the dev environment. Naudit itself becomes the MCP
++   client; the review LLM calls tools.
++2. **Context7 first, no running app.** Live library docs are the first and only tool this slice
++   ships. Playwright/DAST wait for the App-Runner.
++3. **Core-thin tool seam (approach ①).** A new Core abstraction returns MEAI `AITool`s;
++   Infrastructure builds them from MCP. Same pattern as `IPromptRedactor` / `IContextCollector`.
++   The two rejected alternatives — a decorating `IChatClient` that mutates the caller's
++   `ChatOptions`, and moving the whole review call behind a Core `IReviewEngine` — were dropped as
++   hacky and over-engineered respectively.
++4. **Both provider paths in scope.** MEAI-tool providers (OpenAICompatible, Ollama, Anthropic-SDK)
++   **and** the ClaudeCode CLI. They share one config source and diverge only in how the server list
++   reaches the model.
++5. **Opt-in, fail-open.** Off by default (`Naudit:Review:Mcp:Enabled=false`) ⇒ byte-identical
++   single-shot as today. An unreachable server or a tool error degrades to a tool-less review, the
++   same way a failed SAST checkout degrades to diff-only.
++6. **Iteration cap.** The agentic loop is token- and latency-expensive; both paths cap the number
++   of tool round-trips.
++
++## Architecture
++
++### The Core rule and where tools plug in
++
++Core may depend only on `Microsoft.Extensions.AI.Abstractions`. The `ModelContextProtocol` SDK is a
++concrete dependency and belongs in Infrastructure. The key enabling fact: **`AITool` / `AIFunction`
++are MEAI *abstractions*** — Core may hold and pass them. Only the *building* of tools from MCP
++servers happens in Infrastructure.
++
++New Core abstraction (in `Naudit.Core.Abstractions`):
++
++```csharp
++public interface IReviewToolProvider
++{
++    // Returns the tools to offer the LLM for this review (empty when MCP is off/unreachable).
++    Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default);
++}
++```
++
++`ReviewService` sets `chatOptions.Tools` from it before the LLM call, then runs unchanged:
++
++```csharp
++var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++var tools = await _toolProvider.GetToolsAsync(request, ct);   // [] when off/unreachable
++if (tools.Count > 0)
++    chatOptions.Tools = [.. tools];
++var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
++```
++
++The default (MCP off) returns `[]`, `chatOptions.Tools` stays null, and the request is identical to
++today's single-shot. Core never references `ModelContextProtocol`.
++
++### Two provider paths, one config source
++
++Both read the same `Naudit:Review:Mcp` server list and diverge only in delivery to the model:
++
++| | MEAI providers (OpenAICompatible, Ollama, Anthropic-SDK) | ClaudeCode CLI |
++|---|---|---|
++| Tool delivery | `chatOptions.Tools` via `McpReviewToolProvider` (`McpClientTool : AIFunction`) | `--mcp-config <json>` |
++| Loop | `UseFunctionInvocation()` middleware, `MaximumIterationsPerRequest` cap | `--max-turns N` (was `1`) |
++| Tool allowance | implicit (tools are in the request) | `--allowedTools "mcp__context7__resolve-library-id" "mcp__context7__get-library-docs"` — **and nothing else** |
++
++### MEAI-provider path
++
++- **`McpReviewToolProvider`** (Infra, `src/Naudit.Infrastructure/Mcp/`) implements `IReviewToolProvider`.
++  It builds one `IMcpClient` per configured server via the `ModelContextProtocol` SDK
++  (`McpClientFactory.CreateAsync`), lists tools (`await client.ListToolsAsync()` →
++  `IList<McpClientTool>`, which derive from `AIFunction`), and returns them. Context7 uses the
++  **remote HTTP transport** (`SseClientTransport` / streamable HTTP) — no Node subprocess in the
++  container image. Clients and tool lists are **cached** for the process (server host is fixed; the
++  tool catalog is stable), with a short TTL so a restart of the remote server recovers.
++- **Function-invocation pipeline.** `AiClientFactory.Create(...)` stays, but its result is wrapped:
++  `client.AsBuilder().UseFunctionInvocation().Build()`, configured with a `MaximumIterationsPerRequest`
++  cap. This is applied only for the MEAI providers (the ClaudeCode client is its own `IChatClient`
++  that doesn't honor `ChatOptions.Tools`, so wrapping it with function-invocation would be a no-op —
++  see below).
++
++### ClaudeCode CLI path
++
++`ClaudeCodeChatClient` today deliberately disables everything agentic:
++`"-p", "--output-format", "json", "--max-turns", "1", "--tools", ""`. The new path, **only when MCP
++is enabled**, changes three things and nothing else:
++
++1. **Register the servers:** add `--mcp-config <json>` built from the same `Naudit:Review:Mcp`
++   config (server name → transport/url/headers). The Context7 key is injected as a header here.
++2. **Allowlist only the MCP tools:** replace `--tools ""` with
++   `--allowedTools "mcp__<server>__<tool>" …` naming exactly the MCP tools. **The built-in
++   file/shell tools (Bash, Edit, Read, Write) stay off.** This is the security crux of the CLI path
++   — a review bot must not gain host shell/file access over untrusted diff context. When MCP is off,
++   the CLI args are byte-identical to today (`--tools ""`, `--max-turns 1`).
++3. **Raise the turn cap:** `--max-turns N` (same cap value as the MEAI path) so the agent can call
++   the tool and then answer.
++
++The CLI produces its final assistant message (the review JSON) in the envelope `result` exactly as
++today; `StripJsonFences` and the empty-result fail-closed check are unchanged. Envelope `usage`
++already reports cumulative tokens across turns, so the audit token counts stay correct.
++
++To feed the CLI the raw server list (it wants `--mcp-config`, not `AITool`s), the ClaudeCode client
++receives the parsed `McpOptions` by injection — it does **not** go through `IReviewToolProvider`.
++`IReviewToolProvider` for the ClaudeCode provider therefore returns `[]` (the tools travel via CLI
++args, not `ChatOptions.Tools`); the branch is chosen in DI by the active `Naudit:Ai:Provider`.
++
++### Prompt guidance
++
++`PromptBuilder` gains a short, conditional block (rendered only when tools are present) telling the
++model a live-docs tool exists and when to reach for it — e.g. *"You can look up current
++documentation for a library via the available tool; use it when the diff uses an API you are unsure
++about, rather than guessing against possibly-outdated knowledge. Do not use it for well-known
++stdlib/basics."* Without guidance the model either never calls the tool or calls it constantly;
++both waste the budget.
++
++### Configuration
++
++New section under the existing `Naudit:Review`:
++
++```
++Naudit:Review:Mcp:Enabled              = false            # opt-in master switch
++Naudit:Review:Mcp:MaxIterations        = 4                # tool round-trip cap (both paths)
++Naudit:Review:Mcp:Servers:0:Name       = context7
++Naudit:Review:Mcp:Servers:0:Transport  = http            # http | stdio
++Naudit:Review:Mcp:Servers:0:Url        = https://mcp.context7.com/mcp
++Naudit:Review:Mcp:Servers:0:ApiKey     = <secret>        # Context7 key (optional; higher limits)
++```
++
++- The `ApiKey` is a secret → added to `SettingsCatalog` (`SettingDefinition`, `IsSecret: true`),
++  DP-encrypted like other secrets. The server **list** is list-shaped, so — following the existing
++  `ProjectTokens` / `Ui:Admins` precedent — it stays env/appsettings-shaped rather than a single
++  DB-managed scalar; only the scalar switches (`Enabled`, `MaxIterations`) and the per-server
++  `ApiKey` secret are DB-managed catalog entries.
++- `Enabled=false` ⇒ `McpReviewToolProvider` returns `[]`, no pipeline wrapping takes effect on the
++  request, CLI args unchanged ⇒ identical behaviour to today.
++
++### Failure handling (fail-open, everywhere)
++
++- **Server unreachable at startup/first use:** `McpReviewToolProvider` catches, logs, returns `[]`.
++  The review runs tool-less. (Mirrors the failed-SAST-checkout → diff-only degrade.)
++- **Tool call fails mid-review:** the function-invocation middleware surfaces the error to the model
++  as a tool result; the model proceeds. The review is never failed by a tool error.
++- **CLI path, `--mcp-config` server down:** the CLI simply won't have the tool; the model answers
++  without it. If the CLI itself errors, the existing non-zero-exit handling applies (unchanged).
++- **Iteration cap hit:** the loop stops and the model is asked for its final answer; a review is
++  always produced.
++
++### Component boundaries
++
++- `IReviewToolProvider` (Core) — *what tools to offer*; returns MEAI abstractions only.
++- `McpReviewToolProvider` (Infra) — *builds tools from MCP servers* (MEAI-provider path).
++- `McpOptions` (Infra) — parsed `Naudit:Review:Mcp`; consumed by both `McpReviewToolProvider` and
++  `ClaudeCodeChatClient`.
++- `ClaudeCodeChatClient` (Infra) — *CLI-native MCP*; consumes `McpOptions`, builds `--mcp-config` +
++  `--allowedTools`.
++- `AiClientFactory` / DI — wraps MEAI clients with `UseFunctionInvocation`; leaves ClaudeCode as-is;
++  registers the right `IReviewToolProvider` per provider.
++- `PromptBuilder` (Core) — conditional tool-guidance block.
++- `ReviewService` (Core) — sets `chatOptions.Tools` from the provider; otherwise unchanged.
++
++## Testing approach
++
++- **Core, no network.** `ReviewService`: a fake `IReviewToolProvider` returning `[]` proves the
++  single-shot path is untouched; returning a fake `AITool` proves `chatOptions.Tools` is populated.
++  `PromptBuilder`: the guidance block appears only when tools are present.
++- **MEAI path.** `McpReviewToolProvider` against a stub MCP endpoint (or a fake transport) —
++  asserts tools are listed and returned; asserts unreachable-server ⇒ `[]` (fail-open). The
++  function-invocation loop and iteration cap are exercised with a `FakeChatClient` that emits a
++  tool call then a final JSON message, asserting the tool ran and the cap bounds the loop.
++- **CLI path.** `ClaudeCodeChatClient` with the existing `StubHttpMessageHandler`-style
++  `IProcessRunner` fake: assert that MCP-off yields today's exact args (`--tools ""`,
++  `--max-turns 1`, no `--mcp-config`), and MCP-on yields `--mcp-config`, an `--allowedTools`
++  allowlist naming **only** the MCP tools (no Bash/Edit/Read), and the raised `--max-turns`.
++- **Config gate.** `Enabled=false` end-to-end ⇒ identical request/args to pre-feature.
++- **Manual/E2E.** A real Context7 call against a real provider is verified manually (as with the
++  existing end-to-end path), not in CI.
++
++## Open follow-ups (explicitly deferred)
++
++- ClaudeCode CLI multi-turn cost/observability tuning (the loop can be chatty).
++- Per-project MCP server lists (global-only here).
++- Slice B (App-Runner) and slice C (Playwright/DAST) — separate specs.
+diff --git a/src/Naudit.Core/Abstractions/IReviewToolProvider.cs b/src/Naudit.Core/Abstractions/IReviewToolProvider.cs
+new file mode 100644
+index 0000000..38301c2
+--- /dev/null
++++ b/src/Naudit.Core/Abstractions/IReviewToolProvider.cs
+@@ -0,0 +1,18 @@
++using Microsoft.Extensions.AI;
++using Naudit.Core.Models;
++
++namespace Naudit.Core.Abstractions;
++
++/// <summary>Liefert die Tools, die dem LLM für diesen Review angeboten werden (leer = keine).
++/// MEAI-Abstraktion AITool ist erlaubt; das Bauen aus MCP-Servern passiert in Infrastructure.</summary>
++public interface IReviewToolProvider
++{
++    Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default);
++}
++
++/// <summary>Default ohne MCP: keine Tools — identischer Single-Shot wie heute.</summary>
++public sealed class NullReviewToolProvider : IReviewToolProvider
++{
++    public Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++        => Task.FromResult<IReadOnlyList<AITool>>([]);
++}
+diff --git a/src/Naudit.Core/Review/PromtBuilder.cs b/src/Naudit.Core/Review/PromtBuilder.cs
+index ec260c5..7ec0146 100644
+--- a/src/Naudit.Core/Review/PromtBuilder.cs
++++ b/src/Naudit.Core/Review/PromtBuilder.cs
+@@ -23,35 +23,37 @@ public static class PromptBuilder
+         "Set confidence by how certain you are the issue is real; prefer \"low\" when you cannot verify a claim from the diff alone. " +
+         "Do NOT output an overall verdict - the merge decision is derived automatically from the findings' severity and confidence. " +
+         "Only use a line number that is shown at the start of a line in the diff. " +
+         "If a finding does not map to one specific changed line, still include it in \"comments\" with its \"severity\" and \"confidence\" but omit \"line\" (or set it to null) - do NOT invent a line number. " +
+         "Use \"summary\" only for the one-line overview, never to carry findings. " +
+         "A read-only \"Repository context\" section may follow the diff (surrounding code, usages, repository overview) - " +
+         "use it to understand what the change does and how it fits, but report findings ONLY on the diff lines shown with line numbers.";
+ 
+     public static IList<ChatMessage> Build(
+         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
+-        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null)
++        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
++        bool toolsAvailable = false)
+     {
+         var sb = new StringBuilder();
+         sb.AppendLine($"# Merge Request: {request.Title}");
+         foreach (var change in changes)
+         {
+             sb.AppendLine();
+             sb.AppendLine($"## File: {change.FilePath}");
+             sb.AppendLine("```diff");
+             AppendAnnotatedDiff(sb, change.Diff);
+             sb.AppendLine("```");
+         }
+ 
+         AppendContext(sb, context);
+         AppendFindings(sb, findings ?? []);
++        AppendToolGuidance(sb, toolsAvailable);
+ 
+         return new List<ChatMessage>
+         {
+             new(ChatRole.System, systemPrompt),
+             new(ChatRole.User, sb.ToString()),
+         };
+     }
+ 
+     // Stellt jeder Diff-Zeile ihre New-File-Zeilennummer voran (leer bei gelöschten/Header-Zeilen),
+     // damit das LLM eine stabile, reale Zeilennummer referenzieren kann.
+@@ -164,20 +166,33 @@ public static class PromptBuilder
+             return;
+         }
+         sb.AppendLine("Prioritize [in diff] (introduced/touched by this MR). [pre-existing] were already in the repo.");
+ 
+         // Secrets zuerst (am dringlichsten), dann Dependencies, dann SAST.
+         AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
+         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
+         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
+     }
+ 
++    // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
++    // Ohne Hinweis ruft das Modell das Tool nie oder ständig — beides verbrennt Budget.
++    private static void AppendToolGuidance(StringBuilder sb, bool toolsAvailable)
++    {
++        if (!toolsAvailable)
++            return;
++        sb.AppendLine();
++        sb.AppendLine("# Tools available");
++        sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
++            "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
++            "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
++    }
++
+     private static void AppendCategory(StringBuilder sb, string heading, IEnumerable<ScanFinding> items)
+     {
+         var list = items.ToList();
+         if (list.Count == 0)
+             return;
+         sb.AppendLine();
+         sb.AppendLine($"## {heading}");
+         foreach (var f in list)
+         {
+             var scope = f.InDiff ? "in diff" : "pre-existing";
+diff --git a/src/Naudit.Core/Review/ReviewService.cs b/src/Naudit.Core/Review/ReviewService.cs
+index d048eb8..2f4a05f 100644
+--- a/src/Naudit.Core/Review/ReviewService.cs
++++ b/src/Naudit.Core/Review/ReviewService.cs
+@@ -8,21 +8,22 @@ namespace Naudit.Core.Review;
+ 
+ public sealed class ReviewService(
+     IChatClient chatClient,
+     IGitPlatform gitPlatform,
+     ReviewOptions options,
+     IWorkspaceProvider workspaceProvider,
+     IEnumerable<ISastAnalyzer> analyzers,
+     IFindingReducer findingReducer,
+     IPromptRedactor redactor,
+     IContextCollector contextCollector,
+-    IReviewAuditSink auditSink)
++    IReviewAuditSink auditSink,
++    IReviewToolProvider toolProvider)
+ {
+     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
+     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+     private readonly IReadOnlyList<ISastAnalyzer> _analyzers = analyzers.ToList();
+ 
+     public async Task<ReviewResult> ReviewAsync(ReviewRequest request, CancellationToken ct = default)
+     {
+         var changes = await gitPlatform.GetChangesAsync(request, ct);
+         if (changes.Count == 0)
+             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
+@@ -36,23 +37,30 @@ public sealed class ReviewService(
+         foreach (var c in changes)
+             redChanges.Add(c with { Diff = await redactor.RedactAsync(c.Diff, ct) });
+ 
+         var redFindings = new List<ScanFinding>(findings.Count);
+         foreach (var f in findings)
+             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
+ 
+         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
+         var redContext = await RedactContextAsync(context, ct);
+ 
+-        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
++        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
++        // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
++        var tools = await toolProvider.GetToolsAsync(request, ct);
++        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
++            toolsAvailable: tools.Count > 0);
+ 
+         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++        if (tools.Count > 0)
++            chatOptions.Tools = [.. tools];
++
+         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
+ 
+         // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
+         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
+         // Fail-closed bleibt nur für "gar keine parsebare Antwort": das Verdict wird unten aus den
+         // Findings abgeleitet, nicht mehr vom LLM behauptet.
+         var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
+             ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
+ 
+         // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
+diff --git a/src/Naudit.Infrastructure/Ai/AiClientFactory.cs b/src/Naudit.Infrastructure/Ai/AiClientFactory.cs
+index e99a8a9..4c17eb8 100644
+--- a/src/Naudit.Infrastructure/Ai/AiClientFactory.cs
++++ b/src/Naudit.Infrastructure/Ai/AiClientFactory.cs
+@@ -1,22 +1,23 @@
+ using System.ClientModel;
+ using Microsoft.Extensions.AI;
+ using Naudit.Infrastructure.Ai.ClaudeCode;
++using Naudit.Infrastructure.Mcp;
+ using Naudit.Infrastructure.Process;
+ using OllamaSharp;
+ using OpenAI;
+ 
+ namespace Naudit.Infrastructure.Ai;
+ 
+ public static class AiClientFactory
+ {
+-    public static IChatClient Create(AiOptions options)
++    public static IChatClient Create(AiOptions options, McpOptions? mcp = null)
+     {
+         switch (options.Provider)
+         {
+             case AiProvider.Ollama:
+                 var baseUrl = string.IsNullOrWhiteSpace(options.Endpoint) ? "http://localhost:11434" : options.Endpoint;
+                 // Eigener HttpClient: der OllamaApiClient-Default-HttpClient hat 100 s Timeout — zu kurz
+                 // für große Diffs / Thinking-Modelle. BaseAddress ist beim HttpClient-Ctor Pflicht.
+                 var ollamaHttp = new HttpClient
+                 {
+                     BaseAddress = new Uri(baseUrl),
+@@ -27,21 +28,22 @@ public static class AiClientFactory
+             case AiProvider.Anthropic:
+                 RequireApiKey(options, "Anthropic");
+                 return new Anthropic.SDK.AnthropicClient(options.ApiKey!).Messages;
+ 
+             case AiProvider.OpenAICompatible:
+                 RequireApiKey(options, "OpenAICompatible");
+                 return CreateOpenAICompatible(options);
+ 
+             case AiProvider.ClaudeCode:
+                 // Kein RequireApiKey: die CLI authentifiziert über die Umgebung (Abo statt Key).
+-                return new ClaudeCodeChatClient(options, new SystemProcessRunner());
++                // MCP-Config wird an den CLI-Client durchgereicht (CLI-natives MCP, nicht ChatOptions.Tools).
++                return new ClaudeCodeChatClient(options, new SystemProcessRunner(), mcp);
+ 
+             default:
+                 throw new ArgumentOutOfRangeException(nameof(options), options.Provider, "Unknown AI provider.");
+         }
+     }
+ 
+     private static IChatClient CreateOpenAICompatible(AiOptions options)
+     {
+         var clientOptions = new OpenAIClientOptions();
+         if (!string.IsNullOrWhiteSpace(options.Endpoint))
+diff --git a/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs b/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs
+index 7342aa7..7a23e4f 100644
+--- a/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs
++++ b/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs
+@@ -1,44 +1,84 @@
+ using System.Runtime.CompilerServices;
+ using System.Text.Json;
+ using System.Text.Json.Serialization;
+ using Microsoft.Extensions.AI;
++using Naudit.Infrastructure.Mcp;
+ using Naudit.Infrastructure.Process;
+ 
+ namespace Naudit.Infrastructure.Ai.ClaudeCode;
+ 
+ /// <summary>
+ /// IChatClient-Adapter, der die `claude` CLI headless aufruft (Abo-Auth statt API-Key).
+ /// Reiner Single-Shot: System-Prompt überschrieben, Diff über stdin, Tools aus, ein Turn.
++/// MCP optional (mcp): Server per --mcp-config registriert, --allowedTools NUR auf die
++/// MCP-Server beschränkt (kein Bash/Edit/Read/Write), --max-turns auf McpOptions.MaxIterations erhöht.
+ /// </summary>
+-public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner) : IChatClient
++public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
+ {
+     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+ 
+     public async Task<ChatResponse> GetResponseAsync(
+         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+     {
+         var list = messages.ToList();
+         var system = string.Join("\n\n", list.Where(m => m.Role == ChatRole.System)
+             .Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
+         var user = string.Join("\n\n", list.Where(m => m.Role != ChatRole.System)
+             .Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
+ 
+         var model = string.IsNullOrWhiteSpace(aiOptions.Model) ? "sonnet" : aiOptions.Model;
+ 
+         // ChatOptions (z. B. ResponseFormat=Json) hat in der CLI kein Äquivalent: JSON wird allein über
+         // den System-Prompt erzwungen; --output-format json betrifft nur das Envelope, nicht den Modelltext.
+-        // Tools aus, ein Turn, JSON-Envelope; Reihenfolge egal, aber --tools muss ein Folge-Argument "" haben.
+-        var args = new List<string>
++        // MCP an ⇒ Loop erlauben (--max-turns N), Server registrieren (--mcp-config) und AUSSCHLIESSLICH
++        // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
++        // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
++        var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
++        var args = new List<string> { "-p", "--output-format", "json" };
++        string? mcpConfigPath = null;
++        if (mcpEnabled)
+         {
+-            "-p", "--output-format", "json", "--max-turns", "1", "--tools", "", "--model", model,
+-        };
++            // Fail-closed: ein Server-Name mit Space/Sonderzeichen würde die --allowedTools-Allowlist
++            // aufsprengen (mehr Tokens als beabsichtigt) und könnte so eingebaute Tools wieder freigeben.
++            foreach (var s in mcp!.Servers)
++                if (!IsValidServerName(s.Name))
++                    throw new InvalidOperationException(
++                        $"MCP-Server-Name '{s.Name}' ist ungültig — erlaubt sind nur [A-Za-z0-9_-].");
++
++            // Das --mcp-config-JSON enthält den ApiKey im Klartext (Authorization-Bearer-Header) — darf
++            // NICHT auf argv landen (sichtbar via ps/`/proc/<pid>/cmdline`). Stattdessen in eine 0600-Temp-
++            // Datei schreiben und nur den PFAD an die CLI übergeben; die Datei lebt für die Dauer des
++            // CLI-Laufs und wird danach im finally-Block best-effort gelöscht.
++            mcpConfigPath = Path.Combine(Path.GetTempPath(), $"naudit-mcp-{Guid.NewGuid():N}.json");
++            await File.WriteAllTextAsync(mcpConfigPath, BuildMcpConfigJson(mcp), cancellationToken);
++            if (!OperatingSystem.IsWindows())
++                File.SetUnixFileMode(mcpConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
++
++            args.Add("--max-turns");
++            args.Add(mcp.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
++            args.Add("--mcp-config");
++            args.Add(mcpConfigPath);
++            args.Add("--allowedTools");
++            args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
++        }
++        else
++        {
++            args.Add("--max-turns");
++            args.Add("1");
++            args.Add("--tools");
++            args.Add("");   // Tools aus (heutiges Verhalten)
++        }
++        // --model IMMER als letztes Flag vor --system-prompt anhängen, in beiden Zweigen — damit der
++        // MCP-aus-Pfad byte-identisch zum Stand vor diesem Feature bleibt.
++        args.Add("--model");
++        args.Add(model);
+         // ReviewService liefert immer einen nicht-leeren System-Prompt (DefaultSystemPrompt). Fehlte er,
+         // fiele claude auf seine Default-Coding-Agent-Persona zurück (lieferte kein Review-JSON).
+         if (!string.IsNullOrEmpty(system))
+         {
+             args.Add("--system-prompt"); // ersetzt den GESAMTEN System-Prompt (kein Coding-Agent, kein CLAUDE.md)
+             args.Add(system);
+         }
+ 
+         // Auth: i. d. R. über die geerbte Umgebung (CLAUDE_CODE_OAUTH_TOKEN). Optional aus der Config.
+         Dictionary<string, string?>? env = null;
+@@ -46,63 +86,109 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
+             env = new Dictionary<string, string?> { ["CLAUDE_CODE_OAUTH_TOKEN"] = aiOptions.ApiKey };
+ 
+         var spec = new ProcessSpec(
+             FileName: "claude",
+             Arguments: args,
+             StdIn: user,
+             Environment: env,
+             WorkingDirectory: Path.GetTempPath(), // neutrales CWD: kein ambient CLAUDE.md
+             Timeout: TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
+ 
+-        var result = await runner.RunAsync(spec, cancellationToken);
+-
+-        if (result.ExitCode != 0)
+-            throw new InvalidOperationException(
+-                $"claude beendete mit Exit-Code {result.ExitCode}. stderr: {result.StdErr}");
+-
+-        var envelope = JsonSerializer.Deserialize<ClaudeResult>(result.StdOut, JsonOpts)
+-            ?? throw new InvalidOperationException("claude lieferte kein parsebares JSON-Envelope.");
+-
+-        if (envelope.IsError || envelope.Subtype != "success")
+-            throw new InvalidOperationException(
+-                $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
+-
+-        // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
+-        var text = StripJsonFences(envelope.Result ?? "");
+-        if (string.IsNullOrWhiteSpace(text))
+-            throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
+-
+-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
++        try
+         {
+-            // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
+-            // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
+-            // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
+-            Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
+-                ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
+-                : null,
+-        };
++            var result = await runner.RunAsync(spec, cancellationToken);
++
++            if (result.ExitCode != 0)
++                throw new InvalidOperationException(
++                    $"claude beendete mit Exit-Code {result.ExitCode}. stderr: {result.StdErr}");
++
++            var envelope = JsonSerializer.Deserialize<ClaudeResult>(result.StdOut, JsonOpts)
++                ?? throw new InvalidOperationException("claude lieferte kein parsebares JSON-Envelope.");
++
++            if (envelope.IsError || envelope.Subtype != "success")
++                throw new InvalidOperationException(
++                    $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
++
++            // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
++            var text = StripJsonFences(envelope.Result ?? "");
++            if (string.IsNullOrWhiteSpace(text))
++                throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
++
++            return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
++            {
++                // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
++                // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
++                // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
++                Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
++                    ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
++                    : null,
++            };
++        }
++        finally
++        {
++            // Best-effort: die Temp-Datei enthielt den ApiKey, soll nicht liegen bleiben. Löschfehler
++            // (z. B. bereits weg) sind egal — Cancellation wird hier NICHT abgefangen.
++            if (mcpConfigPath is not null)
++            {
++                try { File.Delete(mcpConfigPath); }
++                catch (IOException) { }
++                catch (UnauthorizedAccessException) { }
++            }
++        }
+     }
+ 
++    // Nur [A-Za-z0-9_-] — der Name landet 1:1 (als "mcp__<name>") in der --allowedTools-Allowlist;
++    // ein Space/Sonderzeichen würde zusätzliche, ungeprüfte Allowlist-Tokens einschleusen.
++    private static bool IsValidServerName(string name)
++        => System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z0-9_-]+$");
++
+     // ReviewService nutzt nur die non-streaming Variante; hier ein dünner Wrapper übers Einzelergebnis.
+     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+         IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+         [EnumeratorCancellation] CancellationToken cancellationToken = default)
+     {
+         var response = await GetResponseAsync(messages, options, cancellationToken);
+         yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
+     }
+ 
+     public object? GetService(Type serviceType, object? serviceKey = null)
+         => serviceKey is null && serviceType.IsInstanceOfType(this) ? this : null;
+ 
+     public void Dispose() { }
+ 
++    // Baut das Claude-Code --mcp-config-JSON aus der geteilten McpOptions-Config.
++    // http ⇒ { "type":"http", "url":..., "headers": { "Authorization":"Bearer <key>" } };
++    // stdio ⇒ { "command":..., "args":[...] }.
++    private static string BuildMcpConfigJson(McpOptions mcp)
++    {
++        var servers = new Dictionary<string, object>();
++        foreach (var s in mcp.Servers)
++        {
++            if (string.Equals(s.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
++            {
++                servers[s.Name] = new Dictionary<string, object?>
++                {
++                    ["command"] = s.Command,
++                    ["args"] = s.Arguments ?? new List<string>(),
++                };
++            }
++            else
++            {
++                var entry = new Dictionary<string, object?> { ["type"] = "http", ["url"] = s.Url };
++                if (!string.IsNullOrWhiteSpace(s.ApiKey))
++                    entry["headers"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {s.ApiKey}" };
++                servers[s.Name] = entry;
++            }
++        }
++        return JsonSerializer.Serialize(new Dictionary<string, object> { ["mcpServers"] = servers });
++    }
++
+     // Entfernt umschließende ```json … ``` / ``` … ```-Fences, falls das Modell welche setzt.
+     private static string StripJsonFences(string s)
+     {
+         var t = s.Trim();
+         if (!t.StartsWith("```", StringComparison.Ordinal))
+             return t;
+         var firstNewline = t.IndexOf('\n');
+         if (firstNewline >= 0)
+             t = t[(firstNewline + 1)..];
+         if (t.EndsWith("```", StringComparison.Ordinal))
+diff --git a/src/Naudit.Infrastructure/DependencyInjection.cs b/src/Naudit.Infrastructure/DependencyInjection.cs
+index 0d835c1..e6ab431 100644
+--- a/src/Naudit.Infrastructure/DependencyInjection.cs
++++ b/src/Naudit.Infrastructure/DependencyInjection.cs
+@@ -5,20 +5,21 @@ using Microsoft.Extensions.DependencyInjection;
+ using Microsoft.Extensions.Logging;
+ using Microsoft.Extensions.Options;
+ using Naudit.Core.Abstractions;
+ using Naudit.Core.Review;
+ using Naudit.Infrastructure.Ai;
+ using Naudit.Infrastructure.Context;
+ using Naudit.Infrastructure.Data;
+ using Naudit.Infrastructure.Git;
+ using Naudit.Infrastructure.Git.GitHub;
+ using Naudit.Infrastructure.Git.GitLab;
++using Naudit.Infrastructure.Mcp;
+ using Naudit.Infrastructure.Process;
+ using Naudit.Infrastructure.Redaction;
+ using Naudit.Infrastructure.Sast;
+ using Naudit.Infrastructure.Ui;
+ 
+ namespace Naudit.Infrastructure;
+ 
+ public static class DependencyInjection
+ {
+     /// <summary>DB-Basis (immer an): Options, DbContext, Settings- und Account-Service.
+@@ -32,23 +33,55 @@ public static class DependencyInjection
+         services.AddScoped<Settings.SettingsService>();
+         services.AddScoped<AccountService>();
+         services.AddScoped<Setup.SetupDraftService>();
+         return services;
+     }
+ 
+     public static IServiceCollection AddNauditInfrastructure(this IServiceCollection services, IConfiguration configuration)
+     {
+         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
+         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
+-        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
++
++        // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
++        // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
++        var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
++        services.AddSingleton(mcpOptions);
++
++        // Global-Client. Bei aktivem MCP + MEAI-Provider mit Function-Invocation-Loop umhüllen
++        // (Cap = MaxIterations). ClaudeCode ist ein eigener IChatClient (CLI-natives MCP) und wird NICHT umhüllt.
++        services.AddSingleton<IChatClient>(sp =>
++        {
++            var client = AiClientFactory.Create(aiOptions, mcpOptions);
++            if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
++                client = client.AsBuilder()
++                    .UseFunctionInvocation(sp.GetService<ILoggerFactory>(),
++                        c => c.MaximumIterationsPerRequest = mcpOptions.MaxIterations)
++                    .Build();
++            return client;
++        });
+         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
+ 
++        // MCP-Tools: MEAI-Provider + MCP an ⇒ echte MCP-Tools (Function-Invocation nutzt ChatOptions.Tools);
++        // sonst No-Op (MCP aus, oder ClaudeCode ⇒ CLI-natives MCP über --mcp-config).
++        if (mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode)
++        {
++            services.AddSingleton<IMcpToolConnector>(sp => new McpClientToolConnector(sp.GetRequiredService<ILoggerFactory>()));
++            services.AddSingleton<IReviewToolProvider>(sp => new McpReviewToolProvider(
++                mcpOptions,
++                sp.GetRequiredService<IMcpToolConnector>(),
++                sp.GetRequiredService<ILoggerFactory>().CreateLogger<McpReviewToolProvider>()));
++        }
++        else
++        {
++            services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
++        }
++
+         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
+         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
+         if (string.IsNullOrWhiteSpace(reviewOptions.SystemPrompt))
+             reviewOptions.SystemPrompt = PromptBuilder.DefaultSystemPrompt;
+         services.AddSingleton(reviewOptions);
+ 
+         // Git-Plattform: eine pro Deployment, per Config gewählt (analog zum AI-Provider).
+         var gitOptions = configuration.GetSection("Naudit:Git").Get<GitOptions>() ?? new GitOptions();
+         services.AddSingleton(gitOptions);
+ 
+diff --git a/src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs b/src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs
+new file mode 100644
+index 0000000..161cfda
+--- /dev/null
++++ b/src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs
+@@ -0,0 +1,10 @@
++using Microsoft.Extensions.AI;
++
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Verbindet EINEN MCP-Server und listet dessen Tools als MEAI-AITool. Seam, damit
++/// McpReviewToolProvider ohne echten Server getestet wird (echte Impl: McpClientToolConnector).</summary>
++public interface IMcpToolConnector
++{
++    Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default);
++}
+diff --git a/src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs b/src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs
+new file mode 100644
+index 0000000..3a5257a
+--- /dev/null
++++ b/src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs
+@@ -0,0 +1,49 @@
++using Microsoft.Extensions.AI;
++using Microsoft.Extensions.Logging;
++using ModelContextProtocol;
++using ModelContextProtocol.Client;
++
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Echte MCP-Anbindung über das ModelContextProtocol-SDK. NUR manuell E2E getestet
++/// (wie der reale Git-/LLM-Pfad) — die Orchestrierung/Fail-open deckt McpReviewToolProviderTests ab.
++/// Der McpClient bleibt über die zurückgegebenen Tool-Referenzen am Leben (Tool-Aufruf ruft über ihn),
++/// die Verbindung lebt bewusst für die Prozesslaufzeit (Singleton-Provider cached die Tools).</summary>
++public sealed class McpClientToolConnector(ILoggerFactory loggerFactory) : IMcpToolConnector
++{
++    public async Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default)
++    {
++        var transport = BuildTransport(server);
++        var client = await McpClient.CreateAsync(transport, null, loggerFactory, ct);
++        // Overload-Disambiguierung: getypter null-Options-Wert wählt die auto-paginierende
++        // Überladung, die IList<McpClientTool> liefert (SDK-Version-sensibel; die
++        // ListToolsRequestParams-Überladung gäbe stattdessen das rohe ListToolsResult zurück).
++        var tools = await client.ListToolsAsync((RequestOptions?)null, ct);
++        return [.. tools];   // McpClientTool : AIFunction : AITool
++    }
++
++    // http ⇒ HttpClientTransport (Streamable-HTTP/SSE auto), ApiKey als Authorization-Bearer-Header.
++    // stdio ⇒ StdioClientTransport (lokaler Prozess).
++    private IClientTransport BuildTransport(McpServerConfig server)
++    {
++        if (string.Equals(server.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
++        {
++            return new StdioClientTransport(new StdioClientTransportOptions
++            {
++                Name = server.Name,
++                Command = server.Command ?? throw new InvalidOperationException($"MCP-Server {server.Name}: Command fehlt (stdio)."),
++                Arguments = server.Arguments,
++            });
++        }
++
++        var options = new HttpClientTransportOptions
++        {
++            Name = server.Name,
++            Endpoint = new Uri(server.Url ?? throw new InvalidOperationException($"MCP-Server {server.Name}: Url fehlt (http).")),
++            TransportMode = HttpTransportMode.AutoDetect,
++        };
++        if (!string.IsNullOrWhiteSpace(server.ApiKey))
++            options.AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {server.ApiKey}" };
++        return new HttpClientTransport(options, loggerFactory);
++    }
++}
+diff --git a/src/Naudit.Infrastructure/Mcp/McpOptions.cs b/src/Naudit.Infrastructure/Mcp/McpOptions.cs
+new file mode 100644
+index 0000000..4b4b16b
+--- /dev/null
++++ b/src/Naudit.Infrastructure/Mcp/McpOptions.cs
+@@ -0,0 +1,26 @@
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Naudit:Review:Mcp — MCP-Tools in der Review-Runtime. Enabled=false ⇒ heutiger Single-Shot.</summary>
++public sealed class McpOptions
++{
++    /// <summary>Master-Schalter. Aus ⇒ keine Tools, kein Function-Invocation-Loop.</summary>
++    public bool Enabled { get; set; }
++
++    /// <summary>Obergrenze der Tool-Runden pro Review (Token-/Latenz-Schutz). Beide Provider-Pfade.</summary>
++    public int MaxIterations { get; set; } = 4;
++
++    /// <summary>Konfigurierte MCP-Server (Liste ⇒ env-/appsettings-geformt, wie ProjectTokens).</summary>
++    public List<McpServerConfig> Servers { get; set; } = new();
++}
++
++/// <summary>Ein MCP-Server. Transport "http" (Url) oder "stdio" (Command/Arguments).
++/// ApiKey (Secret) wird bei http als Authorization-Bearer-Header gesetzt.</summary>
++public sealed class McpServerConfig
++{
++    public string Name { get; set; } = "";
++    public string Transport { get; set; } = "http";
++    public string? Url { get; set; }
++    public string? Command { get; set; }
++    public List<string>? Arguments { get; set; }
++    public string? ApiKey { get; set; }
++}
+diff --git a/src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs b/src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs
+new file mode 100644
+index 0000000..9628bb4
+--- /dev/null
++++ b/src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs
+@@ -0,0 +1,55 @@
++using Microsoft.Extensions.AI;
++using Microsoft.Extensions.Logging;
++using Naudit.Core.Abstractions;
++using Naudit.Core.Models;
++
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Baut die MEAI-Tools aus den konfigurierten MCP-Servern. Fail-open: ein nicht
++/// erreichbarer Server ⇒ dieser Server fällt weg, der Review läuft (tool-los) weiter — wie ein
++/// fehlgeschlagener SAST-Checkout → diff-only. Erfolgreiche Tool-Liste wird für die Prozesslaufzeit
++/// gecacht (Server-Host fix, Katalog stabil); ein leeres Ergebnis wird NICHT gecacht (nächster
++/// Review versucht erneut, damit ein zwischenzeitlich erreichbarer Server aufgenommen wird).</summary>
++public sealed class McpReviewToolProvider(
++    McpOptions options, IMcpToolConnector connector, ILogger<McpReviewToolProvider> logger) : IReviewToolProvider
++{
++    private readonly SemaphoreSlim _gate = new(1, 1);
++    private IReadOnlyList<AITool>? _cached;
++
++    public async Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++    {
++        if (!options.Enabled || options.Servers.Count == 0)
++            return [];
++
++        if (_cached is { Count: > 0 })
++            return _cached;
++
++        await _gate.WaitAsync(ct);
++        try
++        {
++            if (_cached is { Count: > 0 })
++                return _cached;
++
++            var tools = new List<AITool>();
++            foreach (var server in options.Servers)
++            {
++                try
++                {
++                    tools.AddRange(await connector.ConnectAndListAsync(server, ct));
++                }
++                catch (Exception ex) when (!ct.IsCancellationRequested)
++                {
++                    logger.LogWarning(ex, "MCP-Server {Server} nicht erreichbar — Review läuft ohne dessen Tools.", server.Name);
++                }
++            }
++
++            if (tools.Count > 0)
++                _cached = tools;   // nur Erfolg cachen
++            return tools;
++        }
++        finally
++        {
++            _gate.Release();
++        }
++    }
++}
+diff --git a/src/Naudit.Infrastructure/Naudit.Infrastructure.csproj b/src/Naudit.Infrastructure/Naudit.Infrastructure.csproj
+index 354de39..f2583a7 100644
+--- a/src/Naudit.Infrastructure/Naudit.Infrastructure.csproj
++++ b/src/Naudit.Infrastructure/Naudit.Infrastructure.csproj
+@@ -1,20 +1,21 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <ItemGroup>
+     <ProjectReference Include="..\Naudit.Core\Naudit.Core.csproj" />
+   </ItemGroup>
+ 
+   <ItemGroup>
+     <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
+     <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
++    <PackageReference Include="ModelContextProtocol.Core" Version="1.4.1" />
+     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
+     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.9" />
+     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+       <PrivateAssets>all</PrivateAssets>
+     </PackageReference>
+     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.9" />
+     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="10.0.9" />
+     <!-- Transitive-Bump: EF Sqlite 10.0.9 zieht SQLitePCLRaw 2.1.11, dessen native Lib
+diff --git a/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs b/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs
+index bedecb5..443871f 100644
+--- a/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs
++++ b/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs
+@@ -26,20 +26,22 @@ public static class SettingsCatalog
+         new("Naudit:GitHub:App:PrivateKey", true),
+         new("Naudit:GitHub:App:InstallationId", false),
+         new("Naudit:GitHub:PostVerdict", false),
+         new("Naudit:Ai:Provider", false),
+         new("Naudit:Ai:Model", false),
+         new("Naudit:Ai:Endpoint", false),
+         new("Naudit:Ai:ApiKey", true),
+         new("Naudit:Review:SystemPrompt", false),
+         new("Naudit:Review:Gate:MinSeverity", false),
+         new("Naudit:Review:Gate:MinConfidence", false),
++        new("Naudit:Review:Mcp:Enabled", false),
++        new("Naudit:Review:Mcp:MaxIterations", false),
+         new("Naudit:AccessGate:Mode", false),
+         new("Naudit:Ui:Auth:GitHub:Enabled", false),
+         new("Naudit:Ui:Auth:GitHub:ClientId", false),
+         new("Naudit:Ui:Auth:GitHub:ClientSecret", true),
+         new("Naudit:Ui:Auth:Oidc:Enabled", false),
+         new("Naudit:Ui:Auth:Oidc:Authority", false),
+         new("Naudit:Ui:Auth:Oidc:ClientId", false),
+         new("Naudit:Ui:Auth:Oidc:ClientSecret", true),
+     ];
+ 
+diff --git a/src/Naudit.Web/Program.cs b/src/Naudit.Web/Program.cs
+index a7222ba..104c2a5 100644
+--- a/src/Naudit.Web/Program.cs
++++ b/src/Naudit.Web/Program.cs
+@@ -78,21 +78,23 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
+     // WebUI-Auth (BFF): Cookie-Session; API-Verhalten statt Browser-Redirects (401/403 als Status).
+     // GetSection NACH InsertDbSettings lesen, damit DB-Werte greifen.
+     var uiConfig = builder.Configuration.GetSection("Naudit:Ui").Get<Naudit.Infrastructure.Ui.UiOptions>()
+         ?? new Naudit.Infrastructure.Ui.UiOptions();
+ 
+     // 3) Basis immer: DB, Auth/Cookies, DataProtection, UI. Review-Teile nur bei gesunder Config.
+     builder.Services.AddSingleton<IAppRestarter>(restarter);
+     builder.Services.AddSingleton(envOverrides);
+     builder.Services.AddSingleton(new StartupState(configError?.Message, load.Warnings));
+     builder.Services.AddSingleton(setup);
+-    builder.Services.AddSingleton(new AiTestClientFactory(Naudit.Infrastructure.Ai.AiClientFactory.Create));
++    // Lambda statt Method-Group: AiClientFactory.Create hat jetzt einen optionalen 2. Parameter (McpOptions?),
++    // und Method-Group-Konvertierung zu Func<AiOptions, IChatClient> verlangt exakte Arity (kompiliert sonst nicht).
++    builder.Services.AddSingleton(new AiTestClientFactory(o => Naudit.Infrastructure.Ai.AiClientFactory.Create(o)));
+     builder.Services.AddSingleton(new SetupHttpClientFactory(() => new HttpClient()));
+     builder.Services.AddNauditDatabase(builder.Configuration);
+     // UiOptions gehört zur immer-an UI-Basis (AccountService/Seed brauchen sie schon im Recovery-Modus,
+     // wo AddNauditInfrastructure NICHT läuft). Im Gesundfall registriert AddNauditInfrastructure sie erneut
+     // (identisch aus derselben Config) — letzte Registrierung gewinnt, harmlos.
+     builder.Services.AddSingleton(uiConfig);
+     if (reviewActive)
+     {
+         builder.Services.AddNauditInfrastructure(builder.Configuration);
+         builder.Services.AddSingleton<IReviewQueue, ReviewQueue>();
+diff --git a/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs b/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
+index 782d9ba..0d92da1 100644
+--- a/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
++++ b/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
+@@ -151,11 +151,110 @@ public class ClaudeCodeChatClientTests
+     [Fact]
+     public async Task GetResponseAsync_leavesUsageNull_whenEnvelopeHasNoUsage()
+     {
+         // Provider ohne Usage-Meldung: Audit soll null (nicht 0) sehen, kein erfundener Verbrauch.
+         var client = Client(_ => new ProcessResult(0, Envelope("OK"), ""));
+ 
+         var response = await client.GetResponseAsync(Messages());
+ 
+         Assert.Null(response.Usage);
+     }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpDisabled_keepsTodaysArgs()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub,
++            new Naudit.Infrastructure.Mcp.McpOptions { Enabled = false });
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);
++        Assert.Equal("", args[args.IndexOf("--tools") + 1]);   // Tools aus
++        Assert.DoesNotContain("--mcp-config", args);
++        Assert.DoesNotContain("--allowedTools", args);
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpEnabled_addsMcpConfig_allowlist_andRaisesMaxTurns()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            MaxIterations = 5,
++            Servers =
++            {
++                new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-1" },
++            },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        Assert.Equal("5", args[args.IndexOf("--max-turns") + 1]);         // Loop erlaubt
++        Assert.Contains("--mcp-config", args);
++        Assert.Contains("--allowedTools", args);
++        // Allowlist enthält NUR das MCP-Tool des Servers — kein Bash/Edit/Read.
++        var allow = args[args.IndexOf("--allowedTools") + 1];
++        Assert.Contains("mcp__context7", allow);
++        Assert.DoesNotContain("Bash", allow);
++        Assert.DoesNotContain("Edit", allow);
++        Assert.DoesNotContain("Read", allow);
++        Assert.DoesNotContain("--tools", args);   // ersetzt durch die Allowlist
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpEnabled_mcpConfigJson_containsServerUrl()
++    {
++        // --mcp-config trägt jetzt einen DATEIPFAD (nicht mehr JSON auf argv) — Inhalt im Responder lesen,
++        // solange die Datei existiert (RunAsync läuft synchron, vor dem finally-Cleanup).
++        string? capturedConfig = null;
++        var stub = new StubProcessRunner(spec =>
++        {
++            var a = spec.Arguments.ToList();
++            var i = a.IndexOf("--mcp-config");
++            if (i >= 0) capturedConfig = File.ReadAllText(a[i + 1]);
++            return new ProcessResult(0, Envelope("OK"), "");
++        });
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-secret" } },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        var configPath = args[args.IndexOf("--mcp-config") + 1];
++        Assert.False(configPath.TrimStart().StartsWith('{'));   // Pfad, kein inline-JSON
++        Assert.NotNull(capturedConfig);
++        Assert.Contains("context7", capturedConfig!);
++        Assert.Contains("https://mcp.context7.com/mcp", capturedConfig!);
++
++        // Der ApiKey darf nirgends auf argv landen (ps/`/proc/<pid>/cmdline`-sichtbar).
++        Assert.All(args, a => Assert.DoesNotContain("sk-secret", a));
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpServerNameWithSpace_throws()
++    {
++        // Ein Name mit Space würde in --allowedTools zu zusätzlichen, ungeprüften Tokens aufsplitten
++        // (potenziell eingebaute Tools wieder freigeben) — fail-closed statt fail-open.
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            Servers = { new() { Name = "c7 Bash", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
++    }
+ }
+diff --git a/tests/Naudit.Tests/Fakes/FakeChatClient.cs b/tests/Naudit.Tests/Fakes/FakeChatClient.cs
+index dc4e16f..44599ec 100644
+--- a/tests/Naudit.Tests/Fakes/FakeChatClient.cs
++++ b/tests/Naudit.Tests/Fakes/FakeChatClient.cs
+@@ -1,21 +1,23 @@
+ using Microsoft.Extensions.AI;
+ 
+ namespace Naudit.Tests.Fakes;
+ 
+ internal sealed class FakeChatClient(string responseText) : IChatClient
+ {
+     public List<ChatMessage>? LastMessages { get; private set; }
++    public ChatOptions? LastOptions { get; private set; }
+ 
+     public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+     {
+         LastMessages = messages.ToList();
++        LastOptions = options;
+         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText)));
+     }
+ 
+     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+         => throw new NotSupportedException();
+ 
+     public object? GetService(Type serviceType, object? serviceKey = null) => null;
+ 
+     public void Dispose() { }
+ }
+diff --git a/tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs b/tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs
+new file mode 100644
+index 0000000..34c50e4
+--- /dev/null
++++ b/tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs
+@@ -0,0 +1,31 @@
++using Microsoft.Extensions.AI;
++using Naudit.Infrastructure.Mcp;
++
++namespace Naudit.Tests.Fakes;
++
++// Pro Server-Name: entweder eine Tool-Liste oder eine Exception (für Fail-open-Tests). Zählt Aufrufe.
++internal sealed class FakeMcpToolConnector : IMcpToolConnector
++{
++    private readonly Dictionary<string, Func<IReadOnlyList<AITool>>> _byServer = new();
++    public int CallCount { get; private set; }
++
++    public FakeMcpToolConnector Returns(string server, params AITool[] tools)
++    {
++        _byServer[server] = () => tools;
++        return this;
++    }
++
++    public FakeMcpToolConnector Throws(string server)
++    {
++        _byServer[server] = () => throw new InvalidOperationException($"boom:{server}");
++        return this;
++    }
++
++    public Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default)
++    {
++        CallCount++;
++        if (_byServer.TryGetValue(server.Name, out var f))
++            return Task.FromResult(f());
++        return Task.FromResult<IReadOnlyList<AITool>>([]);
++    }
++}
+diff --git a/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs b/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs
+new file mode 100644
+index 0000000..822b749
+--- /dev/null
++++ b/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs
+@@ -0,0 +1,12 @@
++using Microsoft.Extensions.AI;
++using Naudit.Core.Abstractions;
++using Naudit.Core.Models;
++
++namespace Naudit.Tests.Fakes;
++
++// Liefert eine feste Tool-Liste — für ReviewService-Tests (kein echter MCP-Server nötig).
++internal sealed class FakeReviewToolProvider(params AITool[] tools) : IReviewToolProvider
++{
++    public Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++        => Task.FromResult<IReadOnlyList<AITool>>(tools);
++}
+diff --git a/tests/Naudit.Tests/McpDiCompositionTests.cs b/tests/Naudit.Tests/McpDiCompositionTests.cs
+new file mode 100644
+index 0000000..d30022f
+--- /dev/null
++++ b/tests/Naudit.Tests/McpDiCompositionTests.cs
+@@ -0,0 +1,63 @@
++using Microsoft.Extensions.Configuration;
++using Microsoft.Extensions.DependencyInjection;
++using Naudit.Core.Abstractions;
++using Naudit.Infrastructure;
++using Naudit.Infrastructure.Mcp;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpDiCompositionTests
++{
++    private static ServiceProvider Build(Dictionary<string, string?> settings)
++    {
++        var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
++        var services = new ServiceCollection();
++        services.AddLogging();
++        services.AddNauditInfrastructure(config);
++        return services.BuildServiceProvider();
++    }
++
++    [Fact]
++    public void McpDisabled_resolvesNullToolProvider()
++    {
++        using var sp = Build(new Dictionary<string, string?>
++        {
++            ["Naudit:Ai:Provider"] = "OpenAICompatible",
++            ["Naudit:Ai:ApiKey"] = "k",
++            ["Naudit:Review:Mcp:Enabled"] = "false",
++        });
++
++        Assert.IsType<NullReviewToolProvider>(sp.GetRequiredService<IReviewToolProvider>());
++    }
++
++    [Fact]
++    public void McpEnabled_meaiProvider_resolvesMcpToolProvider()
++    {
++        using var sp = Build(new Dictionary<string, string?>
++        {
++            ["Naudit:Ai:Provider"] = "OpenAICompatible",
++            ["Naudit:Ai:ApiKey"] = "k",
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++        });
++
++        Assert.IsType<McpReviewToolProvider>(sp.GetRequiredService<IReviewToolProvider>());
++    }
++
++    [Fact]
++    public void McpEnabled_claudeCodeProvider_stillResolvesNullToolProvider()
++    {
++        using var sp = Build(new Dictionary<string, string?>
++        {
++            ["Naudit:Ai:Provider"] = "ClaudeCode",
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++        });
++
++        // ClaudeCode nutzt CLI-natives MCP ⇒ kein ChatOptions.Tools-Provider.
++        Assert.IsType<NullReviewToolProvider>(sp.GetRequiredService<IReviewToolProvider>());
++    }
++}
+diff --git a/tests/Naudit.Tests/McpOptionsTests.cs b/tests/Naudit.Tests/McpOptionsTests.cs
+new file mode 100644
+index 0000000..4e4c2e8
+--- /dev/null
++++ b/tests/Naudit.Tests/McpOptionsTests.cs
+@@ -0,0 +1,39 @@
++using Microsoft.Extensions.Configuration;
++using Naudit.Infrastructure.Mcp;
++using Naudit.Infrastructure.Settings;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpOptionsTests
++{
++    [Fact]
++    public void Binds_enabled_iterations_and_serverList()
++    {
++        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
++        {
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:MaxIterations"] = "6",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Transport"] = "http",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++            ["Naudit:Review:Mcp:Servers:0:ApiKey"] = "sk-123",
++        }).Build();
++
++        var opts = config.GetSection("Naudit:Review:Mcp").Get<McpOptions>()!;
++
++        Assert.True(opts.Enabled);
++        Assert.Equal(6, opts.MaxIterations);
++        var server = Assert.Single(opts.Servers);
++        Assert.Equal("context7", server.Name);
++        Assert.Equal("https://mcp.context7.com/mcp", server.Url);
++        Assert.Equal("sk-123", server.ApiKey);
++    }
++
++    [Fact]
++    public void Catalog_hasEnabledAndMaxIterationsScalars()
++    {
++        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Mcp:Enabled", out _));
++        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Mcp:MaxIterations", out _));
++    }
++}
+diff --git a/tests/Naudit.Tests/McpReviewToolProviderTests.cs b/tests/Naudit.Tests/McpReviewToolProviderTests.cs
+new file mode 100644
+index 0000000..97fb5de
+--- /dev/null
++++ b/tests/Naudit.Tests/McpReviewToolProviderTests.cs
+@@ -0,0 +1,67 @@
++using Microsoft.Extensions.AI;
++using Microsoft.Extensions.Logging.Abstractions;
++using Naudit.Core.Models;
++using Naudit.Infrastructure.Mcp;
++using Naudit.Tests.Fakes;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpReviewToolProviderTests
++{
++    private static readonly ReviewRequest Request = new("1", 1, "T");
++
++    private static McpServerConfig Server(string name) => new() { Name = name, Transport = "http", Url = "http://x" };
++    private static AITool Tool(string name) => AIFunctionFactory.Create(() => "r", name);
++
++    private static McpReviewToolProvider Provider(McpOptions opts, IMcpToolConnector connector)
++        => new(opts, connector, NullLogger<McpReviewToolProvider>.Instance);
++
++    [Fact]
++    public async Task Disabled_returnsEmpty_andNeverCallsConnector()
++    {
++        var connector = new FakeMcpToolConnector().Returns("a", Tool("t"));
++        var opts = new McpOptions { Enabled = false, Servers = { Server("a") } };
++
++        var tools = await Provider(opts, connector).GetToolsAsync(Request);
++
++        Assert.Empty(tools);
++        Assert.Equal(0, connector.CallCount);
++    }
++
++    [Fact]
++    public async Task Aggregates_toolsFromAllServers()
++    {
++        var connector = new FakeMcpToolConnector().Returns("a", Tool("t1")).Returns("b", Tool("t2"));
++        var opts = new McpOptions { Enabled = true, Servers = { Server("a"), Server("b") } };
++
++        var tools = await Provider(opts, connector).GetToolsAsync(Request);
++
++        Assert.Equal(2, tools.Count);
++    }
++
++    [Fact]
++    public async Task FailingServer_isSkipped_othersStillReturn()
++    {
++        var connector = new FakeMcpToolConnector().Throws("a").Returns("b", Tool("t2"));
++        var opts = new McpOptions { Enabled = true, Servers = { Server("a"), Server("b") } };
++
++        var tools = await Provider(opts, connector).GetToolsAsync(Request);
++
++        var tool = Assert.Single(tools);
++        Assert.Equal("t2", tool.Name);
++    }
++
++    [Fact]
++    public async Task Caches_nonEmptyResult_acrossCalls()
++    {
++        var connector = new FakeMcpToolConnector().Returns("a", Tool("t1"));
++        var opts = new McpOptions { Enabled = true, Servers = { Server("a") } };
++        var provider = Provider(opts, connector);
++
++        await provider.GetToolsAsync(Request);
++        await provider.GetToolsAsync(Request);
++
++        Assert.Equal(1, connector.CallCount);   // zweiter Review nutzt den Cache
++    }
++}
+diff --git a/tests/Naudit.Tests/PromtBuilderTests.cs b/tests/Naudit.Tests/PromtBuilderTests.cs
+index 95f55ae..93a3514 100644
+--- a/tests/Naudit.Tests/PromtBuilderTests.cs
++++ b/tests/Naudit.Tests/PromtBuilderTests.cs
+@@ -205,11 +205,31 @@ public class PromptBuilderTests
+         var text = PromptBuilder.Build("SYS", request, changes, null, ReviewContext.Empty)[1].Text!;
+ 
+         Assert.DoesNotContain("# Repository context", text);
+     }
+ 
+     [Fact]
+     public void DefaultSystemPrompt_mentionsRepositoryContext()
+     {
+         Assert.Contains("Repository context", PromptBuilder.DefaultSystemPrompt);
+     }
++
++    [Fact]
++    public void Build_withoutTools_hasNoToolGuidance()
++    {
++        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
++            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++
++        Assert.DoesNotContain("Tools available", msgs[1].Text);
++    }
++
++    [Fact]
++    public void Build_withTools_rendersToolGuidance()
++    {
++        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
++            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")],
++            findings: null, context: null, toolsAvailable: true);
++
++        Assert.Contains("Tools available", msgs[1].Text);
++        Assert.Contains("documentation", msgs[1].Text);
++    }
+ }
+diff --git a/tests/Naudit.Tests/ReviewAuditSinkTests.cs b/tests/Naudit.Tests/ReviewAuditSinkTests.cs
+index 98aad19..eb4c95b 100644
+--- a/tests/Naudit.Tests/ReviewAuditSinkTests.cs
++++ b/tests/Naudit.Tests/ReviewAuditSinkTests.cs
+@@ -6,21 +6,22 @@ using Naudit.Infrastructure.Redaction;
+ using Naudit.Tests.Fakes;
+ using Xunit;
+ 
+ namespace Naudit.Tests;
+ 
+ public class ReviewAuditSinkTests
+ {
+     private static ReviewService CreateService(IChatClient chat, IGitPlatform git, IReviewAuditSink sink) =>
+         new(chat, git, new ReviewOptions { SystemPrompt = "s" },
+             new FakeWorkspaceProvider(), [], new FakeFindingReducer(),
+-            new NullPromptRedactor(), new FakeContextCollector(), sink);
++            new NullPromptRedactor(), new FakeContextCollector(), sink,
++            new NullReviewToolProvider());
+ 
+     [Fact]
+     public async Task ReviewAsync_recordsAudit_withVerdictAndFindings()
+     {
+         var chat = new FakeChatClient(
+             """{"summary":"ok","comments":[{"file":"a.cs","line":1,"comment":"sqli","severity":"high","confidence":"high"}]}""");
+         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+var x = 1;")]);
+         var sink = new FakeReviewAuditSink();
+ 
+         await CreateService(chat, git, sink).ReviewAsync(new ReviewRequest("owner/repo", 7, "T"));
+diff --git a/tests/Naudit.Tests/ReviewServiceTests.cs b/tests/Naudit.Tests/ReviewServiceTests.cs
+index f42ced2..7e15232 100644
+--- a/tests/Naudit.Tests/ReviewServiceTests.cs
++++ b/tests/Naudit.Tests/ReviewServiceTests.cs
+@@ -10,28 +10,58 @@ public class ReviewServiceTests
+ {
+     private static readonly ReviewRequest Request = new("1", 42, "Title");
+ 
+     private static ReviewService CreateService(
+         Microsoft.Extensions.AI.IChatClient chat,
+         Naudit.Core.Abstractions.IGitPlatform git,
+         ReviewOptions options,
+         IEnumerable<ISastAnalyzer>? analyzers = null,
+         FakeWorkspaceProvider? workspace = null,
+         IPromptRedactor? redactor = null,
+-        IContextCollector? contextCollector = null)
++        IContextCollector? contextCollector = null,
++        IReviewToolProvider? toolProvider = null)
+         => new(chat, git, options,
+             workspace ?? new FakeWorkspaceProvider(),
+             analyzers ?? Array.Empty<ISastAnalyzer>(),
+             new FakeFindingReducer(),
+             redactor ?? new NullPromptRedactor(),
+             contextCollector ?? new FakeContextCollector(),
+-            new FakeReviewAuditSink());
++            new FakeReviewAuditSink(),
++            toolProvider ?? new NullReviewToolProvider());
++
++    [Fact]
++    public async Task ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull()
++    {
++        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
++        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
++
++        await service.ReviewAsync(Request);
++
++        Assert.Null(chat.LastOptions!.Tools);   // Feature aus ⇒ identischer Single-Shot
++    }
++
++    [Fact]
++    public async Task ReviewAsync_withTools_populatesChatOptionsTools()
++    {
++        var tool = Microsoft.Extensions.AI.AIFunctionFactory.Create(() => "doc", "get_docs");
++        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
++        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
++            toolProvider: new FakeReviewToolProvider(tool));
++
++        await service.ReviewAsync(Request);
++
++        Assert.NotNull(chat.LastOptions!.Tools);
++        Assert.Single(chat.LastOptions.Tools!);
++        Assert.Equal("get_docs", chat.LastOptions.Tools![0].Name);
++    }
+ 
+     [Fact]
+     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
+     {
+         var chat = new FakeChatClient("""{"summary":"## Review\n- looks fine","verdict":"approve","comments":[]}""");
+         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+ 
+         var result = await service.ReviewAsync(Request);
+ 

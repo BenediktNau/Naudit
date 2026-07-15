@@ -1,0 +1,469 @@
+# Review package: ebd6380..b779dcb
+
+## Commits
+b779dcb fix(mcp): ClaudeCode-CLI härten — Secret aus argv (Temp-Datei), Server-Namen validieren, Off-Args byte-identisch
+563414d feat(mcp): ClaudeCode-CLI-Pfad — --mcp-config + MCP-only-Allowlist + --max-turns
+
+## Files changed
+ src/Naudit.Infrastructure/Ai/AiClientFactory.cs    |   6 +-
+ .../Ai/ClaudeCode/ClaudeCodeChatClient.cs          | 148 ++++++++++++++++-----
+ src/Naudit.Infrastructure/DependencyInjection.cs   |   2 +-
+ src/Naudit.Web/Program.cs                          |   4 +-
+ tests/Naudit.Tests/ClaudeCodeChatClientTests.cs    |  99 ++++++++++++++
+ 5 files changed, 224 insertions(+), 35 deletions(-)
+
+## Diff
+diff --git a/src/Naudit.Infrastructure/Ai/AiClientFactory.cs b/src/Naudit.Infrastructure/Ai/AiClientFactory.cs
+index e99a8a9..4c17eb8 100644
+--- a/src/Naudit.Infrastructure/Ai/AiClientFactory.cs
++++ b/src/Naudit.Infrastructure/Ai/AiClientFactory.cs
+@@ -1,22 +1,23 @@
+ using System.ClientModel;
+ using Microsoft.Extensions.AI;
+ using Naudit.Infrastructure.Ai.ClaudeCode;
++using Naudit.Infrastructure.Mcp;
+ using Naudit.Infrastructure.Process;
+ using OllamaSharp;
+ using OpenAI;
+ 
+ namespace Naudit.Infrastructure.Ai;
+ 
+ public static class AiClientFactory
+ {
+-    public static IChatClient Create(AiOptions options)
++    public static IChatClient Create(AiOptions options, McpOptions? mcp = null)
+     {
+         switch (options.Provider)
+         {
+             case AiProvider.Ollama:
+                 var baseUrl = string.IsNullOrWhiteSpace(options.Endpoint) ? "http://localhost:11434" : options.Endpoint;
+                 // Eigener HttpClient: der OllamaApiClient-Default-HttpClient hat 100 s Timeout — zu kurz
+                 // für große Diffs / Thinking-Modelle. BaseAddress ist beim HttpClient-Ctor Pflicht.
+                 var ollamaHttp = new HttpClient
+                 {
+                     BaseAddress = new Uri(baseUrl),
+@@ -27,21 +28,22 @@ public static class AiClientFactory
+             case AiProvider.Anthropic:
+                 RequireApiKey(options, "Anthropic");
+                 return new Anthropic.SDK.AnthropicClient(options.ApiKey!).Messages;
+ 
+             case AiProvider.OpenAICompatible:
+                 RequireApiKey(options, "OpenAICompatible");
+                 return CreateOpenAICompatible(options);
+ 
+             case AiProvider.ClaudeCode:
+                 // Kein RequireApiKey: die CLI authentifiziert über die Umgebung (Abo statt Key).
+-                return new ClaudeCodeChatClient(options, new SystemProcessRunner());
++                // MCP-Config wird an den CLI-Client durchgereicht (CLI-natives MCP, nicht ChatOptions.Tools).
++                return new ClaudeCodeChatClient(options, new SystemProcessRunner(), mcp);
+ 
+             default:
+                 throw new ArgumentOutOfRangeException(nameof(options), options.Provider, "Unknown AI provider.");
+         }
+     }
+ 
+     private static IChatClient CreateOpenAICompatible(AiOptions options)
+     {
+         var clientOptions = new OpenAIClientOptions();
+         if (!string.IsNullOrWhiteSpace(options.Endpoint))
+diff --git a/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs b/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs
+index 7342aa7..7a23e4f 100644
+--- a/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs
++++ b/src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs
+@@ -1,44 +1,84 @@
+ using System.Runtime.CompilerServices;
+ using System.Text.Json;
+ using System.Text.Json.Serialization;
+ using Microsoft.Extensions.AI;
++using Naudit.Infrastructure.Mcp;
+ using Naudit.Infrastructure.Process;
+ 
+ namespace Naudit.Infrastructure.Ai.ClaudeCode;
+ 
+ /// <summary>
+ /// IChatClient-Adapter, der die `claude` CLI headless aufruft (Abo-Auth statt API-Key).
+ /// Reiner Single-Shot: System-Prompt überschrieben, Diff über stdin, Tools aus, ein Turn.
++/// MCP optional (mcp): Server per --mcp-config registriert, --allowedTools NUR auf die
++/// MCP-Server beschränkt (kein Bash/Edit/Read/Write), --max-turns auf McpOptions.MaxIterations erhöht.
+ /// </summary>
+-public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner) : IChatClient
++public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
+ {
+     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+ 
+     public async Task<ChatResponse> GetResponseAsync(
+         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+     {
+         var list = messages.ToList();
+         var system = string.Join("\n\n", list.Where(m => m.Role == ChatRole.System)
+             .Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
+         var user = string.Join("\n\n", list.Where(m => m.Role != ChatRole.System)
+             .Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
+ 
+         var model = string.IsNullOrWhiteSpace(aiOptions.Model) ? "sonnet" : aiOptions.Model;
+ 
+         // ChatOptions (z. B. ResponseFormat=Json) hat in der CLI kein Äquivalent: JSON wird allein über
+         // den System-Prompt erzwungen; --output-format json betrifft nur das Envelope, nicht den Modelltext.
+-        // Tools aus, ein Turn, JSON-Envelope; Reihenfolge egal, aber --tools muss ein Folge-Argument "" haben.
+-        var args = new List<string>
++        // MCP an ⇒ Loop erlauben (--max-turns N), Server registrieren (--mcp-config) und AUSSCHLIESSLICH
++        // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
++        // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
++        var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
++        var args = new List<string> { "-p", "--output-format", "json" };
++        string? mcpConfigPath = null;
++        if (mcpEnabled)
+         {
+-            "-p", "--output-format", "json", "--max-turns", "1", "--tools", "", "--model", model,
+-        };
++            // Fail-closed: ein Server-Name mit Space/Sonderzeichen würde die --allowedTools-Allowlist
++            // aufsprengen (mehr Tokens als beabsichtigt) und könnte so eingebaute Tools wieder freigeben.
++            foreach (var s in mcp!.Servers)
++                if (!IsValidServerName(s.Name))
++                    throw new InvalidOperationException(
++                        $"MCP-Server-Name '{s.Name}' ist ungültig — erlaubt sind nur [A-Za-z0-9_-].");
++
++            // Das --mcp-config-JSON enthält den ApiKey im Klartext (Authorization-Bearer-Header) — darf
++            // NICHT auf argv landen (sichtbar via ps/`/proc/<pid>/cmdline`). Stattdessen in eine 0600-Temp-
++            // Datei schreiben und nur den PFAD an die CLI übergeben; die Datei lebt für die Dauer des
++            // CLI-Laufs und wird danach im finally-Block best-effort gelöscht.
++            mcpConfigPath = Path.Combine(Path.GetTempPath(), $"naudit-mcp-{Guid.NewGuid():N}.json");
++            await File.WriteAllTextAsync(mcpConfigPath, BuildMcpConfigJson(mcp), cancellationToken);
++            if (!OperatingSystem.IsWindows())
++                File.SetUnixFileMode(mcpConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
++
++            args.Add("--max-turns");
++            args.Add(mcp.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
++            args.Add("--mcp-config");
++            args.Add(mcpConfigPath);
++            args.Add("--allowedTools");
++            args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
++        }
++        else
++        {
++            args.Add("--max-turns");
++            args.Add("1");
++            args.Add("--tools");
++            args.Add("");   // Tools aus (heutiges Verhalten)
++        }
++        // --model IMMER als letztes Flag vor --system-prompt anhängen, in beiden Zweigen — damit der
++        // MCP-aus-Pfad byte-identisch zum Stand vor diesem Feature bleibt.
++        args.Add("--model");
++        args.Add(model);
+         // ReviewService liefert immer einen nicht-leeren System-Prompt (DefaultSystemPrompt). Fehlte er,
+         // fiele claude auf seine Default-Coding-Agent-Persona zurück (lieferte kein Review-JSON).
+         if (!string.IsNullOrEmpty(system))
+         {
+             args.Add("--system-prompt"); // ersetzt den GESAMTEN System-Prompt (kein Coding-Agent, kein CLAUDE.md)
+             args.Add(system);
+         }
+ 
+         // Auth: i. d. R. über die geerbte Umgebung (CLAUDE_CODE_OAUTH_TOKEN). Optional aus der Config.
+         Dictionary<string, string?>? env = null;
+@@ -46,63 +86,109 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
+             env = new Dictionary<string, string?> { ["CLAUDE_CODE_OAUTH_TOKEN"] = aiOptions.ApiKey };
+ 
+         var spec = new ProcessSpec(
+             FileName: "claude",
+             Arguments: args,
+             StdIn: user,
+             Environment: env,
+             WorkingDirectory: Path.GetTempPath(), // neutrales CWD: kein ambient CLAUDE.md
+             Timeout: TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
+ 
+-        var result = await runner.RunAsync(spec, cancellationToken);
+-
+-        if (result.ExitCode != 0)
+-            throw new InvalidOperationException(
+-                $"claude beendete mit Exit-Code {result.ExitCode}. stderr: {result.StdErr}");
+-
+-        var envelope = JsonSerializer.Deserialize<ClaudeResult>(result.StdOut, JsonOpts)
+-            ?? throw new InvalidOperationException("claude lieferte kein parsebares JSON-Envelope.");
+-
+-        if (envelope.IsError || envelope.Subtype != "success")
+-            throw new InvalidOperationException(
+-                $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
+-
+-        // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
+-        var text = StripJsonFences(envelope.Result ?? "");
+-        if (string.IsNullOrWhiteSpace(text))
+-            throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
+-
+-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
++        try
+         {
+-            // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
+-            // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
+-            // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
+-            Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
+-                ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
+-                : null,
+-        };
++            var result = await runner.RunAsync(spec, cancellationToken);
++
++            if (result.ExitCode != 0)
++                throw new InvalidOperationException(
++                    $"claude beendete mit Exit-Code {result.ExitCode}. stderr: {result.StdErr}");
++
++            var envelope = JsonSerializer.Deserialize<ClaudeResult>(result.StdOut, JsonOpts)
++                ?? throw new InvalidOperationException("claude lieferte kein parsebares JSON-Envelope.");
++
++            if (envelope.IsError || envelope.Subtype != "success")
++                throw new InvalidOperationException(
++                    $"claude meldete einen Fehler (subtype='{envelope.Subtype}'). stderr: {result.StdErr}");
++
++            // Fences zuerst entfernen, damit ein leerer Fence-Block als leer erkannt wird (fail-closed).
++            var text = StripJsonFences(envelope.Result ?? "");
++            if (string.IsNullOrWhiteSpace(text))
++                throw new InvalidOperationException("claude lieferte ein leeres 'result'.");
++
++            return new ChatResponse(new ChatMessage(ChatRole.Assistant, text))
++            {
++                // Token-Verbrauch aus dem CLI-Envelope ins MEAI-Usage heben, damit das Audit
++                // (ChatResponse.Usage) den Abo-Weg genauso zählt wie den API-Provider. Fehlt usage
++                // (Provider meldet keins), bleibt Usage null — kein erfundener 0-Verbrauch.
++                Usage = envelope.Usage is { } u && (u.InputTokens is not null || u.OutputTokens is not null)
++                    ? new UsageDetails { InputTokenCount = u.InputTokens, OutputTokenCount = u.OutputTokens }
++                    : null,
++            };
++        }
++        finally
++        {
++            // Best-effort: die Temp-Datei enthielt den ApiKey, soll nicht liegen bleiben. Löschfehler
++            // (z. B. bereits weg) sind egal — Cancellation wird hier NICHT abgefangen.
++            if (mcpConfigPath is not null)
++            {
++                try { File.Delete(mcpConfigPath); }
++                catch (IOException) { }
++                catch (UnauthorizedAccessException) { }
++            }
++        }
+     }
+ 
++    // Nur [A-Za-z0-9_-] — der Name landet 1:1 (als "mcp__<name>") in der --allowedTools-Allowlist;
++    // ein Space/Sonderzeichen würde zusätzliche, ungeprüfte Allowlist-Tokens einschleusen.
++    private static bool IsValidServerName(string name)
++        => System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z0-9_-]+$");
++
+     // ReviewService nutzt nur die non-streaming Variante; hier ein dünner Wrapper übers Einzelergebnis.
+     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+         IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+         [EnumeratorCancellation] CancellationToken cancellationToken = default)
+     {
+         var response = await GetResponseAsync(messages, options, cancellationToken);
+         yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
+     }
+ 
+     public object? GetService(Type serviceType, object? serviceKey = null)
+         => serviceKey is null && serviceType.IsInstanceOfType(this) ? this : null;
+ 
+     public void Dispose() { }
+ 
++    // Baut das Claude-Code --mcp-config-JSON aus der geteilten McpOptions-Config.
++    // http ⇒ { "type":"http", "url":..., "headers": { "Authorization":"Bearer <key>" } };
++    // stdio ⇒ { "command":..., "args":[...] }.
++    private static string BuildMcpConfigJson(McpOptions mcp)
++    {
++        var servers = new Dictionary<string, object>();
++        foreach (var s in mcp.Servers)
++        {
++            if (string.Equals(s.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
++            {
++                servers[s.Name] = new Dictionary<string, object?>
++                {
++                    ["command"] = s.Command,
++                    ["args"] = s.Arguments ?? new List<string>(),
++                };
++            }
++            else
++            {
++                var entry = new Dictionary<string, object?> { ["type"] = "http", ["url"] = s.Url };
++                if (!string.IsNullOrWhiteSpace(s.ApiKey))
++                    entry["headers"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {s.ApiKey}" };
++                servers[s.Name] = entry;
++            }
++        }
++        return JsonSerializer.Serialize(new Dictionary<string, object> { ["mcpServers"] = servers });
++    }
++
+     // Entfernt umschließende ```json … ``` / ``` … ```-Fences, falls das Modell welche setzt.
+     private static string StripJsonFences(string s)
+     {
+         var t = s.Trim();
+         if (!t.StartsWith("```", StringComparison.Ordinal))
+             return t;
+         var firstNewline = t.IndexOf('\n');
+         if (firstNewline >= 0)
+             t = t[(firstNewline + 1)..];
+         if (t.EndsWith("```", StringComparison.Ordinal))
+diff --git a/src/Naudit.Infrastructure/DependencyInjection.cs b/src/Naudit.Infrastructure/DependencyInjection.cs
+index 0e23de4..c4aed28 100644
+--- a/src/Naudit.Infrastructure/DependencyInjection.cs
++++ b/src/Naudit.Infrastructure/DependencyInjection.cs
+@@ -39,21 +39,21 @@ public static class DependencyInjection
+     public static IServiceCollection AddNauditInfrastructure(this IServiceCollection services, IConfiguration configuration)
+     {
+         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
+         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
+ 
+         // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
+         // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
+         var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
+         services.AddSingleton(mcpOptions);
+ 
+-        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
++        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions, mcpOptions));
+         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
+ 
+         // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
+         services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
+ 
+         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
+         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
+         if (string.IsNullOrWhiteSpace(reviewOptions.SystemPrompt))
+             reviewOptions.SystemPrompt = PromptBuilder.DefaultSystemPrompt;
+         services.AddSingleton(reviewOptions);
+diff --git a/src/Naudit.Web/Program.cs b/src/Naudit.Web/Program.cs
+index a7222ba..104c2a5 100644
+--- a/src/Naudit.Web/Program.cs
++++ b/src/Naudit.Web/Program.cs
+@@ -78,21 +78,23 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
+     // WebUI-Auth (BFF): Cookie-Session; API-Verhalten statt Browser-Redirects (401/403 als Status).
+     // GetSection NACH InsertDbSettings lesen, damit DB-Werte greifen.
+     var uiConfig = builder.Configuration.GetSection("Naudit:Ui").Get<Naudit.Infrastructure.Ui.UiOptions>()
+         ?? new Naudit.Infrastructure.Ui.UiOptions();
+ 
+     // 3) Basis immer: DB, Auth/Cookies, DataProtection, UI. Review-Teile nur bei gesunder Config.
+     builder.Services.AddSingleton<IAppRestarter>(restarter);
+     builder.Services.AddSingleton(envOverrides);
+     builder.Services.AddSingleton(new StartupState(configError?.Message, load.Warnings));
+     builder.Services.AddSingleton(setup);
+-    builder.Services.AddSingleton(new AiTestClientFactory(Naudit.Infrastructure.Ai.AiClientFactory.Create));
++    // Lambda statt Method-Group: AiClientFactory.Create hat jetzt einen optionalen 2. Parameter (McpOptions?),
++    // und Method-Group-Konvertierung zu Func<AiOptions, IChatClient> verlangt exakte Arity (kompiliert sonst nicht).
++    builder.Services.AddSingleton(new AiTestClientFactory(o => Naudit.Infrastructure.Ai.AiClientFactory.Create(o)));
+     builder.Services.AddSingleton(new SetupHttpClientFactory(() => new HttpClient()));
+     builder.Services.AddNauditDatabase(builder.Configuration);
+     // UiOptions gehört zur immer-an UI-Basis (AccountService/Seed brauchen sie schon im Recovery-Modus,
+     // wo AddNauditInfrastructure NICHT läuft). Im Gesundfall registriert AddNauditInfrastructure sie erneut
+     // (identisch aus derselben Config) — letzte Registrierung gewinnt, harmlos.
+     builder.Services.AddSingleton(uiConfig);
+     if (reviewActive)
+     {
+         builder.Services.AddNauditInfrastructure(builder.Configuration);
+         builder.Services.AddSingleton<IReviewQueue, ReviewQueue>();
+diff --git a/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs b/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
+index 782d9ba..0d92da1 100644
+--- a/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
++++ b/tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
+@@ -151,11 +151,110 @@ public class ClaudeCodeChatClientTests
+     [Fact]
+     public async Task GetResponseAsync_leavesUsageNull_whenEnvelopeHasNoUsage()
+     {
+         // Provider ohne Usage-Meldung: Audit soll null (nicht 0) sehen, kein erfundener Verbrauch.
+         var client = Client(_ => new ProcessResult(0, Envelope("OK"), ""));
+ 
+         var response = await client.GetResponseAsync(Messages());
+ 
+         Assert.Null(response.Usage);
+     }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpDisabled_keepsTodaysArgs()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub,
++            new Naudit.Infrastructure.Mcp.McpOptions { Enabled = false });
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);
++        Assert.Equal("", args[args.IndexOf("--tools") + 1]);   // Tools aus
++        Assert.DoesNotContain("--mcp-config", args);
++        Assert.DoesNotContain("--allowedTools", args);
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpEnabled_addsMcpConfig_allowlist_andRaisesMaxTurns()
++    {
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            MaxIterations = 5,
++            Servers =
++            {
++                new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-1" },
++            },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        Assert.Equal("5", args[args.IndexOf("--max-turns") + 1]);         // Loop erlaubt
++        Assert.Contains("--mcp-config", args);
++        Assert.Contains("--allowedTools", args);
++        // Allowlist enthält NUR das MCP-Tool des Servers — kein Bash/Edit/Read.
++        var allow = args[args.IndexOf("--allowedTools") + 1];
++        Assert.Contains("mcp__context7", allow);
++        Assert.DoesNotContain("Bash", allow);
++        Assert.DoesNotContain("Edit", allow);
++        Assert.DoesNotContain("Read", allow);
++        Assert.DoesNotContain("--tools", args);   // ersetzt durch die Allowlist
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpEnabled_mcpConfigJson_containsServerUrl()
++    {
++        // --mcp-config trägt jetzt einen DATEIPFAD (nicht mehr JSON auf argv) — Inhalt im Responder lesen,
++        // solange die Datei existiert (RunAsync läuft synchron, vor dem finally-Cleanup).
++        string? capturedConfig = null;
++        var stub = new StubProcessRunner(spec =>
++        {
++            var a = spec.Arguments.ToList();
++            var i = a.IndexOf("--mcp-config");
++            if (i >= 0) capturedConfig = File.ReadAllText(a[i + 1]);
++            return new ProcessResult(0, Envelope("OK"), "");
++        });
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-secret" } },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await client.GetResponseAsync(Messages());
++
++        var args = stub.LastSpec!.Arguments.ToList();
++        var configPath = args[args.IndexOf("--mcp-config") + 1];
++        Assert.False(configPath.TrimStart().StartsWith('{'));   // Pfad, kein inline-JSON
++        Assert.NotNull(capturedConfig);
++        Assert.Contains("context7", capturedConfig!);
++        Assert.Contains("https://mcp.context7.com/mcp", capturedConfig!);
++
++        // Der ApiKey darf nirgends auf argv landen (ps/`/proc/<pid>/cmdline`-sichtbar).
++        Assert.All(args, a => Assert.DoesNotContain("sk-secret", a));
++    }
++
++    [Fact]
++    public async Task GetResponseAsync_mcpServerNameWithSpace_throws()
++    {
++        // Ein Name mit Space würde in --allowedTools zu zusätzlichen, ungeprüften Tokens aufsplitten
++        // (potenziell eingebaute Tools wieder freigeben) — fail-closed statt fail-open.
++        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
++        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
++        {
++            Enabled = true,
++            Servers = { new() { Name = "c7 Bash", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
++        };
++        var client = new ClaudeCodeChatClient(
++            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
++
++        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
++    }
+ }

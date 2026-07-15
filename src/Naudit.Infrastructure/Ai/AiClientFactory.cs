@@ -1,6 +1,7 @@
 using System.ClientModel;
 using Microsoft.Extensions.AI;
 using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Mcp;
 using Naudit.Infrastructure.Process;
 using OllamaSharp;
 using OpenAI;
@@ -9,7 +10,7 @@ namespace Naudit.Infrastructure.Ai;
 
 public static class AiClientFactory
 {
-    public static IChatClient Create(AiOptions options)
+    public static IChatClient Create(AiOptions options, McpOptions? mcp = null)
     {
         switch (options.Provider)
         {
@@ -34,7 +35,8 @@ public static class AiClientFactory
 
             case AiProvider.ClaudeCode:
                 // Kein RequireApiKey: die CLI authentifiziert über die Umgebung (Abo statt Key).
-                return new ClaudeCodeChatClient(options, new SystemProcessRunner());
+                // MCP-Config wird an den CLI-Client durchgereicht (CLI-natives MCP, nicht ChatOptions.Tools).
+                return new ClaudeCodeChatClient(options, new SystemProcessRunner(), mcp);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(options), options.Provider, "Unknown AI provider.");

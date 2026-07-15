@@ -1,0 +1,170 @@
+# Review package: 496053c..544536f
+
+## Commits
+544536f feat(mcp): McpOptions binden (Naudit:Review:Mcp) + Settings-Katalog-Scalars
+
+## Files changed
+ src/Naudit.Infrastructure/DependencyInjection.cs   |  7 ++++
+ src/Naudit.Infrastructure/Mcp/McpOptions.cs        | 26 +++++++++++++++
+ .../Settings/SettingsCatalog.cs                    |  2 ++
+ tests/Naudit.Tests/McpOptionsTests.cs              | 39 ++++++++++++++++++++++
+ 4 files changed, 74 insertions(+)
+
+## Diff
+diff --git a/src/Naudit.Infrastructure/DependencyInjection.cs b/src/Naudit.Infrastructure/DependencyInjection.cs
+index 5be8cfa..0e23de4 100644
+--- a/src/Naudit.Infrastructure/DependencyInjection.cs
++++ b/src/Naudit.Infrastructure/DependencyInjection.cs
+@@ -5,20 +5,21 @@ using Microsoft.Extensions.DependencyInjection;
+ using Microsoft.Extensions.Logging;
+ using Microsoft.Extensions.Options;
+ using Naudit.Core.Abstractions;
+ using Naudit.Core.Review;
+ using Naudit.Infrastructure.Ai;
+ using Naudit.Infrastructure.Context;
+ using Naudit.Infrastructure.Data;
+ using Naudit.Infrastructure.Git;
+ using Naudit.Infrastructure.Git.GitHub;
+ using Naudit.Infrastructure.Git.GitLab;
++using Naudit.Infrastructure.Mcp;
+ using Naudit.Infrastructure.Process;
+ using Naudit.Infrastructure.Redaction;
+ using Naudit.Infrastructure.Sast;
+ using Naudit.Infrastructure.Ui;
+ 
+ namespace Naudit.Infrastructure;
+ 
+ public static class DependencyInjection
+ {
+     /// <summary>DB-Basis (immer an): Options, DbContext, Settings- und Account-Service.
+@@ -32,20 +33,26 @@ public static class DependencyInjection
+         services.AddScoped<Settings.SettingsService>();
+         services.AddScoped<AccountService>();
+         services.AddScoped<Setup.SetupDraftService>();
+         return services;
+     }
+ 
+     public static IServiceCollection AddNauditInfrastructure(this IServiceCollection services, IConfiguration configuration)
+     {
+         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
+         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
++
++        // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
++        // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
++        var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
++        services.AddSingleton(mcpOptions);
++
+         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
+         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
+ 
+         // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
+         services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
+ 
+         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
+         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
+         if (string.IsNullOrWhiteSpace(reviewOptions.SystemPrompt))
+             reviewOptions.SystemPrompt = PromptBuilder.DefaultSystemPrompt;
+diff --git a/src/Naudit.Infrastructure/Mcp/McpOptions.cs b/src/Naudit.Infrastructure/Mcp/McpOptions.cs
+new file mode 100644
+index 0000000..4b4b16b
+--- /dev/null
++++ b/src/Naudit.Infrastructure/Mcp/McpOptions.cs
+@@ -0,0 +1,26 @@
++namespace Naudit.Infrastructure.Mcp;
++
++/// <summary>Naudit:Review:Mcp — MCP-Tools in der Review-Runtime. Enabled=false ⇒ heutiger Single-Shot.</summary>
++public sealed class McpOptions
++{
++    /// <summary>Master-Schalter. Aus ⇒ keine Tools, kein Function-Invocation-Loop.</summary>
++    public bool Enabled { get; set; }
++
++    /// <summary>Obergrenze der Tool-Runden pro Review (Token-/Latenz-Schutz). Beide Provider-Pfade.</summary>
++    public int MaxIterations { get; set; } = 4;
++
++    /// <summary>Konfigurierte MCP-Server (Liste ⇒ env-/appsettings-geformt, wie ProjectTokens).</summary>
++    public List<McpServerConfig> Servers { get; set; } = new();
++}
++
++/// <summary>Ein MCP-Server. Transport "http" (Url) oder "stdio" (Command/Arguments).
++/// ApiKey (Secret) wird bei http als Authorization-Bearer-Header gesetzt.</summary>
++public sealed class McpServerConfig
++{
++    public string Name { get; set; } = "";
++    public string Transport { get; set; } = "http";
++    public string? Url { get; set; }
++    public string? Command { get; set; }
++    public List<string>? Arguments { get; set; }
++    public string? ApiKey { get; set; }
++}
+diff --git a/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs b/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs
+index bedecb5..443871f 100644
+--- a/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs
++++ b/src/Naudit.Infrastructure/Settings/SettingsCatalog.cs
+@@ -26,20 +26,22 @@ public static class SettingsCatalog
+         new("Naudit:GitHub:App:PrivateKey", true),
+         new("Naudit:GitHub:App:InstallationId", false),
+         new("Naudit:GitHub:PostVerdict", false),
+         new("Naudit:Ai:Provider", false),
+         new("Naudit:Ai:Model", false),
+         new("Naudit:Ai:Endpoint", false),
+         new("Naudit:Ai:ApiKey", true),
+         new("Naudit:Review:SystemPrompt", false),
+         new("Naudit:Review:Gate:MinSeverity", false),
+         new("Naudit:Review:Gate:MinConfidence", false),
++        new("Naudit:Review:Mcp:Enabled", false),
++        new("Naudit:Review:Mcp:MaxIterations", false),
+         new("Naudit:AccessGate:Mode", false),
+         new("Naudit:Ui:Auth:GitHub:Enabled", false),
+         new("Naudit:Ui:Auth:GitHub:ClientId", false),
+         new("Naudit:Ui:Auth:GitHub:ClientSecret", true),
+         new("Naudit:Ui:Auth:Oidc:Enabled", false),
+         new("Naudit:Ui:Auth:Oidc:Authority", false),
+         new("Naudit:Ui:Auth:Oidc:ClientId", false),
+         new("Naudit:Ui:Auth:Oidc:ClientSecret", true),
+     ];
+ 
+diff --git a/tests/Naudit.Tests/McpOptionsTests.cs b/tests/Naudit.Tests/McpOptionsTests.cs
+new file mode 100644
+index 0000000..4e4c2e8
+--- /dev/null
++++ b/tests/Naudit.Tests/McpOptionsTests.cs
+@@ -0,0 +1,39 @@
++using Microsoft.Extensions.Configuration;
++using Naudit.Infrastructure.Mcp;
++using Naudit.Infrastructure.Settings;
++using Xunit;
++
++namespace Naudit.Tests;
++
++public class McpOptionsTests
++{
++    [Fact]
++    public void Binds_enabled_iterations_and_serverList()
++    {
++        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
++        {
++            ["Naudit:Review:Mcp:Enabled"] = "true",
++            ["Naudit:Review:Mcp:MaxIterations"] = "6",
++            ["Naudit:Review:Mcp:Servers:0:Name"] = "context7",
++            ["Naudit:Review:Mcp:Servers:0:Transport"] = "http",
++            ["Naudit:Review:Mcp:Servers:0:Url"] = "https://mcp.context7.com/mcp",
++            ["Naudit:Review:Mcp:Servers:0:ApiKey"] = "sk-123",
++        }).Build();
++
++        var opts = config.GetSection("Naudit:Review:Mcp").Get<McpOptions>()!;
++
++        Assert.True(opts.Enabled);
++        Assert.Equal(6, opts.MaxIterations);
++        var server = Assert.Single(opts.Servers);
++        Assert.Equal("context7", server.Name);
++        Assert.Equal("https://mcp.context7.com/mcp", server.Url);
++        Assert.Equal("sk-123", server.ApiKey);
++    }
++
++    [Fact]
++    public void Catalog_hasEnabledAndMaxIterationsScalars()
++    {
++        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Mcp:Enabled", out _));
++        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Mcp:MaxIterations", out _));
++    }
++}

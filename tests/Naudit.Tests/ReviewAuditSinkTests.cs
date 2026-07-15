@@ -14,6 +14,7 @@ public class ReviewAuditSinkTests
         new(new SingleClientRouter(chat), git, new ReviewOptions { SystemPrompt = "s" },
             new FakeWorkspaceProvider(), [], new FakeFindingReducer(),
             new NullPromptRedactor(), new FakeContextCollector(), sink,
+            new NullReviewToolProvider(),
             new FakeRoundtripCounter());
 
     [Fact]

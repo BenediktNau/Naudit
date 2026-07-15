@@ -85,7 +85,9 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     builder.Services.AddSingleton(envOverrides);
     builder.Services.AddSingleton(new StartupState(configError?.Message, load.Warnings));
     builder.Services.AddSingleton(setup);
-    builder.Services.AddSingleton(new AiTestClientFactory(Naudit.Infrastructure.Ai.AiClientFactory.Create));
+    // Lambda statt Method-Group: AiClientFactory.Create hat jetzt einen optionalen 2. Parameter (McpOptions?),
+    // und Method-Group-Konvertierung zu Func<AiOptions, IChatClient> verlangt exakte Arity (kompiliert sonst nicht).
+    builder.Services.AddSingleton(new AiTestClientFactory(o => Naudit.Infrastructure.Ai.AiClientFactory.Create(o)));
     builder.Services.AddSingleton(new SetupHttpClientFactory(() => new HttpClient()));
     builder.Services.AddNauditDatabase(builder.Configuration);
     // UiOptions gehört zur immer-an UI-Basis (AccountService/Seed brauchen sie schon im Recovery-Modus,

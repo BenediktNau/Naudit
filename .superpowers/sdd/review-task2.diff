@@ -1,0 +1,161 @@
+# Review package: f74b2b1..496053c
+
+## Commits
+496053c feat(review): Prompt-Guidance fürs Docs-Werkzeug (nur wenn Tools angeboten)
+
+## Files changed
+ src/Naudit.Core/Review/PromtBuilder.cs  | 17 ++++++++++++++++-
+ src/Naudit.Core/Review/ReviewService.cs |  9 +++++----
+ tests/Naudit.Tests/PromtBuilderTests.cs | 20 ++++++++++++++++++++
+ 3 files changed, 41 insertions(+), 5 deletions(-)
+
+## Diff
+diff --git a/src/Naudit.Core/Review/PromtBuilder.cs b/src/Naudit.Core/Review/PromtBuilder.cs
+index ec260c5..7ec0146 100644
+--- a/src/Naudit.Core/Review/PromtBuilder.cs
++++ b/src/Naudit.Core/Review/PromtBuilder.cs
+@@ -23,35 +23,37 @@ public static class PromptBuilder
+         "Set confidence by how certain you are the issue is real; prefer \"low\" when you cannot verify a claim from the diff alone. " +
+         "Do NOT output an overall verdict - the merge decision is derived automatically from the findings' severity and confidence. " +
+         "Only use a line number that is shown at the start of a line in the diff. " +
+         "If a finding does not map to one specific changed line, still include it in \"comments\" with its \"severity\" and \"confidence\" but omit \"line\" (or set it to null) - do NOT invent a line number. " +
+         "Use \"summary\" only for the one-line overview, never to carry findings. " +
+         "A read-only \"Repository context\" section may follow the diff (surrounding code, usages, repository overview) - " +
+         "use it to understand what the change does and how it fits, but report findings ONLY on the diff lines shown with line numbers.";
+ 
+     public static IList<ChatMessage> Build(
+         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
+-        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null)
++        IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
++        bool toolsAvailable = false)
+     {
+         var sb = new StringBuilder();
+         sb.AppendLine($"# Merge Request: {request.Title}");
+         foreach (var change in changes)
+         {
+             sb.AppendLine();
+             sb.AppendLine($"## File: {change.FilePath}");
+             sb.AppendLine("```diff");
+             AppendAnnotatedDiff(sb, change.Diff);
+             sb.AppendLine("```");
+         }
+ 
+         AppendContext(sb, context);
+         AppendFindings(sb, findings ?? []);
++        AppendToolGuidance(sb, toolsAvailable);
+ 
+         return new List<ChatMessage>
+         {
+             new(ChatRole.System, systemPrompt),
+             new(ChatRole.User, sb.ToString()),
+         };
+     }
+ 
+     // Stellt jeder Diff-Zeile ihre New-File-Zeilennummer voran (leer bei gelöschten/Header-Zeilen),
+     // damit das LLM eine stabile, reale Zeilennummer referenzieren kann.
+@@ -164,20 +166,33 @@ public static class PromptBuilder
+             return;
+         }
+         sb.AppendLine("Prioritize [in diff] (introduced/touched by this MR). [pre-existing] were already in the repo.");
+ 
+         // Secrets zuerst (am dringlichsten), dann Dependencies, dann SAST.
+         AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
+         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
+         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
+     }
+ 
++    // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
++    // Ohne Hinweis ruft das Modell das Tool nie oder ständig — beides verbrennt Budget.
++    private static void AppendToolGuidance(StringBuilder sb, bool toolsAvailable)
++    {
++        if (!toolsAvailable)
++            return;
++        sb.AppendLine();
++        sb.AppendLine("# Tools available");
++        sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
++            "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
++            "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
++    }
++
+     private static void AppendCategory(StringBuilder sb, string heading, IEnumerable<ScanFinding> items)
+     {
+         var list = items.ToList();
+         if (list.Count == 0)
+             return;
+         sb.AppendLine();
+         sb.AppendLine($"## {heading}");
+         foreach (var f in list)
+         {
+             var scope = f.InDiff ? "in diff" : "pre-existing";
+diff --git a/src/Naudit.Core/Review/ReviewService.cs b/src/Naudit.Core/Review/ReviewService.cs
+index 9334ccd..2f4a05f 100644
+--- a/src/Naudit.Core/Review/ReviewService.cs
++++ b/src/Naudit.Core/Review/ReviewService.cs
+@@ -37,26 +37,27 @@ public sealed class ReviewService(
+         foreach (var c in changes)
+             redChanges.Add(c with { Diff = await redactor.RedactAsync(c.Diff, ct) });
+ 
+         var redFindings = new List<ScanFinding>(findings.Count);
+         foreach (var f in findings)
+             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
+ 
+         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
+         var redContext = await RedactContextAsync(context, ct);
+ 
+-        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
+-
+-        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
+         // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
+-        // über den Function-Invocation-Wrapper des Clients (Infrastructure).
++        // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
+         var tools = await toolProvider.GetToolsAsync(request, ct);
++        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
++            toolsAvailable: tools.Count > 0);
++
++        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
+         if (tools.Count > 0)
+             chatOptions.Tools = [.. tools];
+ 
+         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
+ 
+         // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
+         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
+         // Fail-closed bleibt nur für "gar keine parsebare Antwort": das Verdict wird unten aus den
+         // Findings abgeleitet, nicht mehr vom LLM behauptet.
+         var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
+diff --git a/tests/Naudit.Tests/PromtBuilderTests.cs b/tests/Naudit.Tests/PromtBuilderTests.cs
+index 95f55ae..93a3514 100644
+--- a/tests/Naudit.Tests/PromtBuilderTests.cs
++++ b/tests/Naudit.Tests/PromtBuilderTests.cs
+@@ -205,11 +205,31 @@ public class PromptBuilderTests
+         var text = PromptBuilder.Build("SYS", request, changes, null, ReviewContext.Empty)[1].Text!;
+ 
+         Assert.DoesNotContain("# Repository context", text);
+     }
+ 
+     [Fact]
+     public void DefaultSystemPrompt_mentionsRepositoryContext()
+     {
+         Assert.Contains("Repository context", PromptBuilder.DefaultSystemPrompt);
+     }
++
++    [Fact]
++    public void Build_withoutTools_hasNoToolGuidance()
++    {
++        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
++            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++
++        Assert.DoesNotContain("Tools available", msgs[1].Text);
++    }
++
++    [Fact]
++    public void Build_withTools_rendersToolGuidance()
++    {
++        var msgs = PromptBuilder.Build("SYS", new ReviewRequest("1", 1, "T"),
++            [new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")],
++            findings: null, context: null, toolsAvailable: true);
++
++        Assert.Contains("Tools available", msgs[1].Text);
++        Assert.Contains("documentation", msgs[1].Text);
++    }
+ }

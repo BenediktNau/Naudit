@@ -1,0 +1,262 @@
+# Review package: 77caa1d..f74b2b1
+
+## Commits
+f74b2b1 feat(review): IReviewToolProvider-Naht — ChatOptions.Tools aus Core (No-Op-Default)
+
+## Files changed
+ .../Abstractions/IReviewToolProvider.cs            | 18 ++++++++++++
+ src/Naudit.Core/Review/ReviewService.cs            |  9 +++++-
+ src/Naudit.Infrastructure/DependencyInjection.cs   |  3 ++
+ tests/Naudit.Tests/Fakes/FakeChatClient.cs         |  2 ++
+ tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs | 12 ++++++++
+ tests/Naudit.Tests/ReviewAuditSinkTests.cs         |  3 +-
+ tests/Naudit.Tests/ReviewServiceTests.cs           | 34 ++++++++++++++++++++--
+ 7 files changed, 77 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/src/Naudit.Core/Abstractions/IReviewToolProvider.cs b/src/Naudit.Core/Abstractions/IReviewToolProvider.cs
+new file mode 100644
+index 0000000..38301c2
+--- /dev/null
++++ b/src/Naudit.Core/Abstractions/IReviewToolProvider.cs
+@@ -0,0 +1,18 @@
++using Microsoft.Extensions.AI;
++using Naudit.Core.Models;
++
++namespace Naudit.Core.Abstractions;
++
++/// <summary>Liefert die Tools, die dem LLM für diesen Review angeboten werden (leer = keine).
++/// MEAI-Abstraktion AITool ist erlaubt; das Bauen aus MCP-Servern passiert in Infrastructure.</summary>
++public interface IReviewToolProvider
++{
++    Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default);
++}
++
++/// <summary>Default ohne MCP: keine Tools — identischer Single-Shot wie heute.</summary>
++public sealed class NullReviewToolProvider : IReviewToolProvider
++{
++    public Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++        => Task.FromResult<IReadOnlyList<AITool>>([]);
++}
+diff --git a/src/Naudit.Core/Review/ReviewService.cs b/src/Naudit.Core/Review/ReviewService.cs
+index d048eb8..9334ccd 100644
+--- a/src/Naudit.Core/Review/ReviewService.cs
++++ b/src/Naudit.Core/Review/ReviewService.cs
+@@ -8,21 +8,22 @@ namespace Naudit.Core.Review;
+ 
+ public sealed class ReviewService(
+     IChatClient chatClient,
+     IGitPlatform gitPlatform,
+     ReviewOptions options,
+     IWorkspaceProvider workspaceProvider,
+     IEnumerable<ISastAnalyzer> analyzers,
+     IFindingReducer findingReducer,
+     IPromptRedactor redactor,
+     IContextCollector contextCollector,
+-    IReviewAuditSink auditSink)
++    IReviewAuditSink auditSink,
++    IReviewToolProvider toolProvider)
+ {
+     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
+     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+     private readonly IReadOnlyList<ISastAnalyzer> _analyzers = analyzers.ToList();
+ 
+     public async Task<ReviewResult> ReviewAsync(ReviewRequest request, CancellationToken ct = default)
+     {
+         var changes = await gitPlatform.GetChangesAsync(request, ct);
+         if (changes.Count == 0)
+             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
+@@ -39,20 +40,26 @@ public sealed class ReviewService(
+         var redFindings = new List<ScanFinding>(findings.Count);
+         foreach (var f in findings)
+             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
+ 
+         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
+         var redContext = await RedactContextAsync(context, ct);
+ 
+         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
+ 
+         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
++        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
++        // über den Function-Invocation-Wrapper des Clients (Infrastructure).
++        var tools = await toolProvider.GetToolsAsync(request, ct);
++        if (tools.Count > 0)
++            chatOptions.Tools = [.. tools];
++
+         var response = await chatClient.GetResponseAsync(messages, chatOptions, ct);
+ 
+         // Manche Modelle (z. B. minimax-m3 / Reasoning-Modelle) verpacken die JSON-Antwort trotz
+         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
+         // Fail-closed bleibt nur für "gar keine parsebare Antwort": das Verdict wird unten aus den
+         // Findings abgeleitet, nicht mehr vom LLM behauptet.
+         var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
+             ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
+ 
+         // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
+diff --git a/src/Naudit.Infrastructure/DependencyInjection.cs b/src/Naudit.Infrastructure/DependencyInjection.cs
+index 0d835c1..5be8cfa 100644
+--- a/src/Naudit.Infrastructure/DependencyInjection.cs
++++ b/src/Naudit.Infrastructure/DependencyInjection.cs
+@@ -35,20 +35,23 @@ public static class DependencyInjection
+         return services;
+     }
+ 
+     public static IServiceCollection AddNauditInfrastructure(this IServiceCollection services, IConfiguration configuration)
+     {
+         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
+         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
+         services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
+         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
+ 
++        // MCP-Tools: Default No-Op (Task 6 registriert bei aktivem MCP + MEAI-Provider den echten Provider).
++        services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
++
+         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
+         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
+         if (string.IsNullOrWhiteSpace(reviewOptions.SystemPrompt))
+             reviewOptions.SystemPrompt = PromptBuilder.DefaultSystemPrompt;
+         services.AddSingleton(reviewOptions);
+ 
+         // Git-Plattform: eine pro Deployment, per Config gewählt (analog zum AI-Provider).
+         var gitOptions = configuration.GetSection("Naudit:Git").Get<GitOptions>() ?? new GitOptions();
+         services.AddSingleton(gitOptions);
+ 
+diff --git a/tests/Naudit.Tests/Fakes/FakeChatClient.cs b/tests/Naudit.Tests/Fakes/FakeChatClient.cs
+index dc4e16f..44599ec 100644
+--- a/tests/Naudit.Tests/Fakes/FakeChatClient.cs
++++ b/tests/Naudit.Tests/Fakes/FakeChatClient.cs
+@@ -1,21 +1,23 @@
+ using Microsoft.Extensions.AI;
+ 
+ namespace Naudit.Tests.Fakes;
+ 
+ internal sealed class FakeChatClient(string responseText) : IChatClient
+ {
+     public List<ChatMessage>? LastMessages { get; private set; }
++    public ChatOptions? LastOptions { get; private set; }
+ 
+     public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+     {
+         LastMessages = messages.ToList();
++        LastOptions = options;
+         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText)));
+     }
+ 
+     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+         => throw new NotSupportedException();
+ 
+     public object? GetService(Type serviceType, object? serviceKey = null) => null;
+ 
+     public void Dispose() { }
+ }
+diff --git a/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs b/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs
+new file mode 100644
+index 0000000..822b749
+--- /dev/null
++++ b/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs
+@@ -0,0 +1,12 @@
++using Microsoft.Extensions.AI;
++using Naudit.Core.Abstractions;
++using Naudit.Core.Models;
++
++namespace Naudit.Tests.Fakes;
++
++// Liefert eine feste Tool-Liste — für ReviewService-Tests (kein echter MCP-Server nötig).
++internal sealed class FakeReviewToolProvider(params AITool[] tools) : IReviewToolProvider
++{
++    public Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
++        => Task.FromResult<IReadOnlyList<AITool>>(tools);
++}
+diff --git a/tests/Naudit.Tests/ReviewAuditSinkTests.cs b/tests/Naudit.Tests/ReviewAuditSinkTests.cs
+index 98aad19..eb4c95b 100644
+--- a/tests/Naudit.Tests/ReviewAuditSinkTests.cs
++++ b/tests/Naudit.Tests/ReviewAuditSinkTests.cs
+@@ -6,21 +6,22 @@ using Naudit.Infrastructure.Redaction;
+ using Naudit.Tests.Fakes;
+ using Xunit;
+ 
+ namespace Naudit.Tests;
+ 
+ public class ReviewAuditSinkTests
+ {
+     private static ReviewService CreateService(IChatClient chat, IGitPlatform git, IReviewAuditSink sink) =>
+         new(chat, git, new ReviewOptions { SystemPrompt = "s" },
+             new FakeWorkspaceProvider(), [], new FakeFindingReducer(),
+-            new NullPromptRedactor(), new FakeContextCollector(), sink);
++            new NullPromptRedactor(), new FakeContextCollector(), sink,
++            new NullReviewToolProvider());
+ 
+     [Fact]
+     public async Task ReviewAsync_recordsAudit_withVerdictAndFindings()
+     {
+         var chat = new FakeChatClient(
+             """{"summary":"ok","comments":[{"file":"a.cs","line":1,"comment":"sqli","severity":"high","confidence":"high"}]}""");
+         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+var x = 1;")]);
+         var sink = new FakeReviewAuditSink();
+ 
+         await CreateService(chat, git, sink).ReviewAsync(new ReviewRequest("owner/repo", 7, "T"));
+diff --git a/tests/Naudit.Tests/ReviewServiceTests.cs b/tests/Naudit.Tests/ReviewServiceTests.cs
+index f42ced2..7e15232 100644
+--- a/tests/Naudit.Tests/ReviewServiceTests.cs
++++ b/tests/Naudit.Tests/ReviewServiceTests.cs
+@@ -10,28 +10,58 @@ public class ReviewServiceTests
+ {
+     private static readonly ReviewRequest Request = new("1", 42, "Title");
+ 
+     private static ReviewService CreateService(
+         Microsoft.Extensions.AI.IChatClient chat,
+         Naudit.Core.Abstractions.IGitPlatform git,
+         ReviewOptions options,
+         IEnumerable<ISastAnalyzer>? analyzers = null,
+         FakeWorkspaceProvider? workspace = null,
+         IPromptRedactor? redactor = null,
+-        IContextCollector? contextCollector = null)
++        IContextCollector? contextCollector = null,
++        IReviewToolProvider? toolProvider = null)
+         => new(chat, git, options,
+             workspace ?? new FakeWorkspaceProvider(),
+             analyzers ?? Array.Empty<ISastAnalyzer>(),
+             new FakeFindingReducer(),
+             redactor ?? new NullPromptRedactor(),
+             contextCollector ?? new FakeContextCollector(),
+-            new FakeReviewAuditSink());
++            new FakeReviewAuditSink(),
++            toolProvider ?? new NullReviewToolProvider());
++
++    [Fact]
++    public async Task ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull()
++    {
++        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
++        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
++
++        await service.ReviewAsync(Request);
++
++        Assert.Null(chat.LastOptions!.Tools);   // Feature aus ⇒ identischer Single-Shot
++    }
++
++    [Fact]
++    public async Task ReviewAsync_withTools_populatesChatOptionsTools()
++    {
++        var tool = Microsoft.Extensions.AI.AIFunctionFactory.Create(() => "doc", "get_docs");
++        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
++        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
++        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
++            toolProvider: new FakeReviewToolProvider(tool));
++
++        await service.ReviewAsync(Request);
++
++        Assert.NotNull(chat.LastOptions!.Tools);
++        Assert.Single(chat.LastOptions.Tools!);
++        Assert.Equal("get_docs", chat.LastOptions.Tools![0].Name);
++    }
+ 
+     [Fact]
+     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()
+     {
+         var chat = new FakeChatClient("""{"summary":"## Review\n- looks fine","verdict":"approve","comments":[]}""");
+         var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+ 
+         var result = await service.ReviewAsync(Request);
+ 
