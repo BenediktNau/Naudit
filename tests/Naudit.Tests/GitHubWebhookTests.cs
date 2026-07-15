@@ -45,6 +45,16 @@ public class GitHubWebhookTests
     }
 
     [Fact]
+    public void ToReviewRequest_ignoresLabeledAction()
+    {
+        // Kommentare sind eigene Event-Typen (issue_comment) und fallen am eventType-Filter raus;
+        // Metadaten-Actions wie "labeled" scheitern an der Whitelist. Kein Review ohne neue Commits.
+        var json = """{ "action": "labeled", "repository": { "full_name": "o/r" }, "pull_request": { "number": 1, "title": "x" } }""";
+        var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
+        Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
+    }
+
+    [Fact]
     public void ToReviewRequest_returnsNull_whenRepositoryMissing()
     {
         var json = """{ "action": "opened", "pull_request": { "number": 1, "title": "x" } }""";

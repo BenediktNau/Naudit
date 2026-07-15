@@ -324,7 +324,10 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
             // ReviewService erst nach bestandener Auth auflösen (Scope-Service, inline statt Queue).
             var reviewService = context.RequestServices.GetRequiredService<ReviewService>();
-            var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty, body.AuthorLogin);
+            // CI-Trigger: nie vom Roundtrip-Limit gedrosselt — das Merge-Gate braucht immer ein
+            // frisches Verdict (und ist der Weg, ein weiteres Review zu erzwingen).
+            var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty,
+                body.AuthorLogin, ReviewTrigger.Ci);
             var result = await reviewService.ReviewAsync(request, ct);
 
             var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";

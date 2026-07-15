@@ -15,7 +15,8 @@ public sealed class ReviewService(
     IFindingReducer findingReducer,
     IPromptRedactor redactor,
     IContextCollector contextCollector,
-    IReviewAuditSink auditSink)
+    IReviewAuditSink auditSink,
+    IReviewRoundtripCounter roundtripCounter)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -23,6 +24,17 @@ public sealed class ReviewService(
 
     public async Task<ReviewResult> ReviewAsync(ReviewRequest request, CancellationToken ct = default)
     {
+        // Roundtrip-Limit: nur Webhook-Reviews drosseln — das CI-Gate braucht immer ein frisches
+        // Verdict und ist zugleich der Weg, ein weiteres Review zu erzwingen. Der Zähler sind die
+        // bereits geposteten Reviews (Audit-Zeilen); fail-open bei Zählerfehlern.
+        var priorReviews = -1; // -1 = Limit inaktiv (Ci-Trigger oder MaxRoundtrips <= 0)
+        if (request.Trigger == ReviewTrigger.Webhook && options.MaxRoundtrips > 0)
+        {
+            priorReviews = await SafeCountRoundtripsAsync(request, ct);
+            if (priorReviews >= options.MaxRoundtrips)
+                return new ReviewResult(string.Empty, ReviewVerdict.Approve, Skipped: true);
+        }
+
         var changes = await gitPlatform.GetChangesAsync(request, ct);
         if (changes.Count == 0)
             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
@@ -84,7 +96,8 @@ public sealed class ReviewService(
         }
 
         var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
-        var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans);
+        var lastRoundtrip = priorReviews >= 0 && priorReviews + 1 == options.MaxRoundtrips;
+        var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans, lastRoundtrip);
         await gitPlatform.PostReviewAsync(request, summary, inline, verdict, ct);
         await RecordAuditAsync(request, verdict, summary, inline, orphans, response, selection.UsedSessionAccountId(), ct);
         return new ReviewResult(summary, verdict);
@@ -163,6 +176,14 @@ public sealed class ReviewService(
         return await findingReducer.ReduceAsync(annotated, changes, ct);
     }
 
+    // Fail-open: ein Zählerfehler (DB weg) darf das Review nicht verhindern — Count 0 heißt
+    // "Limit greift nicht", das Review läuft.
+    private async Task<int> SafeCountRoundtripsAsync(ReviewRequest request, CancellationToken ct)
+    {
+        try { return await roundtripCounter.CountAsync(request.ProjectId, request.MergeRequestIid, ct); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return 0; }
+    }
+
     // Ein Sammler-Fehler kippt den Review nicht: degradiert auf leeren Kontext (diff-only-Prompt).
     private async Task<ReviewContext> SafeCollectContextAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct)
@@ -201,7 +222,8 @@ public sealed class ReviewService(
         => severity >= options.Gate.MinSeverity && confidence >= options.Gate.MinConfidence;
 
     // Schlanker Hybrid: LLM-Überblick + Verdict-Zeile (abgeleitet) + Count + nicht-verortbare Findings.
-    private string ComposeSummary(string? llmSummary, ReviewVerdict verdict, int inlineCount, IReadOnlyList<OrphanComment> orphans)
+    private string ComposeSummary(string? llmSummary, ReviewVerdict verdict, int inlineCount,
+        IReadOnlyList<OrphanComment> orphans, bool lastRoundtrip)
     {
         var sb = new StringBuilder();
         sb.AppendLine((llmSummary ?? string.Empty).TrimEnd());
@@ -218,6 +240,11 @@ public sealed class ReviewService(
                 var where = string.IsNullOrEmpty(o.File) ? "" : $"`{o.File}` ";
                 sb.AppendLine($"- {SeverityBadge(o.Severity, o.Confidence)} — {where}{o.Body}");
             }
+        }
+        if (lastRoundtrip)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"_ℹ️ Roundtrip-Limit erreicht ({options.MaxRoundtrips}/{options.MaxRoundtrips}) — weitere Pushes an diesem PR werden nicht mehr automatisch reviewt._");
         }
         return sb.ToString().TrimEnd();
     }

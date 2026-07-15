@@ -36,6 +36,7 @@ public static class SettingsCatalog
         new("Naudit:Review:SystemPrompt", false),
         new("Naudit:Review:Gate:MinSeverity", false),
         new("Naudit:Review:Gate:MinConfidence", false),
+        new("Naudit:Review:MaxRoundtrips", false),
         new("Naudit:AccessGate:Mode", false),
         new("Naudit:Ui:Auth:GitHub:Enabled", false),
         new("Naudit:Ui:Auth:GitHub:ClientId", false),

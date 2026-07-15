@@ -207,6 +207,7 @@ public static class DependencyInjection
         else
             services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
         services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
+        services.AddScoped<IReviewRoundtripCounter, EfReviewRoundtripCounter>();
 
         services.AddScoped<ReviewService>();
         return services;

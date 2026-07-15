@@ -20,6 +20,7 @@ public sealed class GitLabMergeRequestAttributes
     [JsonPropertyName("iid")] public int Iid { get; set; }
     [JsonPropertyName("title")] public string? Title { get; set; }
     [JsonPropertyName("action")] public string? Action { get; set; }
+    [JsonPropertyName("oldrev")] public string? OldRev { get; set; }
 }
 
 public sealed class GitLabChangesResponse
