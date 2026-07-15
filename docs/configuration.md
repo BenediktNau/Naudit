@@ -155,6 +155,19 @@ dotnet user-secrets set "Naudit:Ai:Model"    "sonnet"     --project src/Naudit.W
 # Auth: set CLAUDE_CODE_OAUTH_TOKEN in the environment (from `claude setup-token`); no Naudit:Ai:ApiKey needed.
 ```
 
+### Author sessions (Naudit:Ai:AuthorSessions)
+
+Lets each user route reviews of merge requests they authored through their own Claude
+Pro/Max subscription instead of the globally configured AI provider. See
+[Author sessions](author-sessions.md) for the full picture (routing, fallback,
+attribution, storage).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Naudit:Ai:AuthorSessions:Enabled` | `false` | Master switch. |
+| `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author runs — independent of `Naudit:Ai:Model`. |
+| `Naudit:Ai:AuthorSessions:CooldownMinutes` | `30` | How long a failing session is skipped before it is tried again. |
+
 ## Per-project tokens
 
 By default every repository is accessed with the single global token

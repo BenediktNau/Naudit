@@ -18,14 +18,16 @@ public class ReviewServiceTests
         FakeWorkspaceProvider? workspace = null,
         IPromptRedactor? redactor = null,
         IContextCollector? contextCollector = null,
+        IReviewAuditSink? auditSink = null,
+        IAiClientRouter? router = null,
         IReviewRoundtripCounter? roundtrips = null)
-        => new(chat, git, options,
+        => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
             new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
-            new FakeReviewAuditSink(),
+            auditSink ?? new FakeReviewAuditSink(),
             roundtrips ?? new FakeRoundtripCounter());
 
     [Fact]
@@ -528,5 +530,20 @@ public class ReviewServiceTests
 
         Assert.False(result.Skipped);
         Assert.NotNull(git.PostedMarkdown);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_recordsSessionAccountId_fromRouter()
+    {
+        var chat = new FakeChatClient("""{"summary":"s","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var sink = new FakeReviewAuditSink();
+        var router = new FakeAiClientRouter(chat, sessionAccountId: 7);
+
+        await CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            auditSink: sink, router: router).ReviewAsync(Request);
+
+        Assert.Equal(7, Assert.Single(sink.Recorded).AiSessionAccountId);
+        Assert.Equal(Request, router.LastRequest);
     }
 }

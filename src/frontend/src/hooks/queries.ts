@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
-import type { AccountsDto, DashboardDto, GitHubAppDto, ReviewDetailDto, SettingsDto, UsageDto } from "@/api/types";
+import type {
+  AccountsDto,
+  ClaudeSessionDto,
+  ClaudeSessionTest,
+  DashboardDto,
+  GitHubAppDto,
+  ReviewDetailDto,
+  SettingsDto,
+  UsageDto,
+} from "@/api/types";
 
 export function useDashboard() {
   return useQuery({ queryKey: ["dashboard"], queryFn: () => api<DashboardDto>("/api/dashboard") });
@@ -56,6 +65,33 @@ export function useGitHubApp() {
     queryKey: ["github-app"],
     queryFn: () => api<GitHubAppDto>("/api/me/github-app"),
     retry: false,
+  });
+}
+
+export function useClaudeSession() {
+  return useQuery({ queryKey: ["claude-session"], queryFn: () => api<ClaudeSessionDto>("/api/me/claude-session") });
+}
+
+export function useSaveClaudeSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { token?: string; gitAuthorLogin?: string }) =>
+      api<void>("/api/me/claude-session", { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["claude-session"] }),
+  });
+}
+
+export function useDeleteClaudeSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>("/api/me/claude-session", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["claude-session"] }),
+  });
+}
+
+export function useTestClaudeSession() {
+  return useMutation({
+    mutationFn: () => api<ClaudeSessionTest>("/api/me/claude-session/test", { method: "POST" }),
   });
 }
 

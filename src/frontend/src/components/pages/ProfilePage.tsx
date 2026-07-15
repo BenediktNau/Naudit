@@ -1,5 +1,6 @@
 import { useUsage, useGitHubApp, fmtTokens } from "@/hooks/queries";
 import { useAuth } from "@/lib/auth";
+import { ClaudeSessionCard } from "@/components/ClaudeSessionCard";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Skeleton, SkeletonPanel, SkeletonRows } from "@/components/ui/Skeleton";
@@ -101,6 +102,8 @@ export function ProfilePage() {
           ))}
         </Panel>
       )}
+
+      <ClaudeSessionCard />
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[2fr_1fr]">
         <Panel title="Tokens · last 6 months" extra={`${fmtTokens(total)} total`}>

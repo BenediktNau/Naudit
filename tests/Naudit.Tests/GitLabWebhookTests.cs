@@ -63,4 +63,17 @@ public class GitLabWebhookTests
         Assert.NotNull(request);
         Assert.Equal(42, request!.MergeRequestIid);
     }
+
+    [Fact]
+    public void ToReviewRequest_leavesAuthorLoginNull()
+    {
+        var payload = new GitLabWebhookPayload
+        {
+            ObjectKind = "merge_request",
+            Project = new GitLabProject { Id = 42 },
+            ObjectAttributes = new GitLabMergeRequestAttributes { Iid = 7, Title = "T", Action = "open" },
+        };
+
+        Assert.Null(GitLabWebhook.ToReviewRequest(payload)!.AuthorLogin);
+    }
 }

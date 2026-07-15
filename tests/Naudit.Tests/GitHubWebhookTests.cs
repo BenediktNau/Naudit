@@ -70,6 +70,34 @@ public class GitHubWebhookTests
         Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
     }
 
+    [Fact]
+    public void ToReviewRequest_mapsAuthorLogin_fromPullRequestUser()
+    {
+        var payload = new GitHubWebhookPayload
+        {
+            Action = "opened",
+            Repository = new GitHubRepository { FullName = "owner/repo" },
+            PullRequest = new GitHubPullRequest { Number = 5, Title = "T", User = new GitHubUser { Login = "Alice" } },
+        };
+
+        var request = GitHubWebhook.ToReviewRequest("pull_request", payload);
+
+        Assert.Equal("Alice", request!.AuthorLogin);
+    }
+
+    [Fact]
+    public void ToReviewRequest_missingUser_leavesAuthorLoginNull()
+    {
+        var payload = new GitHubWebhookPayload
+        {
+            Action = "opened",
+            Repository = new GitHubRepository { FullName = "owner/repo" },
+            PullRequest = new GitHubPullRequest { Number = 5, Title = "T" },
+        };
+
+        Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload)!.AuthorLogin);
+    }
+
     private static string Sign(string secret, byte[] body)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));

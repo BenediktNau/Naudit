@@ -79,6 +79,30 @@ COPY --from=betterleaks-build /go/bin/betterleaks /usr/local/bin/betterleaks
 # Eigenes Regel-Overlay (.NET/C#-Security) ins Image (Pfad = Default in Naudit:Sast:OpengrepRules).
 COPY sast/rules /opt/naudit-rules
 
+# Claude Code CLI: Kernfunktion fuer den ClaudeCode-Provider und Autor-Sessions (Reviews ueber
+# das Abo des MR-Autors). Native linux-x64-Binary (bringt eigene Node-Runtime mit), Version via
+# stable-Zeiger aufgeloest und per manifest.json-Checksum verifiziert (fail-closed bei Mismatch).
+# ARG = Pin/Notausgang fuer ein kaputtes CLI-Release (--build-arg CLAUDE_CODE_VERSION=x.y.z).
+ARG CLAUDE_CODE_VERSION=
+ADD https://downloads.claude.ai/claude-code-releases/stable /tmp/claude-stable
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl jq; \
+    ver="${CLAUDE_CODE_VERSION:-$(cat /tmp/claude-stable)}"; \
+    base="https://downloads.claude.ai/claude-code-releases/${ver}"; \
+    sum="$(curl -fsSL "${base}/manifest.json" | jq -r '.platforms."linux-x64".checksum')"; \
+    curl -fsSL -o /usr/local/bin/claude "${base}/linux-x64/claude"; \
+    echo "${sum}  /usr/local/bin/claude" | sha256sum -c -; \
+    chmod 755 /usr/local/bin/claude; \
+    apt-get purge -y curl jq; \
+    apt-get autoremove -y; \
+    rm -rf /var/lib/apt/lists/* /tmp/claude-stable
+
+# CLI-State braucht ein schreibbares HOME (non-root "app", 1654); Auto-Updater aus —
+# wuerde als non-root nach /usr/local/bin schreiben wollen und scheitern.
+ENV HOME=/home/app \
+    DISABLE_AUTOUPDATER=1
+
 COPY --from=build /app/publish .
 
 # WebUI-SPA: DB+UI sind immer an, wwwroot wird also immer serviert.
