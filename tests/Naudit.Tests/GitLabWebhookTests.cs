@@ -41,4 +41,17 @@ public class GitLabWebhookTests
         var payload = JsonSerializer.Deserialize<GitLabWebhookPayload>(json)!;
         Assert.Null(GitLabWebhook.ToReviewRequest(payload));
     }
+
+    [Fact]
+    public void ToReviewRequest_leavesAuthorLoginNull()
+    {
+        var payload = new GitLabWebhookPayload
+        {
+            ObjectKind = "merge_request",
+            Project = new GitLabProject { Id = 42 },
+            ObjectAttributes = new GitLabMergeRequestAttributes { Iid = 7, Title = "T", Action = "open" },
+        };
+
+        Assert.Null(GitLabWebhook.ToReviewRequest(payload)!.AuthorLogin);
+    }
 }

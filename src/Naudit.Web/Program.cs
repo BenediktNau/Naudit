@@ -324,7 +324,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
             // ReviewService erst nach bestandener Auth auflösen (Scope-Service, inline statt Queue).
             var reviewService = context.RequestServices.GetRequiredService<ReviewService>();
-            var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty);
+            var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty, body.AuthorLogin);
             var result = await reviewService.ReviewAsync(request, ct);
 
             var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";
@@ -353,6 +353,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
     // WebUI-Endpoints: immer gemappt (die UI ist immer an — sie ist im Recovery-Modus das Reparaturwerkzeug).
     app.MapAuthEndpoints(uiConfig);
+    app.MapClaudeSessionEndpoints();
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
     app.MapSettingsEndpoints();
@@ -382,4 +383,4 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
 /// <summary>Request-Body des CI-Triggers; wird direkt auf ReviewRequest gemappt
 /// (bei GitHub ist ProjectId = "owner/repo" und MergeRequestIid = PR-Nummer).</summary>
-public sealed record ReviewTriggerRequest(string ProjectId, int MergeRequestIid, string? Title);
+public sealed record ReviewTriggerRequest(string ProjectId, int MergeRequestIid, string? Title, string? AuthorLogin = null);

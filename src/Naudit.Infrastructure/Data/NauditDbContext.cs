@@ -42,6 +42,9 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
             e.HasIndex(x => x.CreatedAt);                          // Dashboard-Zeitreihen
             e.HasOne(x => x.Project).WithMany(p => p.Reviews)
                 .HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            // Attribution ohne Navigation: Account weg ⇒ Review bleibt, Zuordnung wird null.
+            e.HasOne<AccountEntity>().WithMany()
+                .HasForeignKey(x => x.AiSessionAccountId).OnDelete(DeleteBehavior.SetNull);
         });
         b.Entity<ReviewFindingEntity>(e =>
             e.HasOne(x => x.Review).WithMany(r => r.Findings)

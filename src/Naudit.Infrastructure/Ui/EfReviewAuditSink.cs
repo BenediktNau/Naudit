@@ -48,6 +48,7 @@ public sealed class EfReviewAuditSink(NauditDbContext db, ILogger<EfReviewAuditS
             InputTokens = audit.InputTokens,
             OutputTokens = audit.OutputTokens,
             Model = audit.Model,
+            AiSessionAccountId = audit.AiSessionAccountId,
             CreatedAt = now,
         };
         foreach (var f in audit.Findings)

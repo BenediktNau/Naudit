@@ -1,6 +1,6 @@
 import { Panel } from "@/components/ui/Panel";
 import { Field } from "@/components/setup/shared";
-import { SelectableCard } from "../primitives";
+import { SelectableCard, Toggle } from "../primitives";
 import type { SettingsCtx } from "../model";
 
 const PROVIDERS: { id: string; title: string; tag: string; desc: string }[] = [
@@ -19,6 +19,7 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
   const needsKey = provider === "Anthropic" || provider === "OpenAICompatible";
   const shown = 1 + (needsEndpoint ? 1 : 0) + (needsKey ? 1 : 0); // Model + Extras
   const meta = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+  const authorSessionsEnabled = ctx.get("Naudit:Ai:AuthorSessions:Enabled") === "true";
 
   return (
     <>
@@ -70,6 +71,40 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
               Claude Code signs in with the subscription already configured on the server — there is
               no endpoint or API key to manage here.
             </div>
+          )}
+        </div>
+      </Panel>
+
+      <Panel title="Author sessions" extra="bring your own subscription">
+        <div className="flex flex-col gap-4 px-5 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <b className="text-[13.5px]">Route reviews through the author&apos;s Claude subscription</b>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-ink2">
+                Users store their own Claude Code token on the profile page; reviews of their own MRs then run on
+                their subscription. Everything else keeps using the provider above.
+              </p>
+            </div>
+            <Toggle
+              on={authorSessionsEnabled}
+              disabled={ctx.locked("Naudit:Ai:AuthorSessions:Enabled")}
+              onChange={(v) => ctx.set("Naudit:Ai:AuthorSessions:Enabled", v ? "true" : "false")}
+              aria-label="Enable author sessions"
+            />
+          </div>
+          {authorSessionsEnabled && (
+            <>
+              <Field label="Model" hint="CLI model alias for author runs — defaults to sonnet.">
+                <input className={inputCls} value={ctx.get("Naudit:Ai:AuthorSessions:Model")} placeholder="sonnet"
+                  disabled={ctx.locked("Naudit:Ai:AuthorSessions:Model")}
+                  onChange={(e) => ctx.set("Naudit:Ai:AuthorSessions:Model", e.target.value)} />
+              </Field>
+              <Field label="Cooldown (minutes)" hint="How long a failing session is skipped — defaults to 30.">
+                <input className={inputCls} value={ctx.get("Naudit:Ai:AuthorSessions:CooldownMinutes")} placeholder="30"
+                  disabled={ctx.locked("Naudit:Ai:AuthorSessions:CooldownMinutes")}
+                  onChange={(e) => ctx.set("Naudit:Ai:AuthorSessions:CooldownMinutes", e.target.value)} />
+              </Field>
+            </>
           )}
         </div>
       </Panel>
