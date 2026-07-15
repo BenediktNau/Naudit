@@ -100,6 +100,20 @@ public class ClaudeSessionEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_shareInPoolOnly_noStoredToken_returns204()
+    {
+        var client = await LoggedInApp();
+
+        // Reines Opt-in-Toggle auf frischem Account (kein Token, kein Login) ⇒ 204, KEIN „token required".
+        var put = await client.PutAsJsonAsync("/api/me/claude-session", new { shareInPool = true });
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+
+        var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
+        Assert.True(after.GetProperty("shareInPool").GetBoolean());
+        Assert.False(after.GetProperty("configured").GetBoolean());   // Opt-in gesetzt, aber weiterhin kein Token
+    }
+
+    [Fact]
     public async Task Test_runsCliWithStoredToken_andReportsOk()
     {
         ProcessSpec? seen = null;
