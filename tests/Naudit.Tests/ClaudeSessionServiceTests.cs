@@ -142,6 +142,17 @@ public class ClaudeSessionServiceTests
     }
 
     [Fact]
+    public void DecryptToken_returnsNull_onMalformedCiphertext()
+    {
+        using var db = new TestDb();
+        var acct = Account(db);
+        acct.ClaudeSessionToken = "not-valid-base64url!!"; // kaputtes Base64url ⇒ FormatException
+        db.Context.SaveChanges();
+
+        Assert.Null(Service(db).DecryptToken(acct));
+    }
+
+    [Fact]
     public async Task DeletingAccount_nullsReviewAttribution_keepsReview()
     {
         using var db = new TestDb();

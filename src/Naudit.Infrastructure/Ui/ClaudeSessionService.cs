@@ -69,12 +69,12 @@ public sealed class ClaudeSessionService(NauditDbContext db, IDataProtectionProv
         await db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Nicht entschlüsselbar (Keyring weg, fremder Ciphertext) ⇒ null statt Crash —
-    /// gleiche Semantik wie DbSettingsLoader bei Settings-Secrets.</summary>
+    /// <summary>Nicht entschlüsselbar (Keyring weg, fremder Ciphertext, kaputtes Base64url) ⇒ null
+    /// statt Crash — gleiche Semantik wie DbSettingsLoader bei Settings-Secrets.</summary>
     public string? DecryptToken(AccountEntity account)
     {
         if (account.ClaudeSessionToken is null) return null;
         try { return dataProtection.CreateProtector(ProtectorPurpose).Unprotect(account.ClaudeSessionToken); }
-        catch (System.Security.Cryptography.CryptographicException) { return null; }
+        catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or FormatException) { return null; }
     }
 }

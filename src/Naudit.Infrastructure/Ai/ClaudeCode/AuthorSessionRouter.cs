@@ -1,56 +1,46 @@
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Git;
-using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Ui;
 
 namespace Naudit.Infrastructure.Ai.ClaudeCode;
 
 /// <summary>Autor-Session-Routing: MR-Autor → aktiver Account mit Token (ohne Cooldown) →
 /// per-Review-ClaudeCodeChatClient im FallbackChatClient-Gespann. Jede Nicht-Treffer-Stufe
-/// fällt lautlos auf den globalen Client zurück — das Review läuft immer.</summary>
+/// fällt lautlos auf den globalen Client zurück — das Review läuft immer. Auch jede
+/// unerwartete Exception bei der Auflösung selbst (DB, Resolver, Token) fällt fail-open
+/// auf den globalen Client zurück, statt das ganze Review zu kippen.</summary>
 public sealed class AuthorSessionRouter(
     ClaudeSessionService sessions,
     IAuthorLoginResolver authorResolver,
     SessionHealthRegistry health,
-    AuthorSessionsOptions options,
-    AiOptions aiOptions,
-    IChatClient globalClient,
-    IProcessRunner runner,
-    ILoggerFactory loggerFactory) : IAiClientRouter
+    SessionSelectionFactory selectionFactory,
+    ILogger<AuthorSessionRouter> logger) : IAiClientRouter
 {
     public async Task<AiClientSelection> SelectAsync(ReviewRequest request, CancellationToken ct = default)
     {
-        var login = await authorResolver.ResolveAsync(request, ct);
-        if (string.IsNullOrWhiteSpace(login))
-            return Global();
-
-        var account = await sessions.FindByAuthorLoginAsync(login, ct);
-        if (account is null || health.IsCoolingDown(account.Id))
-            return Global();
-
-        var token = sessions.DecryptToken(account);
-        if (token is null)
-            return Global();
-
-        // Eigene AiOptions für den CLI-Lauf: Autor-Token + AuthorSessions-Modell; Timeout wie global.
-        var authorClient = new ClaudeCodeChatClient(new AiOptions
+        try
         {
-            Provider = AiProvider.ClaudeCode,
-            Model = options.Model,
-            ApiKey = token,
-            TimeoutSeconds = aiOptions.TimeoutSeconds,
-        }, runner);
+            var login = await authorResolver.ResolveAsync(request, ct);
+            if (string.IsNullOrWhiteSpace(login))
+                return selectionFactory.Global();
 
-        var accountId = account.Id;
-        var fallback = new FallbackChatClient(authorClient, globalClient, accountId,
-            onAuthorFailure: () => health.MarkFailure(accountId, TimeSpan.FromMinutes(options.CooldownMinutes)),
-            loggerFactory.CreateLogger<FallbackChatClient>());
+            var account = await sessions.FindByAuthorLoginAsync(login, ct);
+            if (account is null || health.IsCoolingDown(account.Id))
+                return selectionFactory.Global();
 
-        return new AiClientSelection(fallback, () => fallback.AnsweredBySessionAccountId);
+            var token = sessions.DecryptToken(account);
+            if (token is null)
+                return selectionFactory.Global();
+
+            return selectionFactory.ForAccount(account.Id, token);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Fail-open: eine transiente Störung (DB, Resolver, Token) darf das Review nicht kippen.
+            logger.LogWarning(ex, "Autor-Session-Routing fehlgeschlagen — globaler Client.");
+            return selectionFactory.Global();
+        }
     }
-
-    private AiClientSelection Global() => new(globalClient, static () => null);
 }

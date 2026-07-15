@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddSingleton(authorSessions);
         services.AddSingleton<SessionHealthRegistry>();
         services.AddSingleton<RoundRobinCursor>();
+        services.AddSingleton<SessionSelectionFactory>();
 
         // Router-Naht: 3 Modi. Single = globaler Client (heutiges Verhalten); Author/RoundRobin
         // sind scoped (brauchen ClaudeSessionService/DbContext).
