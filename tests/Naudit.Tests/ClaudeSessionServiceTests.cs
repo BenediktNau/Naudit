@@ -101,6 +101,47 @@ public class ClaudeSessionServiceTests
     }
 
     [Fact]
+    public async Task GetPoolCandidates_onlyActiveWithTokenAndOptIn_idSorted()
+    {
+        using var db = new TestDb();
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider());
+
+        // aktiv + Token + Opt-in ⇒ drin
+        var inPool = new AccountEntity { Username = "a", Provider = AccountProvider.GitHub, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow, ShareSessionInPool = true };
+        // Token, aber KEIN Opt-in ⇒ draußen
+        var noOptIn = new AccountEntity { Username = "b", Provider = AccountProvider.GitHub, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow, ShareSessionInPool = false };
+        // Opt-in, aber KEIN Token ⇒ draußen
+        var noToken = new AccountEntity { Username = "c", Provider = AccountProvider.GitHub, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow, ShareSessionInPool = true };
+        // Opt-in + Token, aber pending ⇒ draußen
+        var pending = new AccountEntity { Username = "d", Provider = AccountProvider.GitHub, Status = AccountStatus.Pending, CreatedAt = DateTime.UtcNow, ShareSessionInPool = true };
+        db.Context.Accounts.AddRange(inPool, noOptIn, noToken, pending);
+        await db.Context.SaveChangesAsync();
+        await svc.SetTokenAsync(inPool.Id, "t", "a");
+        await svc.SetTokenAsync(noOptIn.Id, "t", "b");
+        await svc.SetTokenAsync(pending.Id, "t", "d");
+
+        var pool = await svc.GetPoolCandidatesAsync();
+
+        Assert.Equal(new[] { inPool.Id }, pool.Select(a => a.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task SetShareInPool_togglesFlag()
+    {
+        using var db = new TestDb();
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider());
+        var a = new AccountEntity { Username = "a", Provider = AccountProvider.Local, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow };
+        db.Context.Accounts.Add(a);
+        await db.Context.SaveChangesAsync();
+
+        await svc.SetShareInPoolAsync(a.Id, true);
+        Assert.True((await db.Context.Accounts.FindAsync(a.Id))!.ShareSessionInPool);
+        await svc.SetShareInPoolAsync(a.Id, false);
+        db.Context.ChangeTracker.Clear();
+        Assert.False((await db.Context.Accounts.AsNoTracking().SingleAsync(x => x.Id == a.Id)).ShareSessionInPool);
+    }
+
+    [Fact]
     public async Task DeletingAccount_nullsReviewAttribution_keepsReview()
     {
         using var db = new TestDb();

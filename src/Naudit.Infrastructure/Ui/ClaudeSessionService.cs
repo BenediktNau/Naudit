@@ -53,6 +53,22 @@ public sealed class ClaudeSessionService(NauditDbContext db, IDataProtectionProv
             .FirstOrDefaultAsync(ct);
     }
 
+    /// <summary>Pool-Kandidaten fürs Round-Robin: aktive Konten mit Token UND Opt-in, Id-sortiert
+    /// (deterministische Rotationsreihenfolge). Token wird erst im Router entschlüsselt.</summary>
+    public Task<List<AccountEntity>> GetPoolCandidatesAsync(CancellationToken ct = default)
+        => db.Accounts
+            .Where(a => a.Status == AccountStatus.Active && a.ClaudeSessionToken != null && a.ShareSessionInPool)
+            .OrderBy(a => a.Id)
+            .ToListAsync(ct);
+
+    /// <summary>Setzt das Pool-Opt-in (Token bleibt unangetastet).</summary>
+    public async Task SetShareInPoolAsync(int accountId, bool share, CancellationToken ct = default)
+    {
+        var account = await db.Accounts.SingleAsync(a => a.Id == accountId, ct);
+        account.ShareSessionInPool = share;
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Nicht entschlüsselbar (Keyring weg, fremder Ciphertext) ⇒ null statt Crash —
     /// gleiche Semantik wie DbSettingsLoader bei Settings-Secrets.</summary>
     public string? DecryptToken(AccountEntity account)

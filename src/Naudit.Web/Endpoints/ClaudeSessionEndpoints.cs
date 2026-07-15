@@ -12,7 +12,7 @@ namespace Naudit.Web.Endpoints;
 /// der Test-Lauf braucht die Review-Pipeline-Dienste und degradiert sonst auf 503.</summary>
 public static class ClaudeSessionEndpoints
 {
-    public sealed record ClaudeSessionUpdate(string? Token, string? GitAuthorLogin);
+    public sealed record ClaudeSessionUpdate(string? Token, string? GitAuthorLogin, bool? ShareInPool);
 
     public static void MapClaudeSessionEndpoints(this WebApplication app)
     {
@@ -31,6 +31,7 @@ public static class ClaudeSessionEndpoints
                 updatedAtUtc = acct.ClaudeSessionUpdatedAtUtc,
                 coolingDownUntil = health?.CoolingDownUntil(acct.Id),
                 gitAuthorLogin = acct.GitAuthorLogin,
+                shareInPool = acct.ShareSessionInPool,
             });
         });
 
@@ -39,12 +40,21 @@ public static class ClaudeSessionEndpoints
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Unauthorized();
 
+            // Pool-Opt-in ist unabhängig vom Token — zuerst anwenden.
+            if (body.ShareInPool is bool share)
+                await sessions.SetShareInPoolAsync(acct.Id, share, ctx.RequestAborted);
+
             // Blank-Semantik wie Settings-Secrets: leerer Token lässt den gespeicherten unangetastet
             // (erlaubt reines Ändern des Logins); ein Erst-PUT ohne Token ist ein Fehler.
             if (string.IsNullOrWhiteSpace(body.Token))
             {
                 if (acct.ClaudeSessionToken is null)
+                {
+                    // Reines Opt-in-Toggle (kein Token/Login) ist ok; sonst wie bisher „token required".
+                    if (body.ShareInPool is not null && string.IsNullOrWhiteSpace(body.GitAuthorLogin))
+                        return Results.NoContent();
                     return Results.BadRequest(new { error = "token required" });
+                }
                 await sessions.SetLoginAsync(acct.Id, body.GitAuthorLogin, ctx.RequestAborted);
                 return Results.NoContent();
             }

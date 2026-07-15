@@ -87,6 +87,19 @@ public class ClaudeSessionEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_shareInPool_isPersisted_andReturnedByGet()
+    {
+        var client = await LoggedInApp();
+        await client.PutAsJsonAsync("/api/me/claude-session", new { token = "tok", gitAuthorLogin = "alice" });
+
+        var put = await client.PutAsJsonAsync("/api/me/claude-session", new { shareInPool = true });
+        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+
+        var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
+        Assert.True(after.GetProperty("shareInPool").GetBoolean());
+    }
+
+    [Fact]
     public async Task Test_runsCliWithStoredToken_andReportsOk()
     {
         ProcessSpec? seen = null;
