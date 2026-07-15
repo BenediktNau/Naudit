@@ -12,6 +12,10 @@ with the verdict.
   Naudit/LLM/Git error ⇒ `5xx`. The job fails on `request_changes` **and** on non-2xx
   (`curl -f` covers the latter).
 
+Reviews triggered through `POST /review` are exempt from the roundtrip limit
+(`Naudit:Review:MaxRoundtrips`): the merge gate always gets a fresh verdict, and the endpoint
+doubles as the way to force another review once the webhook limit is reached.
+
 ## GitLab CI (`.gitlab-ci.yml`)
 
 ```yaml
