@@ -79,9 +79,12 @@ default `3`, `0` = unlimited): `ReviewService` skips early (before any platform 
 once that many reviews were already posted for the MR/PR, counted from the existing `ReviewEntity`
 audit rows via `IReviewRoundtripCounter` (Core seam, EF impl — fail-open on counter errors). The
 last allowed review appends a notice line to its summary. `POST /review` (CI) sets
-`ReviewRequest.Trigger = Ci` and is never limited. GitLab `update` webhook events are additionally
-filtered on `object_attributes.oldrev` (only real pushes carry it), so label/description edits and
-comments never trigger reviews on either platform.
+`ReviewRequest.Trigger = Ci` and is itself never limited, though CI reviews are audited like any
+other and so count toward that same per-PR tally (normally moot — the CI trigger is an alternative
+to webhooks, not run alongside them). GitLab `update` webhook events are additionally filtered on
+`object_attributes.oldrev` (only real pushes carry it), so metadata-only edits
+(label/description/assignee) on a GitLab MR no longer trigger a review; comments are separate event
+types (`note`/`issue_comment`) and were already ignored on both platforms.
 `PostReviewAsync` now carries that derived `ReviewVerdict` as a parameter (the only Core type crossing
 the seam); actually **posting** it as a real, blocking review state is opt-in via `Naudit:GitHub:PostVerdict`
 / `Naudit:GitLab:PostVerdict` (default `false` = today's behaviour: GitHub `event="COMMENT"`, GitLab posts
