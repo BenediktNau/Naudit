@@ -75,7 +75,7 @@ export function useClaudeSession() {
 export function useSaveClaudeSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { token?: string; gitAuthorLogin?: string }) =>
+    mutationFn: (body: { token?: string; gitAuthorLogin?: string; shareInPool?: boolean }) =>
       api<void>("/api/me/claude-session", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["claude-session"] }),
   });

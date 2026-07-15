@@ -176,6 +176,7 @@ export interface ClaudeSessionDto {
   updatedAtUtc: string | null;
   coolingDownUntil: string | null;
   gitAuthorLogin: string | null;
+  shareInPool: boolean;
 }
 
 export interface ClaudeSessionTest {

@@ -1,6 +1,6 @@
 import { Panel } from "@/components/ui/Panel";
 import { Field } from "@/components/setup/shared";
-import { SelectableCard, Toggle } from "../primitives";
+import { SelectableCard } from "../primitives";
 import type { SettingsCtx } from "../model";
 
 const PROVIDERS: { id: string; title: string; tag: string; desc: string }[] = [
@@ -19,7 +19,8 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
   const needsKey = provider === "Anthropic" || provider === "OpenAICompatible";
   const shown = 1 + (needsEndpoint ? 1 : 0) + (needsKey ? 1 : 0); // Model + Extras
   const meta = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
-  const authorSessionsEnabled = ctx.get("Naudit:Ai:AuthorSessions:Enabled") === "true";
+  const routing = ctx.get("Naudit:Ai:SessionRouting") || "Single";
+  const sessionsOn = routing === "Author" || routing === "RoundRobin";
 
   return (
     <>
@@ -75,26 +76,27 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
         </div>
       </Panel>
 
-      <Panel title="Author sessions" extra="bring your own subscription">
+      <Panel title="Session routing" extra="who pays for each review">
         <div className="flex flex-col gap-4 px-5 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <b className="text-[13.5px]">Route reviews through the author&apos;s Claude subscription</b>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-ink2">
-                Users store their own Claude Code token on the profile page; reviews of their own MRs then run on
-                their subscription. Everything else keeps using the provider above.
-              </p>
+          <Field label="Routing mode" hint="Single = the provider above. Author = the PR author's own Claude subscription. Round-robin = rotate opted-in subscriptions across reviews.">
+            <select className={inputCls} value={routing} disabled={ctx.locked("Naudit:Ai:SessionRouting")}
+              onChange={(e) => ctx.set("Naudit:Ai:SessionRouting", e.target.value)}>
+              <option value="Single">Single — global provider</option>
+              <option value="Author">Author — bring your own subscription</option>
+              <option value="RoundRobin">Round-robin — rotate the opt-in pool</option>
+            </select>
+          </Field>
+          {routing === "RoundRobin" && (
+            <div className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-[12.5px] leading-relaxed text-ink2">
+              <b className="text-ink">Terms-of-service warning.</b> Round-robin uses one user&apos;s Claude
+              subscription to review another user&apos;s PR — that is account sharing under Anthropic&apos;s
+              consumer terms and can get the pooled accounts suspended. Only accounts that explicitly opt in on
+              their profile take part.
             </div>
-            <Toggle
-              on={authorSessionsEnabled}
-              disabled={ctx.locked("Naudit:Ai:AuthorSessions:Enabled")}
-              onChange={(v) => ctx.set("Naudit:Ai:AuthorSessions:Enabled", v ? "true" : "false")}
-              aria-label="Enable author sessions"
-            />
-          </div>
-          {authorSessionsEnabled && (
+          )}
+          {sessionsOn && (
             <>
-              <Field label="Model" hint="CLI model alias for author runs — defaults to sonnet.">
+              <Field label="Model" hint="CLI model alias for session runs — defaults to sonnet.">
                 <input className={inputCls} value={ctx.get("Naudit:Ai:AuthorSessions:Model")} placeholder="sonnet"
                   disabled={ctx.locked("Naudit:Ai:AuthorSessions:Model")}
                   onChange={(e) => ctx.set("Naudit:Ai:AuthorSessions:Model", e.target.value)} />
