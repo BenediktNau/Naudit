@@ -38,7 +38,7 @@ public class AuthorSessionRouterTests
     private static AuthorSessionRouter Router(ClaudeSessionService sessions, IAuthorLoginResolver resolver,
         SessionHealthRegistry health, IProcessRunner runner, Microsoft.Extensions.AI.IChatClient global,
         AuthorSessionsOptions? options = null) =>
-        new(sessions, resolver, health, options ?? new AuthorSessionsOptions { Enabled = true },
+        new(sessions, resolver, health, options ?? new AuthorSessionsOptions(),
             new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, NullLoggerFactory.Instance);
 
     [Fact]
