@@ -41,4 +41,26 @@ public class GitLabWebhookTests
         var payload = JsonSerializer.Deserialize<GitLabWebhookPayload>(json)!;
         Assert.Null(GitLabWebhook.ToReviewRequest(payload));
     }
+
+    [Fact]
+    public void ToReviewRequest_ignoresUpdate_withoutNewCommits()
+    {
+        // "update" feuert auch bei Label-/Beschreibungs-/Assignee-Änderungen — ohne oldrev kein Review.
+        var json = """{ "object_kind": "merge_request", "project": { "id": 7 }, "object_attributes": { "iid": 42, "title": "x", "action": "update" } }""";
+        var payload = JsonSerializer.Deserialize<GitLabWebhookPayload>(json)!;
+        Assert.Null(GitLabWebhook.ToReviewRequest(payload));
+    }
+
+    [Fact]
+    public void ToReviewRequest_mapsUpdate_withNewCommits()
+    {
+        // oldrev ist nur gesetzt, wenn wirklich Commits gepusht wurden — dann wird reviewt.
+        var json = """{ "object_kind": "merge_request", "project": { "id": 7 }, "object_attributes": { "iid": 42, "title": "x", "action": "update", "oldrev": "abc123" } }""";
+        var payload = JsonSerializer.Deserialize<GitLabWebhookPayload>(json)!;
+
+        var request = GitLabWebhook.ToReviewRequest(payload);
+
+        Assert.NotNull(request);
+        Assert.Equal(42, request!.MergeRequestIid);
+    }
 }

@@ -19,6 +19,11 @@ public static class GitLabWebhook
         if (attrs.Action is null || !ReviewableActions.Contains(attrs.Action))
             return null;
 
+        // "update" feuert auch bei Label-/Beschreibungs-/Assignee-Änderungen. Reviewt wird nur,
+        // wenn wirklich Commits gepusht wurden — GitLab setzt oldrev genau dann.
+        if (attrs.Action == "update" && attrs.OldRev is null)
+            return null;
+
         return new ReviewRequest(payload.Project.Id.ToString(), attrs.Iid, attrs.Title ?? "");
     }
 }
