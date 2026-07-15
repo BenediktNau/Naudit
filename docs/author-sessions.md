@@ -17,17 +17,16 @@ Actions with your own `setup-token` token) is: **your own token automates your o
 Naudit therefore uses a stored token *only* for MRs the owning user authored — this
 promise is part of the profile UI and of this document.
 
-## Enabling
+## Enabling author-mode routing
 
-1. Settings → AI → **Author sessions** → enable (`Naudit:Ai:AuthorSessions:Enabled=true`),
-   then restart via the banner.
+1. Settings → AI → **Session Routing** → set to `Author`, then restart via the banner.
 2. Each participating user: profile page → **Claude session** → paste the token from
    `claude setup-token`, set the git login (auto-filled for GitHub accounts), **Test**.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `Naudit:Ai:AuthorSessions:Enabled` | `false` | Master switch. |
-| `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author runs — independent of `Naudit:Ai:Model`. |
+| `Naudit:Ai:SessionRouting` | `Single` | Set to `Author` to enable author-session routing, or `RoundRobin` for the pool mode. |
+| `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author/round-robin runs — independent of `Naudit:Ai:Model`. |
 | `Naudit:Ai:AuthorSessions:CooldownMinutes` | `30` | How long a failing session is skipped before it is tried again. |
 
 ## Behaviour
@@ -60,3 +59,22 @@ promise is part of the profile UI and of this document.
 The `claude` CLI ships in the container image since this feature (pinned native binary,
 checksum-verified). For bare-metal hosts, install it as described in
 `docs/claudecode-provider.md`.
+
+## Round-robin routing (shared pool)
+
+`Naudit:Ai:SessionRouting` selects how the chat client is chosen per review:
+
+- `Single` (default) — the global provider (`Naudit:Ai:*`), today's behaviour.
+- `Author` — the PR author's own subscription (the author-session flow above).
+- `RoundRobin` — rotate the **opt-in pool** of subscriptions across reviews, ignoring
+  authorship. Reviews are processed sequentially, so this spreads usage over successive
+  reviews (it does **not** run reviews in parallel).
+
+**⚠️ Terms-of-service risk.** Round-robin uses one user's Claude subscription to review
+another user's PR. Under Anthropic's consumer (Pro/Max) terms this is **account sharing**
+and can get the pooled accounts suspended. It is opt-in on two levels: the operator sets
+`SessionRouting=RoundRobin`, and each user must explicitly enable **"Add my session to the
+round-robin pool"** on their profile (a token set for author-mode is *not* pooled without
+that consent). Only active accounts with a token **and** that opt-in are rotated; accounts
+on cooldown are skipped, and an empty pool falls back to the global provider. Failures fall
+back to the global client with one retry, exactly as in author mode.

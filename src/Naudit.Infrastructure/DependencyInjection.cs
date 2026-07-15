@@ -82,19 +82,28 @@ public static class DependencyInjection
             services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
         }
 
-        // Autor-Sessions: Optionen + Cooldown-Registry (Registry auch bei Enabled=false harmlos —
+        // Autor-Sessions: Optionen + Cooldown-Registry (Registry auch bei SessionRouting=Single harmlos —
         // die Profil-API zeigt darüber den Cooldown-Status an).
         var authorSessions = configuration.GetSection("Naudit:Ai:AuthorSessions").Get<AuthorSessionsOptions>() ?? new AuthorSessionsOptions();
         services.AddSingleton(authorSessions);
         services.AddSingleton<SessionHealthRegistry>();
+        services.AddSingleton<RoundRobinCursor>();
         services.AddSingleton<SessionSelectionFactory>();
 
-        // Router-Naht: Autor-Sessions an ⇒ scoped Router (braucht ClaudeSessionService/DbContext),
-        // sonst der globale Client — exakt heutiges Verhalten.
-        if (authorSessions.Enabled)
-            services.AddScoped<IAiClientRouter, AuthorSessionRouter>();
-        else
-            services.AddSingleton<IAiClientRouter>(sp => new SingleClientRouter(sp.GetRequiredService<IChatClient>()));
+        // Router-Naht: 3 Modi. Single = globaler Client (heutiges Verhalten); Author/RoundRobin
+        // sind scoped (brauchen ClaudeSessionService/DbContext).
+        switch (aiOptions.SessionRouting)
+        {
+            case SessionRouting.Author:
+                services.AddScoped<IAiClientRouter, AuthorSessionRouter>();
+                break;
+            case SessionRouting.RoundRobin:
+                services.AddScoped<IAiClientRouter, RoundRobinSessionRouter>();
+                break;
+            default:
+                services.AddSingleton<IAiClientRouter>(sp => new SingleClientRouter(sp.GetRequiredService<IChatClient>()));
+                break;
+        }
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();

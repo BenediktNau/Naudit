@@ -2,6 +2,9 @@ namespace Naudit.Infrastructure.Ai;
 
 public enum AiProvider { Anthropic, Ollama, OpenAICompatible, ClaudeCode }
 
+/// <summary>Session-Routing pro Review: globaler Provider | autor-gebunden | Round-Robin-Pool.</summary>
+public enum SessionRouting { Single, Author, RoundRobin }
+
 public sealed class AiOptions
 {
     public AiProvider Provider { get; set; } = AiProvider.Ollama;
@@ -13,4 +16,9 @@ public sealed class AiOptions
     /// <summary>Gesamt-Timeout einer LLM-Anfrage in Sekunden. Default 600 (10 min): große Diffs
     /// bzw. Thinking-Modelle (z. B. Ollama qwen3.5) sprengen sonst den HttpClient-Standard von 100 s.</summary>
     public int TimeoutSeconds { get; set; } = 600;
+
+    /// <summary>Wie der Chat-Client pro Review gewählt wird (Naudit:Ai:SessionRouting).
+    /// Single = globaler Provider (Default, heutiges Verhalten); Author = autor-gebunden;
+    /// RoundRobin = Opt-in-Pool rundlaufend.</summary>
+    public SessionRouting SessionRouting { get; set; } = SessionRouting.Single;
 }

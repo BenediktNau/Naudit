@@ -39,7 +39,7 @@ public class AuthorSessionRouterTests
         SessionHealthRegistry health, IProcessRunner runner, Microsoft.Extensions.AI.IChatClient global,
         AuthorSessionsOptions? options = null)
     {
-        var selectionFactory = new SessionSelectionFactory(options ?? new AuthorSessionsOptions { Enabled = true },
+        var selectionFactory = new SessionSelectionFactory(options ?? new AuthorSessionsOptions(),
             new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, health, NullLoggerFactory.Instance);
         return new(sessions, resolver, health, selectionFactory, NullLogger<AuthorSessionRouter>.Instance);
     }

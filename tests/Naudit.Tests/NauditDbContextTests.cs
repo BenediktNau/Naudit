@@ -79,4 +79,19 @@ public class NauditDbContextTests
         Assert.False(setting.IsSecret);
         Assert.Equal("{}", (await db.SetupDrafts.SingleAsync(d => d.Id == 1)).Json);
     }
+
+    [Fact]
+    public async Task ShareSessionInPool_defaultsFalse_andRoundtrips()
+    {
+        await using var db = CreateDb();
+        var a = new AccountEntity { Username = "u", Provider = AccountProvider.Local, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow };
+        db.Accounts.Add(a);
+        await db.SaveChangesAsync();
+        Assert.False((await db.Accounts.SingleAsync()).ShareSessionInPool); // Default false
+
+        a.ShareSessionInPool = true;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        Assert.True((await db.Accounts.AsNoTracking().SingleAsync()).ShareSessionInPool);
+    }
 }

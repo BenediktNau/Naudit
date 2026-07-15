@@ -238,8 +238,13 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   global `IChatClient`, `AuthorSessionRouter` (`src/Naudit.Infrastructure/Ai/ClaudeCode/`) routes
   MRs to the author's own Claude subscription (token stored DP-encrypted per account, profile
   page/`/api/me/claude-session`), wrapped in `FallbackChatClient` (any author failure ⇒ in-memory
-  cooldown + one retry on the global client). Toggle `Naudit:Ai:AuthorSessions:Enabled`
-  (default `false` = today's behaviour). See `docs/author-sessions.md`.
+  cooldown + one retry on the global client). Mode `Naudit:Ai:SessionRouting` (`Single`
+  default = today's behaviour | `Author` | `RoundRobin`). `RoundRobinSessionRouter` (third impl)
+  rotates an **opt-in pool** (`AccountEntity.ShareSessionInPool`, active + token + opt-in) across
+  reviews via an in-memory `RoundRobinCursor`, skipping cooling-down and
+  undecryptable-token accounts, empty pool ⇒ global — sequential, not parallel; it is deliberate
+  account-sharing under Anthropic's consumer terms, gated behind per-user consent. See
+  `docs/author-sessions.md`.
 
 ### CI/CD & container
 
