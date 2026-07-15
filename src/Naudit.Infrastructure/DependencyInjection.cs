@@ -57,7 +57,9 @@ public static class DependencyInjection
             if (mcpForMeaiProvider)
                 client = client.AsBuilder()
                     .UseFunctionInvocation(sp.GetService<ILoggerFactory>(),
-                        c => c.MaximumIterationsPerRequest = mcpOptions.MaxIterations)
+                        // Untergrenze 1: 0/negativ in der Config würde den Tool-Loop komplett
+                        // abschalten bzw. die MEAI-Middleware mit einem ungültigen Wert brechen.
+                        c => c.MaximumIterationsPerRequest = Math.Max(1, mcpOptions.MaxIterations))
                     .Build();
             return client;
         });

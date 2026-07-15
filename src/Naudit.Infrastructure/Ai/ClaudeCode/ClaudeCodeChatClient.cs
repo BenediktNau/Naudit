@@ -50,15 +50,35 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             // Datei schreiben und nur den PFAD an die CLI übergeben; die Datei lebt für die Dauer des
             // CLI-Laufs und wird danach im finally-Block best-effort gelöscht.
             mcpConfigPath = Path.Combine(Path.GetTempPath(), $"naudit-mcp-{Guid.NewGuid():N}.json");
+            // BuildMcpConfigJson (kann bei fehlendem Command/Url werfen, s. u.) VOR dem Anlegen der Datei
+            // aufrufen — eine ungültige Server-Config erzeugt so gar nicht erst eine (leere) Temp-Datei.
+            var mcpConfigJson = BuildMcpConfigJson(mcp);
             var fileOpts = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
             if (!OperatingSystem.IsWindows())
                 fileOpts.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;   // 0600 schon bei Erzeugung
-            await using (var fs = new FileStream(mcpConfigPath, fileOpts))
-            await using (var w = new StreamWriter(fs))
-                await w.WriteAsync(BuildMcpConfigJson(mcp));
+            try
+            {
+                await using (var fs = new FileStream(mcpConfigPath, fileOpts))
+                await using (var w = new StreamWriter(fs))
+                    await w.WriteAsync(mcpConfigJson);
+            }
+            catch
+            {
+                // Die Datei kann bereits (leer oder halb geschrieben, inkl. ApiKey) angelegt worden sein,
+                // bevor der Fehler auftrat (z. B. Schreibfehler nach erfolgreichem CreateNew) — der äußere
+                // finally-Block greift hier noch nicht (der try/RunAsync-Block beginnt erst danach), also
+                // hier selbst best-effort aufräumen. File.Delete ist ein No-Op, falls nie eine Datei entstand.
+                try { File.Delete(mcpConfigPath); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                throw;
+            }
 
+            // Untergrenze 1: 0/negativ in der Config würde --max-turns ungültig machen bzw. der CLI
+            // jede Tool-Runde verbieten (fail-closed wäre hier ein harter Review-Abbruch statt Degradation).
+            var maxTurns = Math.Max(1, mcp.MaxIterations);
             args.Add("--max-turns");
-            args.Add(mcp.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            args.Add(maxTurns.ToString(System.Globalization.CultureInfo.InvariantCulture));
             args.Add("--mcp-config");
             args.Add(mcpConfigPath);
             args.Add("--allowedTools");
@@ -168,6 +188,11 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         {
             if (string.Equals(s.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
             {
+                // Fail-closed: ein fehlender Command würde als "command": null serialisiert — die CLI
+                // bricht dann beim Start dieses MCP-Servers ab (Exit-Code != 0), was den GANZEN Review
+                // scheitern lässt. Lieber hier klar und früh melden statt den CLI-Fehler zu diagnostizieren.
+                if (string.IsNullOrWhiteSpace(s.Command))
+                    throw new InvalidOperationException($"MCP-Server '{s.Name}': Command fehlt (stdio-Transport).");
                 servers[s.Name] = new Dictionary<string, object?>
                 {
                     ["command"] = s.Command,
@@ -176,6 +201,9 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             }
             else
             {
+                // Analog: "url": null lässt den http-Transport der CLI ins Leere laufen.
+                if (string.IsNullOrWhiteSpace(s.Url))
+                    throw new InvalidOperationException($"MCP-Server '{s.Name}': Url fehlt (http-Transport).");
                 var entry = new Dictionary<string, object?> { ["type"] = "http", ["url"] = s.Url };
                 if (!string.IsNullOrWhiteSpace(s.ApiKey))
                     entry["headers"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {s.ApiKey}" };

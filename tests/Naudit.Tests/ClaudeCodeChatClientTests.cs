@@ -287,4 +287,70 @@ public class ClaudeCodeChatClientTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
     }
+
+    [Fact]
+    public async Task GetResponseAsync_stdioServerWithoutCommand_throws_andLeavesNoTempFile()
+    {
+        // Ohne Command würde "command": null serialisiert — die CLI bräche beim Start dieses
+        // Servers ab (Exit-Code != 0), was den ganzen Review scheitern lässt. Fail-closed statt dessen,
+        // und zwar VOR dem Anlegen der Temp-Datei (kein leeres/halbes File soll liegen bleiben).
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var tempCountBefore = Directory.GetFiles(Path.GetTempPath(), "naudit-mcp-*.json").Length;
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            Servers = { new() { Name = "local-tool", Transport = "stdio", Command = "" } },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
+
+        Assert.Contains("local-tool", ex.Message);
+        Assert.Contains("Command", ex.Message);
+        Assert.Equal(tempCountBefore, Directory.GetFiles(Path.GetTempPath(), "naudit-mcp-*.json").Length);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_httpServerWithoutUrl_throws_andLeavesNoTempFile()
+    {
+        // Analog: "url": null lässt den http-Transport der CLI ins Leere laufen. Auch dieser Fail-Pfad
+        // (Finding 4) darf keine Temp-Datei hinterlassen — BuildMcpConfigJson wirft, bevor sie angelegt wird.
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var tempCountBefore = Directory.GetFiles(Path.GetTempPath(), "naudit-mcp-*.json").Length;
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            Servers = { new() { Name = "context7", Transport = "http", Url = "" } },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Messages()));
+
+        Assert.Contains("context7", ex.Message);
+        Assert.Contains("Url", ex.Message);
+        Assert.Equal(tempCountBefore, Directory.GetFiles(Path.GetTempPath(), "naudit-mcp-*.json").Length);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_mcpMaxIterationsZeroOrNegative_clampsToOne_inMaxTurnsArg()
+    {
+        // Naudit:Review:Mcp:MaxIterations=0 (oder negativ) darf --max-turns nicht ungültig machen /
+        // den Tool-Loop komplett abschalten — Untergrenze 1 statt einem harten Review-Abbruch.
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        {
+            Enabled = true,
+            MaxIterations = 0,
+            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
+        };
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
+
+        await client.GetResponseAsync(Messages());
+
+        var args = stub.LastSpec!.Arguments.ToList();
+        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);
+    }
 }

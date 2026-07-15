@@ -82,9 +82,10 @@ disabled, the CLI args are byte-identical to before this feature (`--tools ""`, 
   WebUI Settings page like most other `Naudit:*` keys (see
   [Configuration › Where configuration lives](configuration.md#where-configuration-lives)).
 - `Servers` is a **list**, so — following the `ProjectTokens`/`Ui:Admins` precedent — it stays
-  env-var/appsettings-only rather than a DB-managed catalog entry, including the per-server
-  `ApiKey`. Set it via user-secrets, environment variables, or your deployment's secret
-  management, never in `appsettings.json`.
+  env-var/appsettings-configurable rather than a DB-managed catalog entry. The per-server
+  `ApiKey`, though, is a **secret**: set it via user-secrets, an environment variable, or your
+  deployment's secret management — never in `appsettings.json` (same rule as every other secret
+  in this project, see [Configuration › Where configuration lives](configuration.md#where-configuration-lives)).
 - Context7's exact expected auth header may evolve; `ApiKey`, when set, is sent as
   `Authorization: Bearer <ApiKey>` on the http transport (and merged into the `--mcp-config` JSON
   as a `headers` entry for the CLI path). Context7 also works without a key at a lower rate limit.

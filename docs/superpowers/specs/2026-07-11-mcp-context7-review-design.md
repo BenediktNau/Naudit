@@ -153,7 +153,7 @@ both waste the budget.
 
 New section under the existing `Naudit:Review`:
 
-```
+```text
 Naudit:Review:Mcp:Enabled              = false            # opt-in master switch
 Naudit:Review:Mcp:MaxIterations        = 4                # tool round-trip cap (both paths)
 Naudit:Review:Mcp:Servers:0:Name       = context7
