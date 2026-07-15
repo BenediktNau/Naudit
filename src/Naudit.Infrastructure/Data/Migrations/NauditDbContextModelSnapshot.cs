@@ -40,6 +40,12 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ClaudeSessionToken")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClaudeSessionUpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -47,6 +53,9 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ExternalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("GitAuthorLogin")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsAdmin")
@@ -132,6 +141,9 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("AiSessionAccountId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -163,6 +175,8 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AiSessionAccountId");
 
                     b.HasIndex("CreatedAt");
 
@@ -255,6 +269,11 @@ namespace Naudit.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Naudit.Infrastructure.Data.ReviewEntity", b =>
                 {
+                    b.HasOne("Naudit.Infrastructure.Data.AccountEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AiSessionAccountId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Naudit.Infrastructure.Data.ProjectEntity", "Project")
                         .WithMany("Reviews")
                         .HasForeignKey("ProjectId")

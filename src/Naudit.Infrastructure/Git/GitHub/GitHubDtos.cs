@@ -19,6 +19,12 @@ public sealed class GitHubPullRequest
 {
     [JsonPropertyName("number")] public int Number { get; set; }
     [JsonPropertyName("title")] public string? Title { get; set; }
+    [JsonPropertyName("user")] public GitHubUser? User { get; set; }
+}
+
+public sealed class GitHubUser
+{
+    [JsonPropertyName("login")] public string? Login { get; set; }
 }
 
 public sealed class GitHubFile

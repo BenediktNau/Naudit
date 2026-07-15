@@ -100,6 +100,33 @@ public class ClaudeCodeChatClientTests
     }
 
     [Fact]
+    public async Task GetResponseAsync_setsPerRunConfigDir_andForwardsToken()
+    {
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet", ApiKey = "tok-1" }, stub);
+
+        await client.GetResponseAsync(Messages());
+
+        var env = stub.LastSpec!.Environment!;
+        Assert.Equal("tok-1", env["CLAUDE_CODE_OAUTH_TOKEN"]);
+        Assert.False(string.IsNullOrWhiteSpace(env["CLAUDE_CONFIG_DIR"]));
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_usesFreshConfigDir_perRun()
+    {
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var client = new ClaudeCodeChatClient(new AiOptions { Provider = AiProvider.ClaudeCode }, stub);
+
+        await client.GetResponseAsync(Messages());
+        await client.GetResponseAsync(Messages());
+
+        Assert.NotEqual(stub.Specs[0].Environment!["CLAUDE_CONFIG_DIR"],
+                        stub.Specs[1].Environment!["CLAUDE_CONFIG_DIR"]);
+    }
+
+    [Fact]
     public async Task GetResponseAsync_nonZeroExit_throws()
     {
         var client = Client(_ => new ProcessResult(1, "", "boom"));

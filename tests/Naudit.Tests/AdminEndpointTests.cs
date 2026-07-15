@@ -63,19 +63,21 @@ public class AdminEndpointTests : IClassFixture<TestAppFactory>
         Assert.Equal(2, list.GetProperty("approved").GetArrayLength());
         Assert.Equal(0, list.GetProperty("pending").GetArrayLength());
 
-        // Entziehen ⇒ wandert aus approved raus
+        // Entziehen ⇒ wandert aus approved raus. 204 (kein Body!) ist Pflicht: Der WebUI-fetch-Client
+        // parst jeden anderen 2xx als JSON und würde bei leerem 200-Body werfen ⇒ „Reject failed".
         var revoke = await client.PostAsync($"/api/accounts/{id}/revoke", null);
-        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+        Assert.Empty(await revoke.Content.ReadAsByteArrayAsync());
         list = await client.GetFromJsonAsync<JsonElement>("/api/accounts");
         Assert.Equal(1, list.GetProperty("approved").GetArrayLength());
 
         // Wieder freigeben
         var approve = await client.PostAsync($"/api/accounts/{id}/approve", null);
-        Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, approve.StatusCode);
 
         // Links pflegen
         var links = await client.PutAsJsonAsync($"/api/accounts/{id}/github-links", new { logins = new[] { "acme-org", "acme-labs" } });
-        Assert.Equal(HttpStatusCode.OK, links.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, links.StatusCode);
 
         // Unbekannte Id ⇒ 404
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/api/accounts/9999/approve", null)).StatusCode);

@@ -45,6 +45,16 @@ public class GitHubWebhookTests
     }
 
     [Fact]
+    public void ToReviewRequest_ignoresLabeledAction()
+    {
+        // Kommentare sind eigene Event-Typen (issue_comment) und fallen am eventType-Filter raus;
+        // Metadaten-Actions wie "labeled" scheitern an der Whitelist. Kein Review ohne neue Commits.
+        var json = """{ "action": "labeled", "repository": { "full_name": "o/r" }, "pull_request": { "number": 1, "title": "x" } }""";
+        var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
+        Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
+    }
+
+    [Fact]
     public void ToReviewRequest_returnsNull_whenRepositoryMissing()
     {
         var json = """{ "action": "opened", "pull_request": { "number": 1, "title": "x" } }""";
@@ -58,6 +68,34 @@ public class GitHubWebhookTests
         var json = """{ "action": "opened", "repository": { "full_name": "o/r" } }""";
         var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(json)!;
         Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload));
+    }
+
+    [Fact]
+    public void ToReviewRequest_mapsAuthorLogin_fromPullRequestUser()
+    {
+        var payload = new GitHubWebhookPayload
+        {
+            Action = "opened",
+            Repository = new GitHubRepository { FullName = "owner/repo" },
+            PullRequest = new GitHubPullRequest { Number = 5, Title = "T", User = new GitHubUser { Login = "Alice" } },
+        };
+
+        var request = GitHubWebhook.ToReviewRequest("pull_request", payload);
+
+        Assert.Equal("Alice", request!.AuthorLogin);
+    }
+
+    [Fact]
+    public void ToReviewRequest_missingUser_leavesAuthorLoginNull()
+    {
+        var payload = new GitHubWebhookPayload
+        {
+            Action = "opened",
+            Repository = new GitHubRepository { FullName = "owner/repo" },
+            PullRequest = new GitHubPullRequest { Number = 5, Title = "T" },
+        };
+
+        Assert.Null(GitHubWebhook.ToReviewRequest("pull_request", payload)!.AuthorLogin);
     }
 
     private static string Sign(string secret, byte[] body)

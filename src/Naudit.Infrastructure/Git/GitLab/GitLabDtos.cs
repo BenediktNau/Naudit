@@ -20,6 +20,7 @@ public sealed class GitLabMergeRequestAttributes
     [JsonPropertyName("iid")] public int Iid { get; set; }
     [JsonPropertyName("title")] public string? Title { get; set; }
     [JsonPropertyName("action")] public string? Action { get; set; }
+    [JsonPropertyName("oldrev")] public string? OldRev { get; set; }
 }
 
 public sealed class GitLabChangesResponse
@@ -36,6 +37,12 @@ public sealed class GitLabChange
 public sealed class GitLabMergeRequestDetail
 {
     [JsonPropertyName("diff_refs")] public GitLabDiffRefs? DiffRefs { get; set; }
+    [JsonPropertyName("author")] public GitLabUser? Author { get; set; }
+}
+
+public sealed class GitLabUser
+{
+    [JsonPropertyName("username")] public string? Username { get; set; }
 }
 
 public sealed class GitLabDiffRefs

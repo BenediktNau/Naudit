@@ -103,10 +103,13 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             args.Add(system);
         }
 
-        // Auth: i. d. R. über die geerbte Umgebung (CLAUDE_CODE_OAUTH_TOKEN). Optional aus der Config.
-        Dictionary<string, string?>? env = null;
+        // Isolation pro Lauf: eigenes CLAUDE_CONFIG_DIR, damit parallele Läufe mit unterschiedlichen
+        // Tokens (Autor-Sessions) nie CLI-State teilen. Token optional aus der Config.
+        var configDir = Path.Combine(Path.GetTempPath(), "naudit-claude", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(configDir);
+        var env = new Dictionary<string, string?> { ["CLAUDE_CONFIG_DIR"] = configDir };
         if (!string.IsNullOrWhiteSpace(aiOptions.ApiKey))
-            env = new Dictionary<string, string?> { ["CLAUDE_CODE_OAUTH_TOKEN"] = aiOptions.ApiKey };
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = aiOptions.ApiKey;
 
         var spec = new ProcessSpec(
             FileName: "claude",
@@ -148,8 +151,12 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         }
         finally
         {
-            // Best-effort: die Temp-Datei enthielt den ApiKey, soll nicht liegen bleiben. Löschfehler
+            // Best-effort beide Scratch-Ressourcen aufräumen: das per-Lauf-CLAUDE_CONFIG_DIR
+            // (Autor-Sessions) und die --mcp-config-Temp-Datei mit dem ApiKey (MCP). Löschfehler
             // (z. B. bereits weg) sind egal — Cancellation wird hier NICHT abgefangen.
+            try { Directory.Delete(configDir, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             if (mcpConfigPath is not null)
             {
                 try { File.Delete(mcpConfigPath); }

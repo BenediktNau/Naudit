@@ -10,6 +10,7 @@ export function ReviewCategory({ ctx }: { ctx: SettingsCtx }) {
   const sev = ctx.get("Naudit:Review:Gate:MinSeverity") || "High";
   const conf = ctx.get("Naudit:Review:Gate:MinConfidence") || "Medium";
   const prompt = ctx.get("Naudit:Review:SystemPrompt");
+  const roundtrips = ctx.get("Naudit:Review:MaxRoundtrips");
 
   return (
     <>
@@ -34,6 +35,18 @@ export function ReviewCategory({ ctx }: { ctx: SettingsCtx }) {
             worse and the AI is at least <b className="text-ink">{conf}</b> confident. Everything else
             becomes a non-blocking comment.
           </div>
+        </div>
+      </Panel>
+
+      <Panel title="Roundtrip limit">
+        <div className="px-5 py-4">
+          <Field label="Max automatic reviews per PR"
+            hint="Further pushes are skipped after this many reviews. 0 = unlimited. CI-triggered reviews (POST /review) are never limited.">
+            <input type="number" min={0} placeholder="3 (default)"
+              disabled={ctx.locked("Naudit:Review:MaxRoundtrips")}
+              className={selCls} value={roundtrips}
+              onChange={(e) => ctx.set("Naudit:Review:MaxRoundtrips", e.target.value)} />
+          </Field>
         </div>
       </Panel>
 

@@ -54,8 +54,8 @@ run reports no `usage`, the counts stay null (no fabricated zero).
 
 ## Non-goals
 
-- No Dockerfile changes here — `claude` is an environment precondition. Baking Node + the
-  CLI into the deployed image is a separate, later step.
+- The container image now ships the CLI (pinned, checksum-verified) — see
+  docs/author-sessions.md; on bare-metal hosts the install steps above still apply.
 - No agentic review by default (no repo access / tools / MCP), no streaming, no multi-turn
   sessions — unless MCP tools are enabled via `Naudit:Review:Mcp` (see [MCP tools](mcp-tools.md)).
 - Future hardening option: `claude --json-schema` for schema-validated structured output.

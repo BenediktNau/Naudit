@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
+using Naudit.Infrastructure.Ai.ClaudeCode;
 using Naudit.Infrastructure.Context;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
@@ -32,6 +33,7 @@ public static class DependencyInjection
         services.AddDbContext<NauditDbContext>(o => DatabaseOptions.ConfigureDbContext(o, dbOptions));
         services.AddScoped<Settings.SettingsService>();
         services.AddScoped<AccountService>();
+        services.AddScoped<Ui.ClaudeSessionService>();
         services.AddScoped<Setup.SetupDraftService>();
         return services;
     }
@@ -79,6 +81,20 @@ public static class DependencyInjection
         {
             services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
         }
+
+        // Autor-Sessions: Optionen + Cooldown-Registry (Registry auch bei Enabled=false harmlos —
+        // die Profil-API zeigt darüber den Cooldown-Status an).
+        var authorSessions = configuration.GetSection("Naudit:Ai:AuthorSessions").Get<AuthorSessionsOptions>() ?? new AuthorSessionsOptions();
+        services.AddSingleton(authorSessions);
+        services.AddSingleton<SessionHealthRegistry>();
+        services.AddSingleton<SessionSelectionFactory>();
+
+        // Router-Naht: Autor-Sessions an ⇒ scoped Router (braucht ClaudeSessionService/DbContext),
+        // sonst der globale Client — exakt heutiges Verhalten.
+        if (authorSessions.Enabled)
+            services.AddScoped<IAiClientRouter, AuthorSessionRouter>();
+        else
+            services.AddSingleton<IAiClientRouter>(sp => new SingleClientRouter(sp.GetRequiredService<IChatClient>()));
 
         // Review-Prompt: leerer Config-Wert -> Default-Prompt.
         var reviewOptions = configuration.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
@@ -129,6 +145,8 @@ public static class DependencyInjection
                     // Auth wird pro Request in GitHubPlatform gesetzt (Per-Projekt-Token), nicht als Default-Header.
                     ConfigureGitHubClient(http, opt.BaseUrl);
                 });
+                // Autor-Session-Routing: der Login steht auf GitHub schon im Request (Webhook-Mapping).
+                services.AddSingleton<IAuthorLoginResolver>(new PassthroughAuthorLoginResolver());
                 break;
 
             default: // GitPlatformKind.GitLab
@@ -140,6 +158,12 @@ public static class DependencyInjection
                     var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                     // Auth (PRIVATE-TOKEN) wird pro Request in GitLabPlatform gesetzt (Per-Projekt-Token).
+                });
+                // Autor-Auflösung braucht denselben Host wie die GitLab-API (eigener typed Client).
+                services.AddHttpClient<IAuthorLoginResolver, GitLabAuthorLoginResolver>((sp, http) =>
+                {
+                    var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
+                    http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                 });
                 break;
         }
@@ -221,6 +245,7 @@ public static class DependencyInjection
         else
             services.AddSingleton<IAccessGate>(new AllowAllAccessGate());
         services.AddScoped<IReviewAuditSink, EfReviewAuditSink>();
+        services.AddScoped<IReviewRoundtripCounter, EfReviewRoundtripCounter>();
 
         services.AddScoped<ReviewService>();
         return services;

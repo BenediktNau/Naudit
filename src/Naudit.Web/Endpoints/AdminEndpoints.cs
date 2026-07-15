@@ -64,7 +64,7 @@ public static class AdminEndpoints
         group.MapPut("/{id:int}/github-links", async (HttpContext ctx, NauditDbContext db, AccountService svc, int id, SetLinksRequest body) =>
         {
             if (await CurrentAccount.GetAdminAsync(ctx, db) is null) return Results.Forbid();
-            return await svc.SetGitHubLinksAsync(id, body.Logins, ctx.RequestAborted) ? Results.Ok() : Results.NotFound();
+            return await svc.SetGitHubLinksAsync(id, body.Logins, ctx.RequestAborted) ? Results.NoContent() : Results.NotFound();
         });
     }
 
@@ -80,7 +80,7 @@ public static class AdminEndpoints
             if (target is { IsAdmin: true, Status: AccountStatus.Active })
                 return Results.Conflict(new { error = "Active admin accounts cannot be revoked." });
         }
-        return await svc.SetStatusAsync(id, status, ctx.RequestAborted) ? Results.Ok() : Results.NotFound();
+        return await svc.SetStatusAsync(id, status, ctx.RequestAborted) ? Results.NoContent() : Results.NotFound();
     }
 
     private static AccountDto ToDto(AccountEntity a, int projects, long tokens) => new(

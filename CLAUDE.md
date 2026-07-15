@@ -74,6 +74,17 @@ Three projects with a strict, deliberate dependency direction:
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
 findings' severity/confidence (the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
+Webhook-triggered reviews are throttled by a roundtrip limit (`Naudit:Review:MaxRoundtrips`,
+default `3`, `0` = unlimited): `ReviewService` skips early (before any platform call/checkout/LLM)
+once that many reviews were already posted for the MR/PR, counted from the existing `ReviewEntity`
+audit rows via `IReviewRoundtripCounter` (Core seam, EF impl — fail-open on counter errors). The
+last allowed review appends a notice line to its summary. `POST /review` (CI) sets
+`ReviewRequest.Trigger = Ci` and is itself never limited, though CI reviews are audited like any
+other and so count toward that same per-PR tally (normally moot — the CI trigger is an alternative
+to webhooks, not run alongside them). GitLab `update` webhook events are additionally filtered on
+`object_attributes.oldrev` (only real pushes carry it), so metadata-only edits
+(label/description/assignee) on a GitLab MR no longer trigger a review; comments are separate event
+types (`note`/`issue_comment`) and were already ignored on both platforms.
 `PostReviewAsync` now carries that derived `ReviewVerdict` as a parameter (the only Core type crossing
 the seam); actually **posting** it as a real, blocking review state is opt-in via `Naudit:GitHub:PostVerdict`
 / `Naudit:GitLab:PostVerdict` (default `false` = today's behaviour: GitHub `event="COMMENT"`, GitLab posts
@@ -222,6 +233,13 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   per login) and derive the install
   deep-link from the app slug (`GET /app`); fail-quiet (API error ⇒ `installed: null`, no banner).
   The SPA renders the banner on the dashboard + pending screen and a status row on the profile.
+- **Author sessions (bring your own subscription):** `IAiClientRouter` (Core `Abstractions`)
+  selects the chat client per review; `SingleClientRouter` (default, feature off) returns the
+  global `IChatClient`, `AuthorSessionRouter` (`src/Naudit.Infrastructure/Ai/ClaudeCode/`) routes
+  MRs to the author's own Claude subscription (token stored DP-encrypted per account, profile
+  page/`/api/me/claude-session`), wrapped in `FallbackChatClient` (any author failure ⇒ in-memory
+  cooldown + one retry on the global client). Toggle `Naudit:Ai:AuthorSessions:Enabled`
+  (default `false` = today's behaviour). See `docs/author-sessions.md`.
 
 ### CI/CD & container
 

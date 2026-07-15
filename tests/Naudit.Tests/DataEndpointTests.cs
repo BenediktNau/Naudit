@@ -122,7 +122,7 @@ public class DataEndpointTests : IClassFixture<TestAppFactory>
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
         var res = await client.PostAsync($"/api/accounts/{id}/revoke", null);
-        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
     }
 
     [Fact]

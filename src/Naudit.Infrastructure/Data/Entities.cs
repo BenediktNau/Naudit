@@ -17,6 +17,13 @@ public sealed class AccountEntity
     public bool IsAdmin { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<GitHubLinkEntity> GitHubLinks { get; set; } = new();
+
+    /// <summary>Claude-Code-OAuth-Token für Autor-Sessions — DP-verschlüsselt (Purpose "Naudit.AiSessions"),
+    /// write-only: der Klartext verlässt den Server nie wieder.</summary>
+    public string? ClaudeSessionToken { get; set; }
+    public DateTime? ClaudeSessionUpdatedAtUtc { get; set; }
+    /// <summary>Login auf der aktiven Git-Plattform (lowercased) — matcht den MR-Autor aufs Konto.</summary>
+    public string? GitAuthorLogin { get; set; }
 }
 
 /// <summary>GitHub-Owner/Org-Zuordnung eines Accounts — Grundlage der Zugangsschranke.
@@ -54,6 +61,9 @@ public sealed class ReviewEntity
     public string? Model { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<ReviewFindingEntity> Findings { get; set; } = new();
+
+    /// <summary>Account, dessen Autor-Session dieses Review getragen hat (null = globaler Provider).</summary>
+    public int? AiSessionAccountId { get; set; }
 }
 
 public sealed class ReviewFindingEntity

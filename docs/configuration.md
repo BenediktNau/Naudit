@@ -104,6 +104,7 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Review:SystemPrompt` | Global review prompt; empty = built-in default |
 | `Naudit:Review:Gate:MinSeverity` | Lowest finding severity that can block the merge — `Info` \| `Low` \| `Medium` \| `High` \| `Critical` (default `High`) (see [Review gate](review-gate.md)) |
 | `Naudit:Review:Gate:MinConfidence` | Lowest LLM confidence that can block the merge — `Low` \| `Medium` \| `High` (default `Medium`) |
+| `Naudit:Review:MaxRoundtrips` | Max automatic (webhook-triggered) reviews per MR/PR; further pushes are skipped and the last allowed review notes it in its summary — `0` = unlimited (default `3`). The synchronous CI trigger `POST /review` is never limited itself, but reviews it records also count toward this per-PR total. |
 | `Naudit:Review:Context:Enabled` | Enrich the prompt with surrounding code / usages / repo overview from the checkout — **default `true`** (see [Review context](review-context.md)) |
 | `Naudit:Review:Context:MaxChars` | Character budget for the context section (default `40000`) |
 | `Naudit:Review:Context:FullFileMaxLines` | Changed file ≤ this ⇒ whole file in context; larger ⇒ block excerpts (default `400`) |
@@ -170,6 +171,19 @@ dotnet user-secrets set "Naudit:Ai:Provider" "ClaudeCode" --project src/Naudit.W
 dotnet user-secrets set "Naudit:Ai:Model"    "sonnet"     --project src/Naudit.Web
 # Auth: set CLAUDE_CODE_OAUTH_TOKEN in the environment (from `claude setup-token`); no Naudit:Ai:ApiKey needed.
 ```
+
+### Author sessions (Naudit:Ai:AuthorSessions)
+
+Lets each user route reviews of merge requests they authored through their own Claude
+Pro/Max subscription instead of the globally configured AI provider. See
+[Author sessions](author-sessions.md) for the full picture (routing, fallback,
+attribution, storage).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Naudit:Ai:AuthorSessions:Enabled` | `false` | Master switch. |
+| `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author runs — independent of `Naudit:Ai:Model`. |
+| `Naudit:Ai:AuthorSessions:CooldownMinutes` | `30` | How long a failing session is skipped before it is tried again. |
 
 ## Per-project tokens
 

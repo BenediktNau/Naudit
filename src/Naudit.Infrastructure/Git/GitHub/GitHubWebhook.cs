@@ -21,7 +21,8 @@ public static class GitHubWebhook
         if (payload.Action is null || !ReviewableActions.Contains(payload.Action))
             return null;
 
-        return new ReviewRequest(payload.Repository.FullName, payload.PullRequest.Number, payload.PullRequest.Title ?? "");
+        return new ReviewRequest(payload.Repository.FullName, payload.PullRequest.Number,
+            payload.PullRequest.Title ?? "", payload.PullRequest.User?.Login);
     }
 
     /// <summary>Prüft die GitHub-Webhook-Signatur (HMAC-SHA256 über den rohen Body) konstant-zeitlich. Leeres Secret ⇒ false (fail-closed).</summary>

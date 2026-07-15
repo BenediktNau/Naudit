@@ -15,7 +15,10 @@ public sealed class ReviewBackgroundService(
             {
                 using var scope = scopeFactory.CreateScope();
                 var reviewService = scope.ServiceProvider.GetRequiredService<ReviewService>();
-                await reviewService.ReviewAsync(request, stoppingToken);
+                var result = await reviewService.ReviewAsync(request, stoppingToken);
+                if (result.Skipped)
+                    logger.LogInformation("Review für {ProjectId}#{Iid} übersprungen — Roundtrip-Limit erreicht.",
+                        request.ProjectId, request.MergeRequestIid);
             }
             catch (Exception ex)
             {
