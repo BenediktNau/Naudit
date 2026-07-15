@@ -16,6 +16,7 @@ public sealed class ReviewService(
     IPromptRedactor redactor,
     IContextCollector contextCollector,
     IReviewAuditSink auditSink,
+    IReviewToolProvider toolProvider,
     IReviewRoundtripCounter roundtripCounter)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
@@ -55,9 +56,16 @@ public sealed class ReviewService(
         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
         var redContext = await RedactContextAsync(context, ct);
 
-        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext);
+        // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
+        // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
+        var tools = await toolProvider.GetToolsAsync(request, ct);
+        var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
+            toolsAvailable: tools.Count > 0);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
+        if (tools.Count > 0)
+            chatOptions.Tools = [.. tools];
+
         // Routing pro Review: Autor-Session oder globaler Client (Feature aus ⇒ immer global).
         var selection = await aiRouter.SelectAsync(request, ct);
         var response = await selection.Client.GetResponseAsync(messages, chatOptions, ct);

@@ -20,6 +20,7 @@ public class ReviewServiceTests
         IContextCollector? contextCollector = null,
         IReviewAuditSink? auditSink = null,
         IAiClientRouter? router = null,
+        IReviewToolProvider? toolProvider = null,
         IReviewRoundtripCounter? roundtrips = null)
         => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
@@ -28,7 +29,36 @@ public class ReviewServiceTests
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
             auditSink ?? new FakeReviewAuditSink(),
+            toolProvider ?? new NullReviewToolProvider(),
             roundtrips ?? new FakeRoundtripCounter());
+
+    [Fact]
+    public async Task ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.Null(chat.LastOptions!.Tools);   // Feature aus ⇒ identischer Single-Shot
+    }
+
+    [Fact]
+    public async Task ReviewAsync_withTools_populatesChatOptionsTools()
+    {
+        var tool = Microsoft.Extensions.AI.AIFunctionFactory.Create(() => "doc", "get_docs");
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            toolProvider: new FakeReviewToolProvider(tool));
+
+        await service.ReviewAsync(Request);
+
+        Assert.NotNull(chat.LastOptions!.Tools);
+        Assert.Single(chat.LastOptions.Tools!);
+        Assert.Equal("get_docs", chat.LastOptions.Tools![0].Name);
+    }
 
     [Fact]
     public async Task ReviewAsync_postsComposedSummary_andReturnsApprove()

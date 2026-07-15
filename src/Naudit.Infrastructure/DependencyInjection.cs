@@ -13,6 +13,7 @@ using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
+using Naudit.Infrastructure.Mcp;
 using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
@@ -41,8 +42,45 @@ public static class DependencyInjection
     {
         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
-        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
+
+        // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
+        // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
+        var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
+        services.AddSingleton(mcpOptions);
+        // Eine Bedingung, zweimal gebraucht (Client-Wrap + Tool-Provider-Registrierung) — als lokale
+        // Variable extrahiert, damit die beiden Stellen nie auseinanderlaufen können.
+        var mcpForMeaiProvider = mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode;
+
+        // Global-Client. Bei aktivem MCP + MEAI-Provider mit Function-Invocation-Loop umhüllen
+        // (Cap = MaxIterations). ClaudeCode ist ein eigener IChatClient (CLI-natives MCP) und wird NICHT umhüllt.
+        services.AddSingleton<IChatClient>(sp =>
+        {
+            var client = AiClientFactory.Create(aiOptions, mcpOptions);
+            if (mcpForMeaiProvider)
+                client = client.AsBuilder()
+                    .UseFunctionInvocation(sp.GetService<ILoggerFactory>(),
+                        // Untergrenze 1: 0/negativ in der Config würde den Tool-Loop komplett
+                        // abschalten bzw. die MEAI-Middleware mit einem ungültigen Wert brechen.
+                        c => c.MaximumIterationsPerRequest = Math.Max(1, mcpOptions.MaxIterations))
+                    .Build();
+            return client;
+        });
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)
+
+        // MCP-Tools: MEAI-Provider + MCP an ⇒ echte MCP-Tools (Function-Invocation nutzt ChatOptions.Tools);
+        // sonst No-Op (MCP aus, oder ClaudeCode ⇒ CLI-natives MCP über --mcp-config).
+        if (mcpForMeaiProvider)
+        {
+            services.AddSingleton<IMcpToolConnector>(sp => new McpClientToolConnector(sp.GetRequiredService<ILoggerFactory>()));
+            services.AddSingleton<IReviewToolProvider>(sp => new McpReviewToolProvider(
+                mcpOptions,
+                sp.GetRequiredService<IMcpToolConnector>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<McpReviewToolProvider>()));
+        }
+        else
+        {
+            services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());
+        }
 
         // Autor-Sessions: Optionen + Cooldown-Registry (Registry auch bei Enabled=false harmlos —
         // die Profil-API zeigt darüber den Cooldown-Status an).
