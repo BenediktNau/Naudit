@@ -351,6 +351,15 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     }
     foreach (var warning in load.Warnings) app.Logger.LogWarning("{Warning}", warning);
 
+    // Obsoleter Schalter (Author-Sessions → SessionRouting-Enum): fällt sonst still auf
+    // SessionRouting=Single zurück — der Admin bemerkt das nur an ausbleibenden Autor-Sessions.
+    if (!string.IsNullOrEmpty(builder.Configuration["Naudit:Ai:AuthorSessions:Enabled"]))
+    {
+        app.Logger.LogWarning(
+            "Naudit:Ai:AuthorSessions:Enabled ist obsolet und wird ignoriert — " +
+            "ersetzt durch Naudit:Ai:SessionRouting (Single|Author|RoundRobin).");
+    }
+
     // WebUI-Endpoints: immer gemappt (die UI ist immer an — sie ist im Recovery-Modus das Reparaturwerkzeug).
     app.MapAuthEndpoints(uiConfig);
     app.MapClaudeSessionEndpoints();

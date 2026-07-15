@@ -50,11 +50,14 @@ public static class ClaudeSessionEndpoints
             {
                 if (acct.ClaudeSessionToken is null)
                 {
-                    // Opt-in wurde oben bereits angewendet ⇒ erfolgreich quittieren, kein Token verlangt
-                    // (ein Login ohne Token bleibt bewusst ungesetzt — Login braucht einen Token).
+                    // Opt-in wurde oben angewendet ⇒ 204; einen mitgesendeten Login trotzdem
+                    // persistieren (ohne Token harmlos, geht aber nicht verloren).
                     // „token required" nur, wenn KEIN Opt-in dabei war (reiner Token/Login-Erstversuch).
                     if (body.ShareInPool is not null)
+                    {
+                        await sessions.SetLoginAsync(acct.Id, body.GitAuthorLogin, ctx.RequestAborted);
                         return Results.NoContent();
+                    }
                     return Results.BadRequest(new { error = "token required" });
                 }
                 await sessions.SetLoginAsync(acct.Id, body.GitAuthorLogin, ctx.RequestAborted);

@@ -30,9 +30,12 @@ public class RoundRobinSessionRouterTests
     }
 
     private static RoundRobinSessionRouter Router(ClaudeSessionService sessions, SessionHealthRegistry health,
-        RoundRobinCursor cursor, IProcessRunner runner, IChatClient global) =>
-        new(sessions, health, cursor, new AuthorSessionsOptions(),
-            new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, NullLoggerFactory.Instance);
+        RoundRobinCursor cursor, IProcessRunner runner, IChatClient global)
+    {
+        var selectionFactory = new SessionSelectionFactory(new AuthorSessionsOptions(),
+            new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, health, NullLoggerFactory.Instance);
+        return new(sessions, health, cursor, selectionFactory, NullLogger<RoundRobinSessionRouter>.Instance);
+    }
 
     // Hilfsfunktion: Selection abrufen UND den Client aufrufen (damit die Attribution feststeht).
     private static async Task<int?> Pick(RoundRobinSessionRouter router, IProcessRunner _ = null!)
@@ -119,5 +122,22 @@ public class RoundRobinSessionRouterTests
         // Egal wo der Cursor startet: der undekryptierbare bob wird übersprungen, alice antwortet.
         Assert.Equal(good, await Pick(router));
         Assert.Equal(good, await Pick(router));
+    }
+
+    [Fact]
+    public async Task PoolQueryThrows_returnsGlobalClient_failOpen()
+    {
+        using var db = new TestDb();
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider());
+        var global = new FakeChatClient("GLOBAL");
+        var router = Router(svc, new SessionHealthRegistry(), new RoundRobinCursor(),
+            new StubProcessRunner(_ => throw new InvalidOperationException("kein CLI-Lauf erwartet")), global);
+
+        db.Context.Dispose(); // GetPoolCandidatesAsync wirft ObjectDisposedException
+
+        var sel = await router.SelectAsync(Request);
+
+        Assert.Same(global, sel.Client);
+        Assert.Null(sel.UsedSessionAccountId());
     }
 }

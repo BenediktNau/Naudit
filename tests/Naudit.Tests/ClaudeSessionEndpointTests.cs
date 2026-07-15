@@ -126,6 +126,7 @@ public class ClaudeSessionEndpointTests : IClassFixture<TestAppFactory>
         var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
         Assert.True(after.GetProperty("shareInPool").GetBoolean());
         Assert.False(after.GetProperty("configured").GetBoolean());   // Opt-in gesetzt, aber weiterhin kein Token
+        Assert.Equal("someone", after.GetProperty("gitAuthorLogin").GetString());   // Login geht nicht verloren
     }
 
     [Fact]
