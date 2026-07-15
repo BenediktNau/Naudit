@@ -24,10 +24,12 @@ export function ClaudeSessionCard() {
   const test = useTestClaudeSession();
   const [token, setToken] = useState("");
   const [login, setLogin] = useState<string | null>(null);
+  const [shareInPool, setShareInPool] = useState<boolean | null>(null);
   if (!data) return null;
 
   const cooling = data.coolingDownUntil !== null && new Date(data.coolingDownUntil) > new Date();
   const loginValue = login ?? data.gitAuthorLogin ?? "";
+  const shareValue = shareInPool ?? data.shareInPool;
 
   return (
     <Panel title="Claude session" extra={data.configured ? "configured" : "not configured"}>
@@ -64,13 +66,23 @@ export function ClaudeSessionCard() {
           onChange={(e) => setLogin(e.target.value)}
         />
 
+        <label className="flex items-start gap-2 text-[12.5px] leading-relaxed text-ink2">
+          <input type="checkbox" className="mt-0.5" checked={shareValue}
+            onChange={(e) => setShareInPool(e.target.checked)} />
+          <span>
+            <b className="text-ink">Add my session to the round-robin pool.</b> Lets Naudit use my subscription
+            to review <b>other</b> users&apos; PRs when round-robin routing is on. This is account sharing under
+            Anthropic&apos;s consumer terms and can get my account suspended — leave off unless your team agreed to it.
+          </span>
+        </label>
+
         <div className="flex flex-wrap items-center gap-2">
           <button
             className={btnPrimary}
             disabled={save.isPending || (!token && !data.configured)}
             onClick={() =>
               save.mutate(
-                { token: token || undefined, gitAuthorLogin: loginValue || undefined },
+                { token: token || undefined, gitAuthorLogin: loginValue || undefined, shareInPool: shareValue },
                 { onSuccess: () => setToken("") },
               )
             }

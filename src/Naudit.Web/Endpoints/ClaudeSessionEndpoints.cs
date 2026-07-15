@@ -12,7 +12,7 @@ namespace Naudit.Web.Endpoints;
 /// der Test-Lauf braucht die Review-Pipeline-Dienste und degradiert sonst auf 503.</summary>
 public static class ClaudeSessionEndpoints
 {
-    public sealed record ClaudeSessionUpdate(string? Token, string? GitAuthorLogin);
+    public sealed record ClaudeSessionUpdate(string? Token, string? GitAuthorLogin, bool? ShareInPool);
 
     public static void MapClaudeSessionEndpoints(this WebApplication app)
     {
@@ -31,6 +31,7 @@ public static class ClaudeSessionEndpoints
                 updatedAtUtc = acct.ClaudeSessionUpdatedAtUtc,
                 coolingDownUntil = health?.CoolingDownUntil(acct.Id),
                 gitAuthorLogin = acct.GitAuthorLogin,
+                shareInPool = acct.ShareSessionInPool,
             });
         });
 
@@ -39,12 +40,26 @@ public static class ClaudeSessionEndpoints
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Unauthorized();
 
+            // Pool-Opt-in ist unabhängig vom Token — zuerst anwenden.
+            if (body.ShareInPool is bool share)
+                await sessions.SetShareInPoolAsync(acct.Id, share, ctx.RequestAborted);
+
             // Blank-Semantik wie Settings-Secrets: leerer Token lässt den gespeicherten unangetastet
             // (erlaubt reines Ändern des Logins); ein Erst-PUT ohne Token ist ein Fehler.
             if (string.IsNullOrWhiteSpace(body.Token))
             {
                 if (acct.ClaudeSessionToken is null)
+                {
+                    // Opt-in wurde oben angewendet ⇒ 204; einen mitgesendeten Login trotzdem
+                    // persistieren (ohne Token harmlos, geht aber nicht verloren).
+                    // „token required" nur, wenn KEIN Opt-in dabei war (reiner Token/Login-Erstversuch).
+                    if (body.ShareInPool is not null)
+                    {
+                        await sessions.SetLoginAsync(acct.Id, body.GitAuthorLogin, ctx.RequestAborted);
+                        return Results.NoContent();
+                    }
                     return Results.BadRequest(new { error = "token required" });
+                }
                 await sessions.SetLoginAsync(acct.Id, body.GitAuthorLogin, ctx.RequestAborted);
                 return Results.NoContent();
             }

@@ -163,7 +163,7 @@ attribution, storage).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `Naudit:Ai:AuthorSessions:Enabled` | `false` | Master switch. |
+| `Naudit:Ai:SessionRouting` | `Single` | `Single` — global provider \| `Author` — the PR author's own Claude subscription \| `RoundRobin` — rotate the opt-in pool of subscriptions across reviews. `RoundRobin` is **account sharing** under Anthropic's consumer terms (see [author sessions](author-sessions.md)) |
 | `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author runs — independent of `Naudit:Ai:Model`. |
 | `Naudit:Ai:AuthorSessions:CooldownMinutes` | `30` | How long a failing session is skipped before it is tried again. |
 

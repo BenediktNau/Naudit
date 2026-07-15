@@ -30,7 +30,7 @@ public static class SettingsCatalog
         new("Naudit:Ai:Model", false),
         new("Naudit:Ai:Endpoint", false),
         new("Naudit:Ai:ApiKey", true),
-        new("Naudit:Ai:AuthorSessions:Enabled", false),
+        new("Naudit:Ai:SessionRouting", false),
         new("Naudit:Ai:AuthorSessions:CooldownMinutes", false),
         new("Naudit:Ai:AuthorSessions:Model", false),
         new("Naudit:Review:SystemPrompt", false),

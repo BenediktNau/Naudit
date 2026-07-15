@@ -24,6 +24,11 @@ public sealed class AccountEntity
     public DateTime? ClaudeSessionUpdatedAtUtc { get; set; }
     /// <summary>Login auf der aktiven Git-Plattform (lowercased) — matcht den MR-Autor aufs Konto.</summary>
     public string? GitAuthorLogin { get; set; }
+
+    /// <summary>Opt-in: dieses Abo darf im Round-Robin-Pool für Reviews FREMDER PRs rotieren
+    /// (Naudit:Ai:SessionRouting=RoundRobin). Bewusst getrennt vom Token, der für die eigenen
+    /// Reviews (Author-Modus) reicht — Pool-Nutzung ist Account-Sharing und braucht Zustimmung.</summary>
+    public bool ShareSessionInPool { get; set; }
 }
 
 /// <summary>GitHub-Owner/Org-Zuordnung eines Accounts — Grundlage der Zugangsschranke.

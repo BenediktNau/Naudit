@@ -9,17 +9,17 @@ namespace Naudit.Tests;
 
 public class AiClientRouterWiringTests
 {
-    private static void AssertRouterType<T>(Dictionary<string, string?> settings)
+    private static void AssertRouterType(Dictionary<string, string?> settings, Type expected)
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDataProtection();
-        services.AddNauditDatabase(config);       // ClaudeSessionService (Scoped) für den AuthorSessionRouter
+        services.AddNauditDatabase(config);       // ClaudeSessionService (Scoped) für Author-/RoundRobin-Router
         services.AddNauditInfrastructure(config);
         using var sp = services.BuildServiceProvider();
         using var scope = sp.CreateScope();
-        Assert.IsType<T>(scope.ServiceProvider.GetRequiredService<IAiClientRouter>());
+        Assert.IsType(expected, scope.ServiceProvider.GetRequiredService<IAiClientRouter>());
     }
 
     private static Dictionary<string, string?> BaseSettings() => new()
@@ -30,13 +30,16 @@ public class AiClientRouterWiringTests
 
     [Fact]
     public void Default_registersSingleClientRouter()
-        => AssertRouterType<SingleClientRouter>(BaseSettings());
+        => AssertRouterType(BaseSettings(), typeof(SingleClientRouter));
 
-    [Fact]
-    public void Enabled_registersAuthorSessionRouter()
+    [Theory]
+    [InlineData("Single", typeof(SingleClientRouter))]
+    [InlineData("Author", typeof(AuthorSessionRouter))]
+    [InlineData("RoundRobin", typeof(RoundRobinSessionRouter))]
+    public void SessionRouting_selectsMatchingRouter(string mode, Type expected)
     {
         var settings = BaseSettings();
-        settings["Naudit:Ai:AuthorSessions:Enabled"] = "true";
-        AssertRouterType<AuthorSessionRouter>(settings);
+        settings["Naudit:Ai:SessionRouting"] = mode;
+        AssertRouterType(settings, expected);
     }
 }
