@@ -49,6 +49,7 @@ public static class DependencyInjection
         var authorSessions = configuration.GetSection("Naudit:Ai:AuthorSessions").Get<AuthorSessionsOptions>() ?? new AuthorSessionsOptions();
         services.AddSingleton(authorSessions);
         services.AddSingleton<SessionHealthRegistry>();
+        services.AddSingleton<SessionSelectionFactory>();
 
         // Router-Naht: Autor-Sessions an ⇒ scoped Router (braucht ClaudeSessionService/DbContext),
         // sonst der globale Client — exakt heutiges Verhalten.

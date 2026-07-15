@@ -37,9 +37,12 @@ public class AuthorSessionRouterTests
 
     private static AuthorSessionRouter Router(ClaudeSessionService sessions, IAuthorLoginResolver resolver,
         SessionHealthRegistry health, IProcessRunner runner, Microsoft.Extensions.AI.IChatClient global,
-        AuthorSessionsOptions? options = null) =>
-        new(sessions, resolver, health, options ?? new AuthorSessionsOptions { Enabled = true },
-            new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, NullLoggerFactory.Instance);
+        AuthorSessionsOptions? options = null)
+    {
+        var selectionFactory = new SessionSelectionFactory(options ?? new AuthorSessionsOptions { Enabled = true },
+            new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, health, NullLoggerFactory.Instance);
+        return new(sessions, resolver, health, selectionFactory, NullLogger<AuthorSessionRouter>.Instance);
+    }
 
     [Fact]
     public async Task NoAuthorLogin_returnsGlobalClient()
@@ -140,5 +143,26 @@ public class AuthorSessionRouterTests
         Assert.Equal("GLOBAL", response.Text);
         Assert.Null(selection.UsedSessionAccountId());
         Assert.True(health.IsCoolingDown(accountId));
+    }
+
+    private sealed class ThrowingAuthorResolver : IAuthorLoginResolver
+    {
+        public Task<string?> ResolveAsync(ReviewRequest request, CancellationToken ct = default)
+            => throw new InvalidOperationException("Resolver-Backend nicht erreichbar");
+    }
+
+    [Fact]
+    public async Task ResolverThrows_returnsGlobalClient_failOpen()
+    {
+        using var db = new TestDb();
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider());
+        var global = new FakeChatClient("GLOBAL");
+        var router = Router(svc, new ThrowingAuthorResolver(), new SessionHealthRegistry(),
+            new StubProcessRunner(_ => throw new InvalidOperationException("kein CLI-Lauf erwartet")), global);
+
+        var selection = await router.SelectAsync(Request);
+
+        Assert.Same(global, selection.Client);
+        Assert.Null(selection.UsedSessionAccountId());
     }
 }
