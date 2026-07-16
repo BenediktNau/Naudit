@@ -1,0 +1,35 @@
+# VEX-Ausnahmen fuer das Release-Image-Gate (release.yml, `trivy image`).
+# YAML-Format, damit jede Ausnahme PFAD-GESCOPET ist (paths): ein flaches .trivyignore
+# wuerde global wirken und dieselbe CVE auch in anderen Binaries/Dependencies unbemerkt
+# durchlassen. Beide Ausnahmen betreffen ausschliesslich das mitgelieferte `trivy`-Binary.
+vulnerabilities:
+  # CVE-2026-50151 — oras.land/oras-go/v2 v2.6.0, transitive Dependency des `trivy`-Binaries.
+  # Blob-UPLOAD/Push-Pfad: oras-go leitet bei Registry-Redirects die Credentials an einen fremden
+  # Host weiter (gefixt in oras-go 2.6.1). Nicht ausnutzbar in Naudit: es wird nur `trivy fs`
+  # gerufen; trivy ZIEHT nur seine Vuln-DB (Pull) und laedt nie Blobs hoch (Push) — der verwundbare
+  # Pfad liegt ausserhalb des Ausfuehrungspfades (VEX: vulnerable_code_not_in_execute_path). Die
+  # eigene .NET-App nutzt oras-go gar nicht. ENTFERNEN, sobald ein Trivy-Release oras-go >= 2.6.1
+  # buendelt (v0.72.0 buendelt weiterhin 2.6.0). Siehe auch docs/sast-grounding.md.
+  - id: CVE-2026-50151
+    paths:
+      - "usr/local/bin/trivy"
+    statement: >-
+      oras-go Blob-Upload (Push) ausserhalb des Ausfuehrungspfades; Naudit nutzt nur `trivy fs`
+      (DB-Pull). Entfernen sobald ein Trivy-Release oras-go >= 2.6.1 buendelt.
+
+  # CVE-2026-39822 — Go-stdlib (os.Root Symlink-Following -> Directory-Traversal, HIGH),
+  # gefixt in Go 1.25.12 / 1.26.5. Steckt im `trivy`-Binary v0.72.0 (mit Go 1.26.4 gebaut).
+  # Nicht patchbar: v0.72.0 ist das neueste Trivy-Release und bringt keine Go >= 1.26.5-Toolchain
+  # mit. Das eigene betterleaks ist ueber den golang:1.25.12-Builder ECHT gefixt (kein Eintrag noetig).
+  # Naudit ruft nur `trivy fs` non-root im Container. ENTFERNEN sobald Trivy mit Go >= 1.26.5 gebaut
+  # ist; expired_at erzwingt spaetestens dann eine Re-Bewertung (Gate meldet die CVE danach wieder).
+  - id: CVE-2026-39822
+    paths:
+      - "usr/local/bin/trivy"
+    expired_at: 2026-12-31
+    statement: >-
+      Go-stdlib os.Root-Traversal im trivy-Binary v0.72.0 (Go 1.26.4). Entfernen sobald Trivy mit
+      Go >= 1.26.5 gebaut ist.
+
+# Hinweis: Die frueheren containerd-CRI-CVEs (CVE-2026-53488/53489/53492) sind entfallen —
+# trivy v0.72.0 buendelt containerd v2.3.2 (den Fix), das Gate meldet sie nicht mehr.
