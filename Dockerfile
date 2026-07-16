@@ -25,15 +25,17 @@ RUN npm run build
 
 # --- Betterleaks aus Quelle bauen ---
 # Das offizielle betterleaks-1.6.1-Release-Binary ist mit Go 1.25.10 gebaut und traegt zwei
-# Go-stdlib-DoS-CVEs (CVE-2026-27145 crypto/x509, CVE-2026-42504 net/textproto), fixed erst in
-# Go 1.25.11 -- ein neueres betterleaks-Release existiert (Stand 2026-07-01) noch nicht. Wir bauen
-# das versionsgepinnte Modul @v${BETTERLEAKS_VERSION} daher selbst mit Go 1.25.11 -> die stdlib-CVEs
-# sind damit ECHT behoben (kein Suppress/keine VEX-Gate-Ausnahme noetig).
-# GOTOOLCHAIN=local zwingt den Build auf das Image-Go 1.25.11 und ignoriert die
-# `toolchain go1.25.10`-Direktive in go.mod (sonst wuerde 1.25.10 nachgeladen = wieder verwundbar).
+# Go-stdlib-CVEs (CVE-2026-27145 crypto/x509 + CVE-2026-42504 net/textproto -> fixed in Go 1.25.11;
+# CVE-2026-39822 os.Root Symlink-Following/Directory-Traversal -> fixed in Go 1.25.12), ein neueres
+# betterleaks-Release existiert (Stand 2026-07-16) noch nicht. Wir bauen das versionsgepinnte Modul
+# @v${BETTERLEAKS_VERSION} daher selbst mit dem aktuellen Go-Patch -> die stdlib-CVEs sind damit ECHT
+# behoben (kein Suppress/keine VEX-Gate-Ausnahme noetig). Diesen Tag mit jeder neuen stdlib-CVE
+# nachziehen, solange betterleaks kein Release mit aktueller Toolchain herausgibt.
+# GOTOOLCHAIN=local zwingt den Build auf das Image-Go und ignoriert die (aeltere)
+# `toolchain`-Direktive in go.mod (sonst wuerde die alte Toolchain nachgeladen = wieder verwundbar).
 # Der golang-Builder landet NICHT im finalen Image; die Modul-Integritaet garantiert die
 # Go-Checksum-DB (go.sum / sum.golang.org).
-FROM golang:1.25.11 AS betterleaks-build
+FROM golang:1.25.12 AS betterleaks-build
 ARG BETTERLEAKS_VERSION=1.6.1
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath
 RUN go install "github.com/betterleaks/betterleaks@v${BETTERLEAKS_VERSION}"
