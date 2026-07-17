@@ -14,6 +14,7 @@ using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
 using Naudit.Infrastructure.Mcp;
+using Naudit.Infrastructure.Memory;
 using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
@@ -242,6 +243,13 @@ public static class DependencyInjection
         services.AddSingleton<IPromptRedactor>(redactionOptions.Enabled
             ? new PatternRedactor(redactionOptions)
             : new NullPromptRedactor());
+
+        // Projekt-Gedächtnis: FPs + Konventionen als Prompt-Guidance. Default AN;
+        // aus ⇒ NullReviewMemory (leere Liste) = exakt heutiges Verhalten.
+        if (reviewOptions.Memory.Enabled)
+            services.AddScoped<IReviewMemory, DbReviewMemory>();
+        else
+            services.AddSingleton<IReviewMemory, NullReviewMemory>();
 
         var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
         services.AddSingleton(uiOptions);
