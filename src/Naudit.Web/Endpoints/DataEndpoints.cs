@@ -16,7 +16,7 @@ public static class DataEndpoints
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Forbid();
 
-            var projects = await VisibleProjects(db, acct).Include(p => p.Reviews).ToListAsync(ctx.RequestAborted);
+            var projects = await CurrentAccount.VisibleProjects(db, acct).Include(p => p.Reviews).ToListAsync(ctx.RequestAborted);
             var reviews = projects.SelectMany(p => p.Reviews.Select(r => (Project: p, Review: r))).ToList();
 
             var today = DateTime.UtcNow.Date;
@@ -78,9 +78,16 @@ public static class DataEndpoints
 
             if (!acct.IsAdmin)
             {
-                var visible = await VisibleProjects(db, acct).AnyAsync(p => p.Id == review.ProjectId, ctx.RequestAborted);
+                var visible = await CurrentAccount.VisibleProjects(db, acct).AnyAsync(p => p.Id == review.ProjectId, ctx.RequestAborted);
                 if (!visible) return Results.Forbid();
             }
+
+            // Aktive FP-Markierungen zu diesen Findings — fürs UI-Toggle im Review-Detail.
+            var findingIds = review.Findings.Select(f => f.Id).ToList();
+            var fpIds = await db.MemoryEntries
+                .Where(m => m.Active && m.SourceFindingId != null && findingIds.Contains(m.SourceFindingId.Value))
+                .Select(m => m.SourceFindingId!.Value)
+                .ToListAsync(ctx.RequestAborted);
 
             return Results.Ok(new
             {
@@ -96,11 +103,13 @@ public static class DataEndpoints
                 createdAt = review.CreatedAt,
                 findings = review.Findings.Select(f => new
                 {
+                    id = f.Id,
                     severity = f.Severity,
                     confidence = f.Confidence,
                     file = f.File,
                     line = f.Line,
                     text = f.Text,
+                    falsePositive = fpIds.Contains(f.Id),
                 }),
             });
         });
@@ -110,7 +119,7 @@ public static class DataEndpoints
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Forbid();
 
-            var projects = await VisibleProjects(db, acct).Include(p => p.Reviews).ToListAsync(ctx.RequestAborted);
+            var projects = await CurrentAccount.VisibleProjects(db, acct).Include(p => p.Reviews).ToListAsync(ctx.RequestAborted);
             var reviews = projects.SelectMany(p => p.Reviews.Select(r => (Project: p, Review: r))).ToList();
 
             var now = DateTime.UtcNow;
@@ -138,14 +147,4 @@ public static class DataEndpoints
     }
 
     private static long Tokens(ReviewEntity r) => (r.InputTokens ?? 0) + (r.OutputTokens ?? 0);
-
-    /// <summary>Admin: alle Projekte. Sonst: Projekte, deren Owner-Anteil in den eigenen Links liegt.</summary>
-    private static IQueryable<ProjectEntity> VisibleProjects(NauditDbContext db, AccountEntity acct)
-    {
-        if (acct.IsAdmin) return db.Projects;
-        var logins = db.GitHubLinks.Where(l => l.AccountId == acct.Id).Select(l => l.Login);
-        // Owner = Teil vor '/'; GitLab-Ids matchen als Ganzes (Links sind lowercased gespeichert).
-        return db.Projects.Where(p =>
-            logins.Any(l => p.PlatformProjectId.ToLower() == l || EF.Functions.Like(p.PlatformProjectId.ToLower(), l + "/%")));
-    }
 }
