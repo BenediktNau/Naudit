@@ -370,6 +370,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     app.MapClaudeSessionEndpoints();
     app.MapAdminEndpoints();
     app.MapDataEndpoints();
+    app.MapMemoryEndpoints();
     app.MapSettingsEndpoints();
     app.MapSetupEndpoints(setup);
 

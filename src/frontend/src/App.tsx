@@ -6,8 +6,9 @@ import { DashboardPage } from "@/components/pages/DashboardPage";
 import { ApprovalsPage } from "@/components/pages/ApprovalsPage";
 import { SettingsPage } from "@/components/pages/SettingsPage";
 import { ProfilePage } from "@/components/pages/ProfilePage";
+import { MemoryPage } from "@/components/pages/MemoryPage";
 
-export type AppPage = "dashboard" | "approvals" | "settings" | "profile";
+export type AppPage = "dashboard" | "approvals" | "settings" | "profile" | "memory";
 
 function Shell() {
   const [page, setPage] = useState<AppPage>("dashboard");
@@ -18,6 +19,7 @@ function Shell() {
       {page === "approvals" && <ApprovalsPage />}
       {page === "settings" && <SettingsPage />}
       {page === "profile" && <ProfilePage />}
+      {page === "memory" && <MemoryPage />}
     </div>
   );
 }

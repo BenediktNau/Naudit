@@ -13,6 +13,7 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
     public DbSet<ReviewFindingEntity> ReviewFindings => Set<ReviewFindingEntity>();
     public DbSet<SettingEntity> Settings => Set<SettingEntity>();
     public DbSet<SetupDraftEntity> SetupDrafts => Set<SetupDraftEntity>();
+    public DbSet<MemoryEntryEntity> MemoryEntries => Set<MemoryEntryEntity>();
 
     /// <summary>Data-Protection-Keys (Session-Cookie-Signatur) — in der DB statt im Dateisystem,
     /// damit Sessions Container-Neustarts auf beiden Backends überleben.</summary>
@@ -49,6 +50,17 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
         b.Entity<ReviewFindingEntity>(e =>
             e.HasOne(x => x.Review).WithMany(r => r.Findings)
                 .HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Cascade));
+        b.Entity<MemoryEntryEntity>(e =>
+        {
+            e.HasIndex(x => new { x.ProjectId, x.Active });        // Selektion pro Projekt
+            // NULLs kollidieren nicht (SQLite wie Postgres) — Konventionen haben kein SourceFinding.
+            e.HasIndex(x => x.SourceFindingId).IsUnique();
+            e.HasOne(x => x.Project).WithMany()
+                .HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            // Finding gelöscht (Review-Kaskade) ⇒ Eintrag bleibt, nur der Anker wird null.
+            e.HasOne<ReviewFindingEntity>().WithMany()
+                .HasForeignKey(x => x.SourceFindingId).OnDelete(DeleteBehavior.SetNull);
+        });
         b.Entity<SettingEntity>(e => e.HasKey(x => x.Key));
         // Id wird von der App gesetzt (immer 1) — kein Autoincrement, hält die Migration provider-neutral.
         b.Entity<SetupDraftEntity>(e => e.Property(x => x.Id).ValueGeneratedNever());

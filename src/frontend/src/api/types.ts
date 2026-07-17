@@ -52,11 +52,13 @@ export interface DashboardDto {
 }
 
 export interface FindingDto {
+  id: number;
   severity: string;
   confidence: string;
   file: string | null;
   line: number | null;
   text: string;
+  falsePositive: boolean;
 }
 
 export interface ReviewDetailDto {
@@ -183,3 +185,16 @@ export interface ClaudeSessionTest {
   ok: boolean;
   error: string | null;
 }
+
+export type MemoryEntryDto = {
+  id: number;
+  kind: "FalsePositive" | "Convention";
+  file: string | null;
+  text: string;
+  reason: string | null;
+  createdBy: string;
+  createdAt: string;
+  active: boolean;
+  sourceFindingId: number | null;
+};
+export type ProjectMemoryDto = { entries: MemoryEntryDto[] };

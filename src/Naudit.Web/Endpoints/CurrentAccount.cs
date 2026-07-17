@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 using Naudit.Infrastructure.Data;
 
 namespace Naudit.Web.Endpoints;
@@ -25,4 +26,18 @@ public static class CurrentAccount
         var acct = await GetActiveAsync(ctx, db);
         return acct?.IsAdmin == true ? acct : null;
     }
+
+    /// <summary>Admin: alle Projekte. Sonst: Projekte, deren Owner-Anteil in den eigenen Links liegt.
+    /// (Aus DataEndpoints hierher gezogen — jetzt von Data- UND Memory-API genutzt.)</summary>
+    public static IQueryable<ProjectEntity> VisibleProjects(NauditDbContext db, AccountEntity acct)
+    {
+        if (acct.IsAdmin) return db.Projects;
+        var logins = db.GitHubLinks.Where(l => l.AccountId == acct.Id).Select(l => l.Login);
+        // Owner = Teil vor '/'; GitLab-Ids matchen als Ganzes (Links sind lowercased gespeichert).
+        return db.Projects.Where(p =>
+            logins.Any(l => p.PlatformProjectId.ToLower() == l || EF.Functions.Like(p.PlatformProjectId.ToLower(), l + "/%")));
+    }
+
+    public static Task<bool> CanSeeProjectAsync(NauditDbContext db, AccountEntity acct, int projectId, CancellationToken ct)
+        => VisibleProjects(db, acct).AnyAsync(p => p.Id == projectId, ct);
 }

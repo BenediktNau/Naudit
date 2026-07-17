@@ -1,4 +1,5 @@
 import { useReviewDetail, fmtTokens } from "@/hooks/queries";
+import { useMarkFalsePositive, useUnmarkFalsePositive } from "@/hooks/mutations";
 import { Logo } from "@/components/ui/Logo";
 import { Skeleton } from "@/components/ui/Skeleton";
 
@@ -13,6 +14,8 @@ const sevColor: Record<string, string> = {
 /** Detailbereich einer aufgeklappten Review-Zeile: Verdict-Meta, Summary, Findings. */
 export function ReviewDetail({ id }: { id: number }) {
   const { data, isLoading, isError } = useReviewDetail(id);
+  const mark = useMarkFalsePositive(id);
+  const unmark = useUnmarkFalsePositive(id);
   if (isLoading)
     return (
       // gleicher Container wie der geladene Zustand → die aufgeklappte Zeile behält ihre Höhe.
@@ -42,8 +45,8 @@ export function ReviewDetail({ id }: { id: number }) {
       <div className="mb-3.5 max-w-[75ch] text-[13px] leading-relaxed whitespace-pre-line text-ink">{data.summary}</div>
       {data.findings.length > 0 && (
         <div className="flex flex-col gap-2">
-          {data.findings.map((f, i) => (
-            <div key={i} className="flex items-start gap-2.5">
+          {data.findings.map((f) => (
+            <div key={f.id} className="flex items-start justify-between gap-2.5">
               <span className={`mt-px shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${sevColor[f.severity] ?? sevColor.Info}`}>
                 {f.severity.toLowerCase()}
               </span>
@@ -56,6 +59,22 @@ export function ReviewDetail({ id }: { id: number }) {
                 )}
                 {f.text}
               </div>
+              <button
+                className={`ml-auto shrink-0 self-start rounded px-1.5 py-0.5 font-mono text-[10px] disabled:opacity-50 ${
+                  f.falsePositive ? "bg-warn/12 text-warn" : "text-ink3 hover:text-warn"
+                }`}
+                title={
+                  f.falsePositive
+                    ? "Marked as false positive — click to undo"
+                    : "Mark as false positive (feeds the project memory)"
+                }
+                disabled={mark.isPending || unmark.isPending}
+                onClick={() =>
+                  f.falsePositive ? unmark.mutate(f.id) : mark.mutate({ findingId: f.id })
+                }
+              >
+                {f.falsePositive ? "FP ✓" : "FP"}
+              </button>
             </div>
           ))}
         </div>

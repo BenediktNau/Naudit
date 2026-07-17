@@ -17,7 +17,8 @@ public sealed class ReviewService(
     IContextCollector contextCollector,
     IReviewAuditSink auditSink,
     IReviewToolProvider toolProvider,
-    IReviewRoundtripCounter roundtripCounter)
+    IReviewRoundtripCounter roundtripCounter,
+    IReviewMemory reviewMemory)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -43,6 +44,10 @@ public sealed class ReviewService(
         // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext (je leer, wenn Feature aus).
         var (findings, context) = await GatherGroundingAsync(request, changes, ct);
 
+        // Projekt-Gedächtnis: Auswahl braucht kein Repo (unabhängig vom Checkout);
+        // Fail-open lebt in der Implementierung — hier kommt schlimmstenfalls eine leere Liste an.
+        var memory = await reviewMemory.SelectAsync(request.ProjectId, changes, ct);
+
         // Redaction: Secrets/IPs/E-Mails maskieren, BEVOR irgendetwas das LLM erreicht.
         // No-Op-Redactor (Feature aus) ⇒ identischer Prompt wie früher.
         var redChanges = new List<CodeChange>(changes.Count);
@@ -56,11 +61,19 @@ public sealed class ReviewService(
         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
         var redContext = await RedactContextAsync(context, ct);
 
+        var redMemory = new List<MemoryEntry>(memory.Count);
+        foreach (var m in memory)
+            redMemory.Add(m with
+            {
+                Text = await redactor.RedactAsync(m.Text, ct),
+                Reason = m.Reason is null ? null : await redactor.RedactAsync(m.Reason, ct),
+            });
+
         // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
         // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
         var tools = await toolProvider.GetToolsAsync(request, ct);
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
-            toolsAvailable: tools.Count > 0);
+            redMemory, toolsAvailable: tools.Count > 0);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         if (tools.Count > 0)

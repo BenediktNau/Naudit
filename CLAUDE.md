@@ -245,6 +245,17 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   undecryptable-token accounts, empty pool ⇒ global — sequential, not parallel; it is deliberate
   account-sharing under Anthropic's consumer terms, gated behind per-user consent. See
   `docs/author-sessions.md`.
+- **Review memory:** `IReviewMemory` (Core `Abstractions`) selects per-project maintainer
+  guidance for a review; the default `DbReviewMemory`
+  (`src/Naudit.Infrastructure/Memory/`) deterministically picks active conventions + false
+  positives matching a changed file (or file-less), capped at `MaxEntries`, fail-open on any
+  error; `NullReviewMemory` is the no-op swapped in via `Naudit:Review:Memory:Enabled=false`.
+  Selected entries are redacted like the diff and rendered by `PromptBuilder` as the
+  **last** prompt section ("Project memory (maintainer guidance)") — closest to the
+  response, highest instruction weight; no post-LLM filtering, the verdict stays derived
+  from the gate. WebUI: an FP/FP-✓ toggle per finding in the review detail
+  (`POST`/`DELETE /api/findings/{id}/false-positive`) and a "Memory" nav page per project
+  (list, create conventions, activate/deactivate). See `docs/review-memory.md`.
 
 ### CI/CD & container
 
