@@ -26,12 +26,15 @@ public static class PromptBuilder
         "If a finding does not map to one specific changed line, still include it in \"comments\" with its \"severity\" and \"confidence\" but omit \"line\" (or set it to null) - do NOT invent a line number. " +
         "Use \"summary\" only for the one-line overview, never to carry findings. " +
         "A read-only \"Repository context\" section may follow the diff (surrounding code, usages, repository overview) - " +
-        "use it to understand what the change does and how it fits, but report findings ONLY on the diff lines shown with line numbers.";
+        "use it to understand what the change does and how it fits, but report findings ONLY on the diff lines shown with line numbers. " +
+        "A read-only \"Project memory\" section may follow - it contains maintainer decisions: " +
+        "do NOT report findings matching a known false positive again, and treat the listed conventions " +
+        "as authoritative project rules, not as issues to flag.";
 
     public static IList<ChatMessage> Build(
         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
         IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
-        bool toolsAvailable = false)
+        IReadOnlyList<MemoryEntry>? memory = null, bool toolsAvailable = false)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# Merge Request: {request.Title}");
@@ -47,6 +50,7 @@ public static class PromptBuilder
         AppendContext(sb, context);
         AppendFindings(sb, findings ?? []);
         AppendToolGuidance(sb, toolsAvailable);
+        AppendMemory(sb, memory);
 
         return new List<ChatMessage>
         {
@@ -184,6 +188,37 @@ public static class PromptBuilder
         sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
             "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
             "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
+    }
+
+    // Maintainer-Guidance als LETZTE Sektion (am nächsten an der Antwort = höchstes Gewicht).
+    // Leeres Gedächtnis rendert nichts — der Prompt bleibt byte-identisch zu heute.
+    private static void AppendMemory(StringBuilder sb, IReadOnlyList<MemoryEntry>? memory)
+    {
+        if (memory is null || memory.Count == 0)
+            return;
+
+        sb.AppendLine();
+        sb.AppendLine("# Project memory (maintainer guidance)");
+
+        AppendMemoryGroup(sb, "## Known false positives — do NOT report these or equivalent findings again",
+            memory.Where(m => m.Kind == MemoryKind.FalsePositive));
+        AppendMemoryGroup(sb, "## Project conventions — respect these when judging the diff",
+            memory.Where(m => m.Kind == MemoryKind.Convention));
+    }
+
+    private static void AppendMemoryGroup(StringBuilder sb, string heading, IEnumerable<MemoryEntry> entries)
+    {
+        var list = entries.ToList();
+        if (list.Count == 0)
+            return;
+        sb.AppendLine();
+        sb.AppendLine(heading);
+        foreach (var m in list)
+        {
+            var scope = string.IsNullOrEmpty(m.File) ? "" : $"{m.File}: ";
+            var note = string.IsNullOrEmpty(m.Reason) ? "" : $" (maintainer note: {m.Reason})";
+            sb.AppendLine($"- {scope}{m.Text}{note}");
+        }
     }
 
     private static void AppendCategory(StringBuilder sb, string heading, IEnumerable<ScanFinding> items)

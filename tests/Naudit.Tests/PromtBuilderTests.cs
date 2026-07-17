@@ -232,4 +232,46 @@ public class PromptBuilderTests
         Assert.Contains("Tools available", msgs[1].Text);
         Assert.Contains("documentation", msgs[1].Text);
     }
+
+    [Fact]
+    public void Build_withMemory_rendersFalsePositivesAndConventions()
+    {
+        var request = new ReviewRequest("1", 1, "T");
+        var changes = new List<CodeChange> { new("a.cs", "@@ -0,0 +1,1 @@\n+x") };
+        var memory = new List<MemoryEntry>
+        {
+            new(MemoryKind.FalsePositive, "src/Foo/Bar.cs", "Angeblich ungeschlossenes <li>", "Redactor-Artefakt"),
+            new(MemoryKind.FalsePositive, null, "Tailwind-4-Syntax ist kein Fehler", null),
+            new(MemoryKind.Convention, null, "Wir nutzen bewusst deutsche Code-Kommentare", null),
+        };
+
+        var messages = PromptBuilder.Build("SYS", request, changes, memory: memory);
+        var user = messages[1].Text;
+
+        Assert.Contains("# Project memory (maintainer guidance)", user);
+        Assert.Contains("## Known false positives — do NOT report these or equivalent findings again", user);
+        Assert.Contains("- src/Foo/Bar.cs: Angeblich ungeschlossenes <li> (maintainer note: Redactor-Artefakt)", user);
+        Assert.Contains("- Tailwind-4-Syntax ist kein Fehler", user);
+        Assert.Contains("## Project conventions — respect these when judging the diff", user);
+        Assert.Contains("- Wir nutzen bewusst deutsche Code-Kommentare", user);
+        // Gedächtnis ist die LETZTE Sektion (näher an der Antwort = höheres Gewicht).
+        Assert.True(user.IndexOf("# Project memory", StringComparison.Ordinal)
+            > user.IndexOf("# Static-analysis", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_withEmptyMemory_isByteIdenticalToNoMemory()
+    {
+        var request = new ReviewRequest("1", 1, "T");
+        var changes = new List<CodeChange> { new("a.cs", "@@ -0,0 +1,1 @@\n+x") };
+
+        var without = PromptBuilder.Build("SYS", request, changes)[1].Text;
+        var withEmpty = PromptBuilder.Build("SYS", request, changes, memory: [])[1].Text;
+
+        Assert.Equal(without, withEmpty);
+    }
+
+    [Fact]
+    public void DefaultSystemPrompt_mentionsProjectMemory()
+        => Assert.Contains("Project memory", PromptBuilder.DefaultSystemPrompt);
 }
