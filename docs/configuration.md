@@ -116,6 +116,8 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Review:Mcp:Enabled` | Let the review LLM call MCP tools (Context7 live docs) — **default `false`**, byte-identical single-shot when off (see [MCP tools](mcp-tools.md)) |
 | `Naudit:Review:Mcp:MaxIterations` | Tool round-trip cap per review, both provider paths (default `4`) |
 | `Naudit:Review:Mcp:Servers:<n>:Name` / `:Transport` / `:Url` / `:Command` / `:Arguments` / `:ApiKey` | Configured MCP servers — list-shaped like `ProjectTokens`, env/appsettings-configurable; the per-server `ApiKey` is a **secret** and must not go in `appsettings.json` (user-secrets/env/secret-manager only, see [MCP tools](mcp-tools.md)) |
+| `Naudit:Review:Memory:Enabled` | Inject per-project maintainer guidance (false positives + conventions) as a read-only prompt section — **default `true`** (see [Review memory](review-memory.md)) |
+| `Naudit:Review:Memory:MaxEntries` | Cap on memory entries injected per review — conventions first, then false positives, newest-first (default `50`) |
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |
