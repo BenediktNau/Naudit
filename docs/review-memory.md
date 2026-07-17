@@ -29,9 +29,9 @@ who curated what and when.
 ## How entries reach the prompt
 
 `ReviewService` calls `IReviewMemory.SelectAsync(projectId, changes)` right
-after fetching the diff (memory selection needs no repo checkout, so it runs
-even when SAST/context are off). Selection is deterministic — no embeddings,
-no ranking model:
+after fetching the diff and running any SAST/context grounding (memory
+selection itself needs no repo checkout, so it still runs when SAST/context
+are disabled). Selection is deterministic — no embeddings, no ranking model:
 
 - the project is looked up by its platform project id; an unknown project
   (nothing reviewed yet) selects nothing;
