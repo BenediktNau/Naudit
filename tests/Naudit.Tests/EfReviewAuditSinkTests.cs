@@ -70,4 +70,20 @@ public class EfReviewAuditSinkTests
 
         Assert.Equal(acct.Id, db.Context.Reviews.Single().AiSessionAccountId);
     }
+
+    [Fact]
+    public async Task RecordAsync_persistsPlatformCommentAndNoteIds()
+    {
+        using var test = new TestDb();
+        var sink = new EfReviewAuditSink(test.Context, NullLogger<EfReviewAuditSink>.Instance);
+        var audit = new ReviewAudit("owner/repo", 1, "T", ReviewVerdict.Approve, "S",
+            [new AuditFinding(FindingSeverity.High, ReviewConfidence.High, "a.cs", 1, "f", "gh-1", "gl-9")],
+            null, null, null);
+
+        await sink.RecordAsync(audit);
+
+        var f = await test.Context.ReviewFindings.SingleAsync();
+        Assert.Equal("gh-1", f.PlatformCommentId);
+        Assert.Equal("gl-9", f.PlatformNoteId);
+    }
 }

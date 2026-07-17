@@ -35,7 +35,7 @@ public sealed class GitHubPlatform(
             .ToList();
     }
 
-    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
+    public async Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
         // Ein Review-Call trägt Summary (body) UND alle Inline-Kommentare.
         // Echtes Verdikt nur opt-in (PostVerdict) — Default bleibt COMMENT (kein Review-Status;
@@ -54,9 +54,12 @@ public sealed class GitHubPlatform(
                 @event, request.ProjectId, request.MergeRequestIid);
             using var fallback = await PostReviewOnceAsync(url, request, summaryMarkdown, comments, "COMMENT", ct);
             fallback.EnsureSuccessStatusCode();
-            return;
+            // TODO (Task 4): Comment-Ids aus der Fallback-Response erfassen statt null zurückzugeben.
+            return comments.Select(_ => new PostedComment(null, null)).ToList();
         }
         response.EnsureSuccessStatusCode();
+        // TODO (Task 4): Review-Comment-Ids aus der Response erfassen statt null zurückzugeben.
+        return comments.Select(_ => new PostedComment(null, null)).ToList();
     }
 
     private Task<HttpResponseMessage> PostReviewOnceAsync(

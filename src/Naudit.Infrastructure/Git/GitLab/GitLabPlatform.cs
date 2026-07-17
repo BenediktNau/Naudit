@@ -25,7 +25,7 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
             .ToList();
     }
 
-    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
+    public async Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
         var basePath = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}";
 
@@ -84,6 +84,9 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
                     resp.EnsureSuccessStatusCode();
             }
         }
+
+        // TODO (Task 3): Discussion-/Note-Ids aus den Discussion-Responses erfassen statt null zurückzugeben.
+        return comments.Select(_ => new PostedComment(null, null)).ToList();
     }
 
     private async Task<bool> HasAlreadyApprovedAsync(string basePath, string projectId, CancellationToken ct)

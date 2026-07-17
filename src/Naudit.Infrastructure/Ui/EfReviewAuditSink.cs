@@ -59,6 +59,8 @@ public sealed class EfReviewAuditSink(NauditDbContext db, ILogger<EfReviewAuditS
                 File = f.File,
                 Line = f.Line,
                 Text = f.Text,
+                PlatformCommentId = f.PlatformCommentId,
+                PlatformNoteId = f.PlatformNoteId,
             });
         db.Reviews.Add(review);
 
