@@ -54,3 +54,29 @@ export function useUnmarkFalsePositive(reviewId: number) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["review", reviewId] }),
   });
 }
+
+/** Neue Konvention am Projekt-Gedächtnis anlegen. */
+export function useCreateConvention(projectId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { text: string; file?: string }) =>
+      api<{ id: number }>(`/api/projects/${projectId}/memory`, {
+        method: "POST",
+        body: JSON.stringify({ text: vars.text, file: vars.file ?? null }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["memory", projectId] }),
+  });
+}
+
+/** Gedächtnis-Eintrag aktivieren/deaktivieren (Soft-Toggle, bleibt fürs Audit erhalten). */
+export function useToggleMemoryEntry(projectId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: number; active: boolean }) =>
+      api<{ id: number; active: boolean }>(`/api/memory/${vars.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ active: vars.active }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["memory", projectId] }),
+  });
+}

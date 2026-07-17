@@ -6,6 +6,7 @@ import type {
   ClaudeSessionTest,
   DashboardDto,
   GitHubAppDto,
+  ProjectMemoryDto,
   ReviewDetailDto,
   SettingsDto,
   UsageDto,
@@ -92,6 +93,15 @@ export function useDeleteClaudeSession() {
 export function useTestClaudeSession() {
   return useMutation({
     mutationFn: () => api<ClaudeSessionTest>("/api/me/claude-session/test", { method: "POST" }),
+  });
+}
+
+/** Gedächtnis-Einträge (FP-Markierungen + Konventionen) eines Projekts. */
+export function useProjectMemory(projectId: number | null) {
+  return useQuery({
+    queryKey: ["memory", projectId],
+    queryFn: () => api<ProjectMemoryDto>(`/api/projects/${projectId}/memory`),
+    enabled: projectId !== null,
   });
 }
 
