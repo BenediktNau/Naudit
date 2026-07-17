@@ -118,4 +118,46 @@ public class MemoryEndpointTests : IClassFixture<TestAppFactory>
         var resp = await anon.PostAsJsonAsync("/api/findings/1/false-positive", new { });
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
+
+    [Fact]
+    public async Task Conventions_createListToggle_roundtrip()
+    {
+        var (client, factory) = await AdminApp();
+        var (projectId, _, _) = await Seed(factory, "owner/conv-repo");
+
+        var create = await client.PostAsJsonAsync($"/api/projects/{projectId}/memory",
+            new { text = "Wir nutzen bewusst Tailwind 4", file = (string?)null });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        var created = await create.Content.ReadFromJsonAsync<JsonElement>();
+        var entryId = created.GetProperty("id").GetInt32();
+
+        var list = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/memory");
+        var entries = list.GetProperty("entries");
+        Assert.Equal(1, entries.GetArrayLength());
+        Assert.Equal("Convention", entries[0].GetProperty("kind").GetString());
+        Assert.Equal("Wir nutzen bewusst Tailwind 4", entries[0].GetProperty("text").GetString());
+        Assert.True(entries[0].GetProperty("active").GetBoolean());
+
+        var toggle = await client.PutAsJsonAsync($"/api/memory/{entryId}", new { active = false });
+        Assert.Equal(HttpStatusCode.OK, toggle.StatusCode);
+        list = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/memory");
+        Assert.False(list.GetProperty("entries")[0].GetProperty("active").GetBoolean()); // inaktiv bleibt gelistet
+    }
+
+    [Fact]
+    public async Task CreateConvention_emptyText_returns400()
+    {
+        var (client, factory) = await AdminApp();
+        var (projectId, _, _) = await Seed(factory, "owner/conv-repo2");
+        var resp = await client.PostAsJsonAsync($"/api/projects/{projectId}/memory", new { text = "  " });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task MemoryList_unknownProject_returns404()
+    {
+        var (client, _) = await AdminApp();
+        var resp = await client.GetAsync("/api/projects/99999/memory");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
 }
