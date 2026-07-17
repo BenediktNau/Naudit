@@ -228,4 +228,46 @@ public class MemoryEndpointTests : IClassFixture<TestAppFactory>
         var resp = await outsider.PutAsJsonAsync($"/api/memory/{entryId}", new { active = false });
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
+
+    // CR3: DELETE prüft jetzt Finding-Autorisierung ZUERST (wie POST) — ein Nicht-Owner darf
+    // nicht mehr über 403-vs-204 die Existenz eines FP-Eintrags in fremdem Projekt erschließen.
+    [Fact]
+    public async Task UnmarkFalsePositive_nonOwner_returns403_evenWithoutEntry()
+    {
+        var (_, factory) = await AdminApp();
+        var (_, _, findingId) = await Seed(factory);          // Finding existiert, aber KEIN FP-Eintrag
+
+        var outsider = await OutsiderClient(factory);
+        var resp = await outsider.DeleteAsync($"/api/findings/{findingId}/false-positive");
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);   // vorher: 204 (Leak)
+    }
+
+    [Fact]
+    public async Task UnmarkFalsePositive_unknownFinding_returns404()
+    {
+        var (client, _) = await AdminApp();
+        var resp = await client.DeleteAsync("/api/findings/99999/false-positive");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    // Naudit #3: Freitext-Deckel — riesige Einträge würden JEDES Folge-Review-Prompt aufblähen.
+    [Fact]
+    public async Task CreateConvention_tooLongText_returns400()
+    {
+        var (client, factory) = await AdminApp();
+        var (projectId, _, _) = await Seed(factory);
+        var huge = new string('x', 4001);
+        var resp = await client.PostAsJsonAsync($"/api/projects/{projectId}/memory", new { text = huge });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task MarkFalsePositive_tooLongReason_returns400()
+    {
+        var (client, factory) = await AdminApp();
+        var (_, _, findingId) = await Seed(factory);
+        var huge = new string('x', 4001);
+        var resp = await client.PostAsJsonAsync($"/api/findings/{findingId}/false-positive", new { reason = huge });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
 }

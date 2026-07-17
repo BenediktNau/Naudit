@@ -11,6 +11,12 @@ public static class MemoryEndpoints
     private sealed record ConventionBody(string? Text, string? File);
     private sealed record ToggleBody(bool Active);
 
+    /// <summary>Deckel für nutzergeschriebene Freitext-Felder (Reason/Text). Diese Einträge werden in
+    /// den Prompt JEDES künftigen Reviews gespiegelt — ein sehr großer Eintrag bläht dauerhaft
+    /// Token/Latenz. Datei-Scope ist kürzer gedeckelt.</summary>
+    private const int MaxFreeTextLength = 4000;
+    private const int MaxFileLength = 500;
+
     public static void MapMemoryEndpoints(this WebApplication app)
     {
         var api = app.MapGroup("/api").RequireAuthorization();
@@ -19,6 +25,8 @@ public static class MemoryEndpoints
         {
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Forbid();
+            if (body?.Reason is { Length: > MaxFreeTextLength })
+                return Results.BadRequest(new { error = $"reason must not exceed {MaxFreeTextLength} characters" });
 
             var finding = await db.ReviewFindings.Include(f => f.Review)
                 .SingleOrDefaultAsync(f => f.Id == id, ctx.RequestAborted);
@@ -46,21 +54,44 @@ public static class MemoryEndpoints
             entry.Active = true;
             if (!string.IsNullOrWhiteSpace(body?.Reason))
                 entry.Reason = body!.Reason!.Trim();
-            await db.SaveChangesAsync(ctx.RequestAborted);
+
+            try
+            {
+                await db.SaveChangesAsync(ctx.RequestAborted);
+            }
+            catch (DbUpdateException) when (entry.Id == 0)
+            {
+                // Race mit parallelem POST (Doppelklick): beide sahen entry==null, der andere legte
+                // zuerst an — der Unique-Index auf SourceFindingId lässt unser Insert scheitern.
+                // Idempotent behandeln: fehlgeschlagenen Insert verwerfen, den nun existierenden
+                // Eintrag laden und die eigene Reaktivierung/Reason anwenden (statt 500).
+                db.ChangeTracker.Clear();
+                entry = await db.MemoryEntries.SingleAsync(m => m.SourceFindingId == id, ctx.RequestAborted);
+                entry.Active = true;
+                if (!string.IsNullOrWhiteSpace(body?.Reason))
+                    entry.Reason = body!.Reason!.Trim();
+                await db.SaveChangesAsync(ctx.RequestAborted);
+            }
             return Results.Ok(new { id = entry.Id, active = entry.Active });
         });
 
-        // Undo (Fehlklick): deaktivieren statt löschen — idempotent, kein Eintrag ⇒ trotzdem 204.
+        // Undo (Fehlklick): deaktivieren statt löschen. Autorisierung wie bei POST am FINDING
+        // (nicht erst am Eintrag): sonst verriete 403-vs-204 die Existenz eines FP-Eintrags in
+        // einem fremden Projekt. Bekanntes Finding + sichtbar ⇒ 204 auch ohne Eintrag (idempotent).
         api.MapDelete("/findings/{id:int}/false-positive", async (HttpContext ctx, NauditDbContext db, int id) =>
         {
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Forbid();
 
+            var finding = await db.ReviewFindings.Include(f => f.Review)
+                .SingleOrDefaultAsync(f => f.Id == id, ctx.RequestAborted);
+            if (finding is null) return Results.NotFound();
+            if (!await CurrentAccount.CanSeeProjectAsync(db, acct, finding.Review.ProjectId, ctx.RequestAborted))
+                return Results.Forbid();
+
             var entry = await db.MemoryEntries.SingleOrDefaultAsync(m => m.SourceFindingId == id, ctx.RequestAborted);
             if (entry is not null)
             {
-                if (!await CurrentAccount.CanSeeProjectAsync(db, acct, entry.ProjectId, ctx.RequestAborted))
-                    return Results.Forbid();
                 entry.Active = false;
                 await db.SaveChangesAsync(ctx.RequestAborted);
             }
@@ -93,6 +124,10 @@ public static class MemoryEndpoints
             if (acct is null) return Results.Forbid();
             if (string.IsNullOrWhiteSpace(body.Text))
                 return Results.BadRequest(new { error = "text must not be empty" });
+            if (body.Text.Length > MaxFreeTextLength)
+                return Results.BadRequest(new { error = $"text must not exceed {MaxFreeTextLength} characters" });
+            if (body.File is { Length: > MaxFileLength })
+                return Results.BadRequest(new { error = $"file must not exceed {MaxFileLength} characters" });
             if (!await db.Projects.AnyAsync(p => p.Id == id, ctx.RequestAborted)) return Results.NotFound();
             if (!await CurrentAccount.CanSeeProjectAsync(db, acct, id, ctx.RequestAborted)) return Results.Forbid();
 

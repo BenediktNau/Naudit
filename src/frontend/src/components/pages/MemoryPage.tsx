@@ -24,6 +24,8 @@ export function MemoryPage() {
     return <div className="p-7 font-mono text-[13px] text-ink3">No reviewed projects yet — memory entries attach to projects.</div>;
 
   const submit = () => {
+    // Enter umgeht den disabled-Button — hier erneut gegen Doppel-Submit sichern.
+    if (create.isPending) return;
     const t = text.trim();
     if (!t) return;
     create.mutate({ text: t, file: file.trim() || undefined }, { onSuccess: () => { setText(""); setFile(""); } });
