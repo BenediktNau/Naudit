@@ -52,11 +52,13 @@ export interface DashboardDto {
 }
 
 export interface FindingDto {
+  id: number;
   severity: string;
   confidence: string;
   file: string | null;
   line: number | null;
   text: string;
+  falsePositive: boolean;
 }
 
 export interface ReviewDetailDto {
