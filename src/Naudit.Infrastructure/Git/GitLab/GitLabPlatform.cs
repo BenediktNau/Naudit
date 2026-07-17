@@ -72,9 +72,10 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
                 {
                     disc = await discResp.Content.ReadFromJsonAsync<GitLabDiscussionResponse>(ct);
                 }
-                catch (System.Text.Json.JsonException)
+                catch (Exception) when (!ct.IsCancellationRequested)
                 {
-                    // leerer/unerwarteter Body (z. B. in Tests oder bei einer älteren GitLab-Version).
+                    // leerer/unerwarteter/nicht-JSON Body (z. B. in Tests oder bei einer älteren GitLab-Version) —
+                    // best-effort wie auf GitHub: die Id-Erfassung darf den bereits geposteten Review nie kippen.
                 }
                 posted.Add(new PostedComment(disc?.Id, disc?.Notes is { Count: > 0 } notes ? notes[0].Id.ToString() : null));
             }

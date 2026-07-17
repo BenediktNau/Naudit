@@ -179,7 +179,10 @@ comment(s).
   returned comment by (`path`, `line`) to read its id. Any failure in that
   follow-up call (network error, unexpected shape) is caught and yields
   `null` ids for every comment of that review — the review itself is already
-  posted and stays posted either way.
+  posted and stays posted either way. That read-back is a single
+  `per_page=100` page (the same POC cap as elsewhere), so on a review with
+  more than 100 inline comments the overflow comments get `null` ids;
+  consumers must treat a `null` id as "unmapped", never as an error.
 
 This mapping (PR 2a) is a small, self-contained change with no consumer yet
 — it is the anchor two follow-on features build on: PR 2b, the `@naudit fp`

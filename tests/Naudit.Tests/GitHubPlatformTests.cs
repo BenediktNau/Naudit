@@ -283,4 +283,26 @@ public class GitHubPlatformTests
         Assert.Empty(posted);
         Assert.Single(capture.Calls); // nur der POST, kein GET
     }
+
+    [Fact]
+    public async Task PostReviewAsync_noMatchingReviewComment_returnsNullId_notThrow()
+    {
+        // Best-effort: liefert GitHub für einen Inline-Kommentar keinen passenden (Pfad, Zeile)-Treffer,
+        // kommt eine null-Id zurück (kein Fehler) — der Review ist bereits gepostet.
+        var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""[ { "id": 77, "path": "andere.cs", "line": 9 } ]""", Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+            });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "sum",
+            [new InlineComment("a.cs", 1, null, "finding")], ReviewVerdict.Approve);
+
+        Assert.Null(Assert.Single(posted).CommentId);   // kein Match ⇒ null, keine Exception
+    }
 }
