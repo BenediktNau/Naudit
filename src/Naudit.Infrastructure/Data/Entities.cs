@@ -101,3 +101,20 @@ public sealed class SetupDraftEntity
     public required string Json { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }
+
+/// <summary>Projekt-Gedächtnis: als False Positive markierter Fund oder Projekt-Konvention.
+/// Deaktivieren statt löschen — der Audit-Trail (wer, wann, warum) bleibt erhalten.</summary>
+public sealed class MemoryEntryEntity
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+    public ProjectEntity Project { get; set; } = null!;
+    public required string Kind { get; set; }          // "FalsePositive" | "Convention" (String wie Severity/Verdict)
+    public string? File { get; set; }                  // null: Konvention oder datei-loser FP
+    public required string Text { get; set; }
+    public string? Reason { get; set; }
+    public int? SourceFindingId { get; set; }          // Idempotenz-Anker (unique unter nicht-null)
+    public required string CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public bool Active { get; set; }
+}
