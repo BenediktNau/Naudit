@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Ui;
 using Naudit.Tests.Fakes;
 using Xunit;
 
@@ -51,6 +52,20 @@ public class MemoryEndpointTests : IClassFixture<TestAppFactory>
         db.Reviews.Add(r);
         await db.SaveChangesAsync();
         return (p.Id, r.Id, f.Id);
+    }
+
+    /// <summary>Nicht-Admin-Account mit GitHub-Link, der NICHT zum Owner des geseedeten Projekts
+    /// ("owner/repo") passt — für die Fail-Closed-Regressionstests der Owner-Scoping-Branch.</summary>
+    private static async Task<HttpClient> OutsiderClient(WebApplicationFactory<Program> factory)
+    {
+        using (var scope = factory.Services.CreateScope())
+        {
+            var svc = scope.ServiceProvider.GetRequiredService<AccountService>();
+            await svc.CreateLocalAsync("outsider", "passwort123", isAdmin: false, ["outsider"]);
+        }
+        var outsider = factory.CreateDefaultClient(new CookieContainerHandler());
+        await outsider.PostAsJsonAsync("/auth/login", new { username = "outsider", password = "passwort123" });
+        return outsider;
     }
 
     [Fact]
@@ -159,5 +174,58 @@ public class MemoryEndpointTests : IClassFixture<TestAppFactory>
         var (client, _) = await AdminApp();
         var resp = await client.GetAsync("/api/projects/99999/memory");
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    // --- Owner-Scoping-Regression: alle vier Memory-Routen müssen für einen aktiven,
+    // nicht-admin Account ohne passenden GitHub-Link fail-closed 403 liefern
+    // (CurrentAccount.CanSeeProjectAsync) — bislang nur mit dem Admin-Client getestet,
+    // dessen IsAdmin-Shortcut diesen Branch nie erreicht. ---
+
+    [Fact]
+    public async Task MarkFalsePositive_nonOwner_returns403()
+    {
+        var (_, factory) = await AdminApp();
+        var (_, _, findingId) = await Seed(factory);
+        var outsider = await OutsiderClient(factory);
+
+        var resp = await outsider.PostAsJsonAsync($"/api/findings/{findingId}/false-positive", new { reason = "x" });
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateConvention_nonOwner_returns403()
+    {
+        var (_, factory) = await AdminApp();
+        var (projectId, _, _) = await Seed(factory);
+        var outsider = await OutsiderClient(factory);
+
+        var resp = await outsider.PostAsJsonAsync($"/api/projects/{projectId}/memory",
+            new { text = "Sollte nicht ankommen", file = (string?)null });
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task MemoryList_nonOwner_returns403()
+    {
+        var (_, factory) = await AdminApp();
+        var (projectId, _, _) = await Seed(factory);
+        var outsider = await OutsiderClient(factory);
+
+        var resp = await outsider.GetAsync($"/api/projects/{projectId}/memory");
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task ToggleMemory_nonOwner_returns403()
+    {
+        var (client, factory) = await AdminApp();
+        var (projectId, _, _) = await Seed(factory);
+        var create = await client.PostAsJsonAsync($"/api/projects/{projectId}/memory",
+            new { text = "Konvention", file = (string?)null });
+        var entryId = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        var outsider = await OutsiderClient(factory);
+        var resp = await outsider.PutAsJsonAsync($"/api/memory/{entryId}", new { active = false });
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
 }

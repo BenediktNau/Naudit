@@ -60,7 +60,7 @@ export function ReviewDetail({ id }: { id: number }) {
                 {f.text}
               </div>
               <button
-                className={`ml-auto shrink-0 self-start rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                className={`ml-auto shrink-0 self-start rounded px-1.5 py-0.5 font-mono text-[10px] disabled:opacity-50 ${
                   f.falsePositive ? "bg-warn/12 text-warn" : "text-ink3 hover:text-warn"
                 }`}
                 title={
@@ -68,6 +68,7 @@ export function ReviewDetail({ id }: { id: number }) {
                     ? "Marked as false positive — click to undo"
                     : "Mark as false positive (feeds the project memory)"
                 }
+                disabled={mark.isPending || unmark.isPending}
                 onClick={() =>
                   f.falsePositive ? unmark.mutate(f.id) : mark.mutate({ findingId: f.id })
                 }

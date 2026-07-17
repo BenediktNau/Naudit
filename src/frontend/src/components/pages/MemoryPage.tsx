@@ -90,8 +90,9 @@ export function MemoryPage() {
                 </span>
               </div>
               <button
-                className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink"
+                className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink disabled:opacity-50"
                 title={m.active ? "Deactivate (kept for audit)" : "Reactivate"}
+                disabled={toggle.isPending}
                 onClick={() => toggle.mutate({ id: m.id, active: !m.active })}
               >
                 {m.active ? "deactivate" : "activate"}

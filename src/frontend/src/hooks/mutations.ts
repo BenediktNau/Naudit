@@ -42,7 +42,10 @@ export function useMarkFalsePositive(reviewId: number) {
         method: "POST",
         body: JSON.stringify({ reason: reason ?? null }),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["review", reviewId] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["review", reviewId] });
+      void qc.invalidateQueries({ queryKey: ["memory"] }); // Prefix-Match: alle Projekt-Gedächtnisse
+    },
   });
 }
 
@@ -51,7 +54,10 @@ export function useUnmarkFalsePositive(reviewId: number) {
   return useMutation({
     mutationFn: (findingId: number) =>
       api<void>(`/api/findings/${findingId}/false-positive`, { method: "DELETE" }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["review", reviewId] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["review", reviewId] });
+      void qc.invalidateQueries({ queryKey: ["memory"] }); // Prefix-Match: alle Projekt-Gedächtnisse
+    },
   });
 }
 
