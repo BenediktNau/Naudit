@@ -21,7 +21,8 @@ public class ReviewServiceTests
         IReviewAuditSink? auditSink = null,
         IAiClientRouter? router = null,
         IReviewToolProvider? toolProvider = null,
-        IReviewRoundtripCounter? roundtrips = null)
+        IReviewRoundtripCounter? roundtrips = null,
+        IReviewMemory? memory = null)
         => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
@@ -30,7 +31,8 @@ public class ReviewServiceTests
             contextCollector ?? new FakeContextCollector(),
             auditSink ?? new FakeReviewAuditSink(),
             toolProvider ?? new NullReviewToolProvider(),
-            roundtrips ?? new FakeRoundtripCounter());
+            roundtrips ?? new FakeRoundtripCounter(),
+            memory ?? new FakeReviewMemory());
 
     [Fact]
     public async Task ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull()
@@ -575,5 +577,57 @@ public class ReviewServiceTests
 
         Assert.Equal(7, Assert.Single(sink.Recorded).AiSessionAccountId);
         Assert.Equal(Request, router.LastRequest);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_passesMemoryEntries_intoPrompt()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var memory = new FakeReviewMemory(new MemoryEntry(MemoryKind.Convention, null, "Deutsche Kommentare sind gewollt", null));
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, memory: memory);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Equal("1", memory.LastProjectId);                     // ProjectId des Requests
+        var user = chat.LastMessages![1].Text;
+        Assert.Contains("# Project memory (maintainer guidance)", user);
+        Assert.Contains("Deutsche Kommentare sind gewollt", user);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_redactsMemoryEntries_beforePrompt()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var memory = new FakeReviewMemory(
+            new MemoryEntry(MemoryKind.FalsePositive, "a.cs", "enthält TOPSECRET", "auch TOPSECRET hier"));
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            redactor: new MarkerRedactor(), memory: memory);
+
+        await service.ReviewAsync(Request);
+
+        var user = chat.LastMessages![1].Text;
+        Assert.DoesNotContain("TOPSECRET", user);
+        Assert.Contains("[MASKED]", user);
+    }
+
+    // Test-Redactor: ersetzt ein Markerwort — genug, um "Memory läuft durch den Redactor" zu beweisen.
+    private sealed class MarkerRedactor : IPromptRedactor
+    {
+        public Task<string> RedactAsync(string text, CancellationToken ct = default)
+            => Task.FromResult(text.Replace("TOPSECRET", "[MASKED]"));
+    }
+
+    [Fact]
+    public async Task ReviewAsync_withEmptyMemory_promptUnchanged()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.DoesNotContain("Project memory (maintainer guidance)", chat.LastMessages![1].Text);
     }
 }

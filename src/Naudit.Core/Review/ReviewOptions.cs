@@ -15,6 +15,9 @@ public sealed class ReviewOptions
     /// <summary>Max. automatische (Webhook-)Reviews pro MR/PR; danach werden Pushes übersprungen.
     /// 0 (oder negativ) = unbegrenzt. Der CI-Trigger (POST /review) ist nie limitiert.</summary>
     public int MaxRoundtrips { get; set; } = 3;
+
+    /// <summary>Projekt-Gedächtnis: FPs + Konventionen als Prompt-Guidance (Naudit:Review:Memory).</summary>
+    public ReviewMemoryOptions Memory { get; set; } = new();
 }
 
 /// <summary>Ab wann ein Review blockt (request_changes). Default: nur bestätigtes High/Critical.</summary>
@@ -53,4 +56,13 @@ public sealed class ReviewContextOptions
 
     /// <summary>Kopf-Zeilen der README im Überblick.</summary>
     public int ReadmeMaxLines { get; set; } = 50;
+}
+
+/// <summary>Projekt-Gedächtnis. Default AN; Enabled=false ⇒ No-Op-Selector (heutiges Verhalten).</summary>
+public sealed class ReviewMemoryOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Deckel für die Prompt-Sektion — Konventionen zuerst, dann FPs, je neueste zuerst.</summary>
+    public int MaxEntries { get; set; } = 50;
 }

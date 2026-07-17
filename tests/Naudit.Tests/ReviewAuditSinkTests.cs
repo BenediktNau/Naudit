@@ -15,7 +15,7 @@ public class ReviewAuditSinkTests
             new FakeWorkspaceProvider(), [], new FakeFindingReducer(),
             new NullPromptRedactor(), new FakeContextCollector(), sink,
             new NullReviewToolProvider(),
-            new FakeRoundtripCounter());
+            new FakeRoundtripCounter(), new FakeReviewMemory());
 
     [Fact]
     public async Task ReviewAsync_recordsAudit_withVerdictAndFindings()
