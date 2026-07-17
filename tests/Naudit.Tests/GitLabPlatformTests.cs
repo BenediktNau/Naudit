@@ -137,6 +137,43 @@ public class GitLabPlatformTests
     }
 
     [Fact]
+    public async Task PostReviewAsync_capturesDiscussionIdAndNoteId_fromDiscussionResponse()
+    {
+        var capture = new StubHttpMessageHandler(req =>
+        {
+            // GET der MR-Details liefert die diff_refs; die Discussion-POST liefert Discussion-/Note-Id.
+            if (req.Method == HttpMethod.Get && req.RequestUri!.ToString().EndsWith("/merge_requests/42"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{ "diff_refs": { "base_sha": "b1", "head_sha": "h1", "start_sha": "s1" } }""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            if (req.Method == HttpMethod.Post && req.RequestUri!.ToString().Contains("/discussions"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{ "id": "disc-abc", "notes": [ { "id": 555 } ] }""",
+                        Encoding.UTF8, "application/json"),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.Created);
+        });
+        var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Tokens(), Opts());
+
+        var inlineComment = new InlineComment("src/Foo.cs", 5, null, "added-line finding");
+
+        var posted = await platform.PostReviewAsync(Request, "## Naudit Review", [inlineComment], ReviewVerdict.Approve);
+
+        var pc = Assert.Single(posted);
+        Assert.Equal("disc-abc", pc.CommentId);
+        Assert.Equal("555", pc.NoteId);
+    }
+
+    [Fact]
     public async Task PostReviewAsync_everyRequest_carriesTheProjectToken()
     {
         var capture = new StubHttpMessageHandler(req =>
