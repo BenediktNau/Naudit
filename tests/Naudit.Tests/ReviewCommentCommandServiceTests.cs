@@ -12,12 +12,18 @@ namespace Naudit.Tests;
 public class ReviewCommentCommandServiceTests
 {
     // Fake-Responder: konfigurierbare Autorisierung, zeichnet gepostete Antworten auf.
-    private sealed class FakeResponder(bool authorized) : IReviewCommentResponder
+    // throwOnReply simuliert einen fehlschlagenden Bestätigungs-Post (best-effort, siehe T7-Test unten).
+    private sealed class FakeResponder(bool authorized, bool throwOnReply = false) : IReviewCommentResponder
     {
         public List<string> Replies { get; } = new();
         public Task<bool> IsAuthorizedAsync(ReviewCommentReply reply, CancellationToken ct = default) => Task.FromResult(authorized);
         public Task PostReplyAsync(ReviewCommentReply reply, string body, CancellationToken ct = default)
-        { Replies.Add(body); return Task.CompletedTask; }
+        {
+            if (throwOnReply)
+                throw new InvalidOperationException("Antwort-Post fehlgeschlagen (simuliert).");
+            Replies.Add(body);
+            return Task.CompletedTask;
+        }
     }
 
     private static NauditDbContext NewDb()
@@ -39,6 +45,22 @@ public class ReviewCommentCommandServiceTests
         db.ReviewFindings.Add(finding);
         await db.SaveChangesAsync();
         return finding;
+    }
+
+    // Seedet ZWEI Findings im selben Projekt/Review mit DERSELBEN PlatformCommentId (Mehrdeutigkeits-Kante
+    // aus PR 2a — z.B. zwei Findings auf Datei+Zeile teilen sich einen GitHub-Comment). Reihenfolge der
+    // Erzeugung ist absichtlich so gewählt, dass die erwartete "erste" (kleinste Id) nicht zufällig die
+    // erstgeseedete ist.
+    private static async Task<(ReviewFindingEntity First, ReviewFindingEntity Second)> SeedAmbiguousAsync(
+        NauditDbContext db, string platformProjectId, string commentId)
+    {
+        var project = new ProjectEntity { PlatformProjectId = platformProjectId, FirstReviewedAt = DateTime.UtcNow, LastReviewedAt = DateTime.UtcNow };
+        var review = new ReviewEntity { Project = project, PrNumber = 7, Title = "t", Verdict = "approve", Summary = "s", CreatedAt = DateTime.UtcNow };
+        var first = new ReviewFindingEntity { Review = review, Severity = "medium", Confidence = "high", File = "src/Foo.cs", Line = 3, Text = "flag A", PlatformCommentId = commentId };
+        var second = new ReviewFindingEntity { Review = review, Severity = "low", Confidence = "medium", File = "src/Foo.cs", Line = 3, Text = "flag B", PlatformCommentId = commentId };
+        db.ReviewFindings.AddRange(first, second);
+        await db.SaveChangesAsync();
+        return (first, second);
     }
 
     private static ReviewCommentReply Reply(string projectId, string commentId, string? reason = "legacy") =>
@@ -116,5 +138,37 @@ public class ReviewCommentCommandServiceTests
         await svc.HandleAsync(Reply("acme/widgets", "555"));
 
         Assert.Equal(1, await db.MemoryEntries.CountAsync());
+    }
+
+    [Fact]
+    public async Task HandleAsync_ambiguousCommentId_anchorsToFirstFindingById_andCreatesOnlyOneEntry()
+    {
+        using var db = NewDb();
+        var (first, second) = await SeedAmbiguousAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true);
+        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+
+        await svc.HandleAsync(Reply("acme/widgets", "555"));
+
+        var entry = Assert.Single(db.MemoryEntries);
+        Assert.Equal(first.Id, entry.SourceFindingId);
+        Assert.NotEqual(second.Id, entry.SourceFindingId);
+        Assert.Equal(ReviewCommentCommandService.ConfirmationText, Assert.Single(responder.Replies));
+    }
+
+    [Fact]
+    public async Task HandleAsync_bestEffortReplyThrows_entryStillRecorded_andHandleAsyncDoesNotThrow()
+    {
+        using var db = NewDb();
+        var finding = await SeedAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true, throwOnReply: true);
+        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+
+        // Wirft NICHT, obwohl der Bestätigungs-Post fehlschlägt — die Zuordnung ist bereits gespeichert.
+        await svc.HandleAsync(Reply("acme/widgets", "555"));
+
+        var entry = Assert.Single(db.MemoryEntries);
+        Assert.Equal(finding.Id, entry.SourceFindingId);
+        Assert.Empty(responder.Replies);   // der (fehlgeschlagene) Post wurde nicht aufgezeichnet
     }
 }

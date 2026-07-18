@@ -256,7 +256,7 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   from the gate. WebUI: an FP/FP-✓ toggle per finding in the review detail
   (`POST`/`DELETE /api/findings/{id}/false-positive`) and a "Memory" nav page per project
   (list, create conventions, activate/deactivate). See `docs/review-memory.md`.
-  **Comment→finding mapping (foundation for a `@naudit fp` reply command):**
+  **Comment→finding mapping (consumed by the `@naudit fp` reply command):**
   `IGitPlatform.PostReviewAsync` returns `IReadOnlyList<PostedComment>`
   (`Naudit.Core.Models.PostedComment(string? CommentId, string? NoteId)`,
   index-aligned to the input inline comments) — the platform id(s) of each

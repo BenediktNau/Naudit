@@ -62,4 +62,17 @@ public class MemoryEntryWriterTests
         Assert.Equal("now with reason", second.Reason);
         Assert.Equal(1, await db.MemoryEntries.CountAsync());
     }
+
+    [Fact]
+    public async Task MarkFalsePositiveAsync_capsOverlongReason_toMaxReasonLength()
+    {
+        using var db = NewDb();
+        var finding = await SeedFindingAsync(db);
+        var overlong = new string('x', MemoryEntryWriter.MaxReasonLength + 100);
+
+        var entry = await MemoryEntryWriter.MarkFalsePositiveAsync(db, finding, overlong, "bob");
+
+        Assert.Equal(MemoryEntryWriter.MaxReasonLength, entry.Reason!.Length);
+        Assert.Equal(new string('x', MemoryEntryWriter.MaxReasonLength), entry.Reason);
+    }
 }

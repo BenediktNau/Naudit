@@ -9,6 +9,13 @@ namespace Naudit.Infrastructure.Memory;
 /// dem Unique-Index (DbUpdateException) wird idempotent aufgelöst statt in einen 500 zu laufen.</summary>
 public static class MemoryEntryWriter
 {
+    /// <summary>Obergrenze für Reason: die WebUI lehnt Längeres mit 400 ab, aber das
+    /// "@naudit fp"-Kommando hat keinen synchronen 400-Kanal (der Webhook antwortet immer 200)
+    /// — dort wird deshalb gekappt statt abgelehnt. Beide Schreibpfade teilen dieselbe Grenze.</summary>
+    public const int MaxReasonLength = 4000;
+
+    private static string Cap(string s) => s.Length <= MaxReasonLength ? s : s[..MaxReasonLength];
+
     public static async Task<MemoryEntryEntity> MarkFalsePositiveAsync(
         NauditDbContext db, ReviewFindingEntity finding, string? reason, string createdBy, CancellationToken ct = default)
     {
@@ -30,7 +37,7 @@ public static class MemoryEntryWriter
         }
         entry.Active = true;
         if (!string.IsNullOrWhiteSpace(reason))
-            entry.Reason = reason.Trim();
+            entry.Reason = Cap(reason.Trim());
 
         try
         {
@@ -44,7 +51,7 @@ public static class MemoryEntryWriter
             entry = await db.MemoryEntries.SingleAsync(m => m.SourceFindingId == finding.Id, ct);
             entry.Active = true;
             if (!string.IsNullOrWhiteSpace(reason))
-                entry.Reason = reason.Trim();
+                entry.Reason = Cap(reason.Trim());
             await db.SaveChangesAsync(ct);
         }
         return entry;

@@ -210,6 +210,11 @@ answering `200` after the signature check:
   verified by the same `X-Gitlab-Token` secret. The reply note's `discussion_id`
   is the discussion id Naudit stored as `PlatformCommentId`.
 
+Like the review webhooks, the command path is also checked against `IAccessGate`
+(`commentGate.IsAllowedAsync(reply.ProjectId, …)` in `Program.cs`) right after
+signature verification: a reply for a project that isn't allowed is silently
+dropped with `200`, before any command handling runs.
+
 **Authorization is fail-closed** — an unverifiable author is ignored (logged,
 still `200`):
 
