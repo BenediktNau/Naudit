@@ -1,4 +1,5 @@
 using Naudit.Core.Models;
+using Naudit.Infrastructure.Git;
 
 namespace Naudit.Infrastructure.Git.GitLab;
 
@@ -25,5 +26,31 @@ public static class GitLabWebhook
             return null;
 
         return new ReviewRequest(payload.Project.Id.ToString(), attrs.Iid, attrs.Title ?? "");
+    }
+
+    /// <summary>Mappt ein GitLab-Note-Event auf ein FP-Kommando, oder null wenn es keine
+    /// MergeRequest-Antwort mit gültigem "@naudit fp"-Body und Discussion-Id ist.</summary>
+    public static ReviewCommentReply? ToCommentReply(GitLabNoteEvent payload)
+    {
+        if (payload.ObjectKind != "note")
+            return null;
+        var attrs = payload.ObjectAttributes;
+        if (attrs?.NoteableType != "MergeRequest")
+            return null;
+        if (string.IsNullOrEmpty(attrs.DiscussionId))
+            return null;
+        if (payload.MergeRequest is not { } mr)
+            return null;
+        if (payload.Project is not { } project)
+            return null;
+        if (payload.User is not { } user)
+            return null;
+
+        var cmd = FpReplyCommand.TryParse(attrs.Note);
+        if (cmd is null)
+            return null;
+
+        return new ReviewCommentReply(project.Id.ToString(), mr.Iid, attrs.DiscussionId, cmd.Reason,
+            user.Username ?? "", AuthorAssociation: null, user.Id);
     }
 }
