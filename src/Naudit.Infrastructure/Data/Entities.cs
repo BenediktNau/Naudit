@@ -91,6 +91,14 @@ public sealed class ReviewFindingEntity
     /// PlatformCommentId) — Award-Emoji-Events referenzieren die Note, nicht die Discussion.
     /// Auf GitHub null.</summary>
     public string? PlatformNoteId { get; set; }
+
+    /// <summary>Auflösungs-Status des Findings (Review-Analytics): "Accepted" | "Rejected"; null = unbeantwortet.</summary>
+    public string? ResolutionStatus { get; set; }
+    /// <summary>Woher das Signal kam: "Command" | "Checkbox" | "Emoji" | "WebUi" | "Llm".</summary>
+    public string? ResolutionSource { get; set; }
+    /// <summary>Plattform-Login bzw. WebUI-Username, der das Finding aufgelöst hat.</summary>
+    public string? ResolvedBy { get; set; }
+    public DateTime? ResolvedAtUtc { get; set; }
 }
 
 /// <summary>Ein verwalteter Konfigurationswert (Key in Doppelpunkt-Notation, z. B. "Naudit:Ai:Provider").
@@ -127,4 +135,8 @@ public sealed class MemoryEntryEntity
     public required string CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool Active { get; set; }
+
+    /// <summary>Wie oft dieser Eintrag in einen Review-Prompt gewählt wurde (CodeRabbits "learnings applied").</summary>
+    public int TimesApplied { get; set; }
+    public DateTime? LastAppliedAtUtc { get; set; }
 }
