@@ -69,7 +69,9 @@ Three projects with a strict, deliberate dependency direction:
 ### Request flow
 
 `GitLab/GitHub webhook → /webhook/gitlab|github (validate + enqueue, 200) → ReviewQueue → ReviewBackgroundService
-→ ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding **and** repo-context enrichment, one shared checkout) →
+→ ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding, repo-context enrichment
+**and** the distilled architecture profile, one shared checkout — the profile joins the prompt alongside project
+memory) →
 `IPromptRedactor.RedactAsync` (mask secrets/IPs/e-mails in diff + findings + title, **before** the prompt) →
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
@@ -270,6 +272,18 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   `ReviewCommentCommandService` maps the reply back to the finding via
   `PlatformCommentId` (project-scoped) and records the false positive. See
   `docs/review-memory.md`.
+- **Architecture profile (distilled guidelines):** `IReviewGuidelines` (Core `Abstractions`)
+  supplies a per-project architecture profile for the prompt; the default
+  `DistillingReviewGuidelines` (`src/Naudit.Infrastructure/Guidelines/`) distills it from the
+  repo's own docs (CLAUDE.md/AGENTS.md/README/CONTRIBUTING/docs/**.md) found in the shared
+  checkout, hash-caches it in `ProjectGuidelinesEntity` (one blob per project, zero LLM calls
+  while docs are unchanged), and respects human curation (`ManuallyEdited` blocks auto-refresh;
+  WebUI card on the Memory page: view/edit/re-distill). Distillation uses the **global**
+  `IChatClient` (never the author-session router). Rendered by `PromptBuilder` as an
+  authoritative "Project guidelines" section before the memory section; the system prompt now
+  also instructs architecture-altitude (file-less findings) and a security checklist.
+  `Naudit:Review:Guidelines:Enabled=false` swaps in `NullReviewGuidelines`. Fail-open like
+  memory/SAST. See `docs/review-guidelines.md`.
 
 ### CI/CD & container
 
