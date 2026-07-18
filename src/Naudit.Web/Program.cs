@@ -435,6 +435,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     app.MapDataEndpoints();
     app.MapMemoryEndpoints();
     app.MapResolutionEndpoints();
+    app.MapAnalyticsEndpoints();
     app.MapSettingsEndpoints();
     app.MapSetupEndpoints(setup);
 
