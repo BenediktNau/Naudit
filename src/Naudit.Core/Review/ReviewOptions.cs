@@ -18,6 +18,9 @@ public sealed class ReviewOptions
 
     /// <summary>Projekt-Gedächtnis: FPs + Konventionen als Prompt-Guidance (Naudit:Review:Memory).</summary>
     public ReviewMemoryOptions Memory { get; set; } = new();
+
+    /// <summary>Finding-Resolution-Tracking (Review-Analytics, Naudit:Review:Resolution).</summary>
+    public ReviewResolutionOptions Resolution { get; set; } = new();
 }
 
 /// <summary>Ab wann ein Review blockt (request_changes). Default: nur bestätigtes High/Critical.</summary>
@@ -65,4 +68,13 @@ public sealed class ReviewMemoryOptions
 
     /// <summary>Deckel für die Prompt-Sektion — Konventionen zuerst, dann FPs, je neueste zuerst.</summary>
     public int MaxEntries { get; set; } = 50;
+}
+
+/// <summary>Review-Analytics: Erfassung der Finding-Auflösung. Enabled=false ⇒ keine Signal-Erfassung
+/// (Webhooks antworten trotzdem 200); der Analytics-Endpoint bleibt lesbar.</summary>
+public sealed class ReviewResolutionOptions
+{
+    public bool Enabled { get; set; } = true;
+    public bool LlmClassification { get; set; } = true;   // Freitext-Klassifikation (PR 4)
+    public bool RenderCheckbox { get; set; } = true;       // GitHub-Checkbox-Footer (PR 4)
 }
