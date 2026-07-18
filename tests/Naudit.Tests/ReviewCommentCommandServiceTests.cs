@@ -2,6 +2,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Naudit.Core.Review;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Memory;
@@ -66,13 +67,23 @@ public class ReviewCommentCommandServiceTests
     private static ReviewCommentReply Reply(string projectId, string commentId, string? reason = "legacy") =>
         new(projectId, 7, commentId, reason, "bob", AuthorAssociation: "MEMBER", AuthorId: 42, Command: ReviewCommandKind.FalsePositive);
 
+    // "@naudit ok"-Kommando — gleiche Adressierung wie Reply(), aber Command = Accept.
+    private static ReviewCommentReply AcceptReply(string projectId, string commentId) =>
+        new(projectId, 7, commentId, null, "bob", AuthorAssociation: "MEMBER", AuthorId: 42, Command: ReviewCommandKind.Accept);
+
+    // Baut den Service mit einer ReviewOptions-Instanz, deren Resolution-Schalter steuerbar ist
+    // (Ctor-Parameter aus Review-Analytics PR 3, Task 5).
+    private static ReviewCommentCommandService Service(NauditDbContext db, FakeResponder responder, bool resolutionEnabled = true) =>
+        new(db, responder, NullLogger<ReviewCommentCommandService>.Instance,
+            new ReviewOptions { Resolution = new ReviewResolutionOptions { Enabled = resolutionEnabled } });
+
     [Fact]
     public async Task HandleAsync_marksFp_andReplies_whenAuthorizedAndMatched()
     {
         using var db = NewDb();
         var finding = await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));
 
@@ -90,7 +101,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: false);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));
 
@@ -104,7 +115,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "does-not-exist"));
 
@@ -118,7 +129,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         await SeedAsync(db, "acme/other", "555");   // gleiche Comment-Id, anderes Projekt
         var responder = new FakeResponder(authorized: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));   // Reply gilt "acme/widgets"
 
@@ -132,7 +143,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));
         await svc.HandleAsync(Reply("acme/widgets", "555"));
@@ -148,7 +159,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));
         Assert.Single(responder.Replies);   // die erste Antwort bestätigt
@@ -163,7 +174,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         var (first, second) = await SeedAmbiguousAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));
 
@@ -179,7 +190,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         var finding = await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true, throwOnReply: true);
-        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+        var svc = Service(db, responder);
 
         // Wirft NICHT, obwohl der Bestätigungs-Post fehlschlägt — die Zuordnung ist bereits gespeichert.
         await svc.HandleAsync(Reply("acme/widgets", "555"));
@@ -187,5 +198,66 @@ public class ReviewCommentCommandServiceTests
         var entry = Assert.Single(db.MemoryEntries);
         Assert.Equal(finding.Id, entry.SourceFindingId);
         Assert.Empty(responder.Replies);   // der (fehlgeschlagene) Post wurde nicht aufgezeichnet
+    }
+
+    [Fact]
+    public async Task Fp_alsoWritesRejectedResolution()
+    {
+        using var db = NewDb();
+        var finding = await SeedAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true);
+        var svc = Service(db, responder);   // helper building the service with ReviewOptions (Resolution.Enabled=true)
+
+        await svc.HandleAsync(Reply("acme/widgets", "555"));   // fp
+
+        var f = await db.ReviewFindings.SingleAsync(x => x.Id == finding.Id);
+        Assert.Equal("Rejected", f.ResolutionStatus);
+        Assert.Equal("Command", f.ResolutionSource);
+        Assert.Single(db.MemoryEntries);   // fp weiterhin im Gedächtnis
+    }
+
+    [Fact]
+    public async Task Ok_writesAcceptedResolution_confirms_noMemoryEntry()
+    {
+        using var db = NewDb();
+        var finding = await SeedAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true);
+        var svc = Service(db, responder);
+
+        await svc.HandleAsync(AcceptReply("acme/widgets", "555"));   // Command = Accept
+
+        var f = await db.ReviewFindings.SingleAsync(x => x.Id == finding.Id);
+        Assert.Equal("Accepted", f.ResolutionStatus);
+        Assert.Equal("Command", f.ResolutionSource);
+        Assert.Empty(db.MemoryEntries);
+        Assert.Equal(ReviewCommentCommandService.AcceptConfirmationText, Assert.Single(responder.Replies));
+    }
+
+    [Fact]
+    public async Task Ok_secondDelivery_doesNotConfirmAgain()
+    {
+        using var db = NewDb();
+        await SeedAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true);
+        var svc = Service(db, responder);
+        await svc.HandleAsync(AcceptReply("acme/widgets", "555"));
+        await svc.HandleAsync(AcceptReply("acme/widgets", "555"));
+        Assert.Single(responder.Replies);
+    }
+
+    [Fact]
+    public async Task ResolutionDisabled_ok_isNoOp_fpStillMarks()
+    {
+        using var db = NewDb();
+        var finding = await SeedAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true);
+        var svc = Service(db, responder, resolutionEnabled: false);
+
+        await svc.HandleAsync(AcceptReply("acme/widgets", "555"));
+        Assert.Null((await db.ReviewFindings.SingleAsync(x => x.Id == finding.Id)).ResolutionStatus);
+        Assert.Empty(responder.Replies);
+
+        await svc.HandleAsync(Reply("acme/widgets", "555"));   // fp
+        Assert.Single(db.MemoryEntries);                        // Memory unabhängig vom Resolution-Schalter
     }
 }
