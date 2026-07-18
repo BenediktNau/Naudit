@@ -249,6 +249,32 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
                     return Results.Unauthorized();
 
                 var eventType = context.Request.Headers["X-GitHub-Event"].ToString();
+
+                // FP-Antwort-Kommando: Antwort auf einen Naudit-Inline-Kommentar. Synchron behandeln
+                // (kein Review-Queue-Job), immer 200 nach der Signaturprüfung.
+                if (eventType == "pull_request_review_comment")
+                {
+                    var commentEvent = JsonSerializer.Deserialize<GitHubReviewCommentEvent>(rawBody);
+                    var reply = commentEvent is null ? null : GitHubWebhook.ToCommentReply(eventType, commentEvent);
+                    if (reply is null)
+                        return Results.Ok();   // kein "@naudit fp"-Kommando / keine Antwort
+
+                    var commentGate = context.RequestServices.GetRequiredService<Naudit.Core.Abstractions.IAccessGate>();
+                    if (!await commentGate.IsAllowedAsync(reply.ProjectId, context.RequestAborted))
+                        return Results.Ok();
+
+                    try
+                    {
+                        var handler = context.RequestServices.GetRequiredService<Naudit.Infrastructure.Memory.ReviewCommentCommandService>();
+                        await handler.HandleAsync(reply, context.RequestAborted);
+                    }
+                    catch (Exception ex)
+                    {
+                        app.Logger.LogWarning(ex, "FP-Kommando-Verarbeitung (GitHub) fehlgeschlagen.");
+                    }
+                    return Results.Ok();
+                }
+
                 var payload = JsonSerializer.Deserialize<GitHubWebhookPayload>(rawBody);
                 if (payload is null)
                     return Results.Ok();
@@ -280,7 +306,36 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
                 if (!IsValidNauditToken(secret, token))
                     return Results.Unauthorized();
 
-                var payload = await context.Request.ReadFromJsonAsync<GitLabWebhookPayload>();
+                // Rohen Body einmal puffern — object_kind entscheidet den Zweig (note = FP-Kommando).
+                using var ms = new MemoryStream();
+                await context.Request.Body.CopyToAsync(ms);
+                var rawBody = ms.ToArray();
+                var objectKind = JsonSerializer.Deserialize<GitLabWebhookPayload>(rawBody)?.ObjectKind;
+
+                if (objectKind == "note")
+                {
+                    var noteEvent = JsonSerializer.Deserialize<GitLabNoteEvent>(rawBody);
+                    var reply = noteEvent is null ? null : GitLabWebhook.ToCommentReply(noteEvent);
+                    if (reply is null)
+                        return Results.Ok();   // kein "@naudit fp"-Kommando / keine MR-Antwort
+
+                    var commentGate = context.RequestServices.GetRequiredService<Naudit.Core.Abstractions.IAccessGate>();
+                    if (!await commentGate.IsAllowedAsync(reply.ProjectId, context.RequestAborted))
+                        return Results.Ok();
+
+                    try
+                    {
+                        var handler = context.RequestServices.GetRequiredService<Naudit.Infrastructure.Memory.ReviewCommentCommandService>();
+                        await handler.HandleAsync(reply, context.RequestAborted);
+                    }
+                    catch (Exception ex)
+                    {
+                        app.Logger.LogWarning(ex, "FP-Kommando-Verarbeitung (GitLab) fehlgeschlagen.");
+                    }
+                    return Results.Ok();
+                }
+
+                var payload = JsonSerializer.Deserialize<GitLabWebhookPayload>(rawBody);
                 if (payload is null)
                     return Results.Ok();
 
