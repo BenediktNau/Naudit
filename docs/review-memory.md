@@ -19,7 +19,7 @@ again*, not by suppressing it after the fact.
 
 | Kind | Created by | Meaning |
 | --- | --- | --- |
-| **False positive** | Marking a finding in the review detail, or (PR 2, see [Outlook](#outlook-pr-2)) a `@naudit fp` reply on the platform | "This finding (or an equivalent one) is not an issue — don't report it again." Copies the finding's `File`/`Text`; an optional reason can be attached. |
+| **False positive** | Marking a finding in the review detail, or (PR 2b, see [Outlook](#outlook-pr-2b)) a `@naudit fp` reply on the platform | "This finding (or an equivalent one) is not an issue — don't report it again." Copies the finding's `File`/`Text`; an optional reason can be attached. |
 | **Convention** | Typed on the project's Memory page | A free-text project rule, optionally scoped to a file/path. "German code comments are intentional", "this legacy module intentionally skips null checks", etc. |
 
 Entries are **never deleted** by the WebUI actions — deactivating (or undoing
@@ -132,7 +132,7 @@ detects or blocks. It is mitigated the same way any other privileged action
 in Naudit is:
 
 - **Authorization** — only accounts that can see the project (WebUI) can
-  write entries; the platform reply command planned for PR 2 will apply the
+  write entries; the platform reply command planned for PR 2b will apply the
   same repo-membership check used elsewhere (fail-closed).
 - **Attribution** — every entry records `CreatedBy`.
 - **Audit, not deletion** — entries are deactivated (`Active=false`), never
@@ -142,20 +142,61 @@ Content is still redacted like every other prompt ingredient, but redaction
 targets secrets/IPs/e-mails, not instruction-shaped text — it is not a
 defense against injection.
 
-## Outlook: PR 2
+## Comment mapping (foundation for the reply command)
 
-This is PR 1 of the review-memory feature (seam, DB, prompt section, WebUI).
-PR 2 adds the platform feedback channel: replying `@naudit fp <optional
-reason>` on the bot's inline comment creates the same false-positive entry
-without leaving the merge request/pull request.
+Every finding Naudit posts as an inline comment also stores the platform
+id(s) of that comment, so a later reply on it can be mapped back to the
+finding it belongs to:
 
-A forward requirement, carried over from the later
-`docs/superpowers/specs/2026-07-17-review-analytics-design.md` design (which
-builds on top of this feature): when PR 2 starts persisting the platform
-comment id for the FP-mapping (`PlatformCommentId`), it should **also** store
-the GitLab **note id** alongside the discussion id from the start. GitLab's
-discussion-creation response already contains the bot note's id, and a later
-feature (award-emoji reactions) needs that note id specifically —
-`PlatformCommentId` on GitLab is the *discussion* id, which award-emoji
-webhook events do not reference. Capturing both ids in PR 2 avoids a second,
-avoidable migration later.
+- `ReviewFindingEntity.PlatformCommentId` — GitHub: the review-comment id;
+  GitLab: the discussion id.
+- `ReviewFindingEntity.PlatformNoteId` — GitLab: the id of the discussion's
+  root note (award-emoji webhook events reference the note, not the
+  discussion); GitHub: always `null` (no separate note concept).
+
+Both columns are `null` for orphan findings (no diff position, so nothing was
+ever posted as an inline comment for them), and can also be `null` for a
+positioned finding if id capture itself failed.
+
+The Core seam is `IGitPlatform.PostReviewAsync`, which now returns
+`IReadOnlyList<PostedComment>` (`Naudit.Core.Models.PostedComment(string?
+CommentId, string? NoteId)`) — one entry per input inline comment,
+index-aligned with it. `ReviewService` zips `posted[i]` onto `inline[i]` when
+building the audit findings for `RecordAuditAsync`; `EfReviewAuditSink`
+persists the pair onto the corresponding `ReviewFindingEntity` row.
+
+Capture is platform-specific and **best-effort**: a capture failure never
+fails the already-posted review, it only yields `null` ids for the affected
+comment(s).
+
+- **GitLab** reads the discussion id and its first note's id straight out of
+  the `POST …/discussions` response body for each inline comment; an
+  empty/unexpected body (e.g. in tests, or an older GitLab version) is caught
+  and yields `null` ids for that comment.
+- **GitHub**'s `POST …/reviews` response does not carry a per-comment id, so
+  after posting, Naudit reads back the review's own id and calls
+  `GET …/reviews/{id}/comments`, matching each posted inline comment to a
+  returned comment by (`path`, `line`) to read its id. Any failure in that
+  follow-up call (network error, unexpected shape) is caught and yields
+  `null` ids for every comment of that review — the review itself is already
+  posted and stays posted either way. That read-back is a single
+  `per_page=100` page (the same POC cap as elsewhere), so on a review with
+  more than 100 inline comments the overflow comments get `null` ids;
+  consumers must treat a `null` id as "unmapped", never as an error.
+
+This mapping (PR 2a) is a small, self-contained change with no consumer yet
+— it is the anchor two follow-on features build on: PR 2b, the `@naudit fp`
+reply command below, and the review-analytics feature
+(`docs/superpowers/specs/2026-07-17-review-analytics-design.md`), both of
+which need a stored comment id to correlate later platform activity back to
+the finding that caused it.
+
+## Outlook: PR 2b
+
+This is PR 2a of the review-memory feature (PR 1 was the seam/DB/prompt
+section/WebUI from the earlier section above; PR 2a is the comment→finding
+mapping described just above). PR 2b adds the platform feedback channel:
+replying `@naudit fp <optional reason>` on the bot's inline comment creates
+the same false-positive entry without leaving the merge request/pull
+request, resolving the reply back to its finding via the
+`PlatformCommentId`/`PlatformNoteId` captured above.

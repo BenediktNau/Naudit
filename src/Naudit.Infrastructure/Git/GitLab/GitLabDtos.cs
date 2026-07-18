@@ -57,3 +57,10 @@ public sealed class GitLabApprovals
     // Hat der aufrufende User (= Naudits Token-Identität) den MR bereits approved?
     [JsonPropertyName("user_has_approved")] public bool UserHasApproved { get; set; }
 }
+
+/// <summary>Antwort von POST …/discussions — Discussion-Id + Wurzel-Note-Id (für die Antwort-Zuordnung).</summary>
+public sealed record GitLabDiscussionResponse(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("notes")] List<GitLabDiscussionNote>? Notes);
+
+public sealed record GitLabDiscussionNote([property: JsonPropertyName("id")] long Id);

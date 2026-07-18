@@ -124,4 +124,27 @@ public class DbReviewMemoryTests
         var memory = new DbReviewMemory(db, new ReviewOptions(), NullLogger<DbReviewMemory>.Instance);
         Assert.Empty(await memory.SelectAsync("owner/repo", Changes("x.cs")));
     }
+
+    [Fact]
+    public async Task ReviewFinding_persistsPlatformCommentAndNoteIds_afterMigrate()
+    {
+        await using var db = NewMigratedDb();
+        var project = SeedProject(db);
+        var review = new ReviewEntity
+        {
+            ProjectId = project.Id, PrNumber = 1, Title = "T", Verdict = "approve", Summary = "S",
+            CreatedAt = DateTime.UtcNow,
+            Findings = { new ReviewFindingEntity
+            {
+                Severity = "High", Confidence = "High", File = "a.cs", Line = 1, Text = "f",
+                PlatformCommentId = "gh-12345", PlatformNoteId = "gl-note-678",
+            } },
+        };
+        db.Reviews.Add(review);
+        await db.SaveChangesAsync();
+
+        var loaded = await db.ReviewFindings.SingleAsync();
+        Assert.Equal("gh-12345", loaded.PlatformCommentId);
+        Assert.Equal("gl-note-678", loaded.PlatformNoteId);
+    }
 }

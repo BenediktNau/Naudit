@@ -25,9 +25,10 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
             .ToList();
     }
 
-    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
+    public async Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
         var basePath = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}";
+        var posted = new List<PostedComment>(comments.Count);
 
         // 1) Summary als normale Note.
         (await SendAsync(HttpMethod.Post, $"{basePath}/notes", request.ProjectId, new { body = summaryMarkdown }, ct)).EnsureSuccessStatusCode();
@@ -61,7 +62,22 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
                     position["old_line"] = oldLine;
 
                 var payload = new { body = c.Body, position };
-                (await SendAsync(HttpMethod.Post, $"{basePath}/discussions", request.ProjectId, payload, ct)).EnsureSuccessStatusCode();
+                using var discResp = await SendAsync(HttpMethod.Post, $"{basePath}/discussions", request.ProjectId, payload, ct);
+                discResp.EnsureSuccessStatusCode();
+                // Best-effort: Discussion-/Note-Id für die spätere Antwort-Zuordnung erfassen — ein fehlendes
+                // Feld oder ein leerer/unerwarteter Body ergibt lediglich eine null-Id, kein Fehler (die
+                // HTTP-Antwort selbst wurde oben bereits geprüft).
+                GitLabDiscussionResponse? disc = null;
+                try
+                {
+                    disc = await discResp.Content.ReadFromJsonAsync<GitLabDiscussionResponse>(ct);
+                }
+                catch (Exception) when (!ct.IsCancellationRequested)
+                {
+                    // leerer/unerwarteter/nicht-JSON Body (z. B. in Tests oder bei einer älteren GitLab-Version) —
+                    // best-effort wie auf GitHub: die Id-Erfassung darf den bereits geposteten Review nie kippen.
+                }
+                posted.Add(new PostedComment(disc?.Id, disc?.Notes is { Count: > 0 } notes ? notes[0].Id.ToString() : null));
             }
         }
 
@@ -84,6 +100,8 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
                     resp.EnsureSuccessStatusCode();
             }
         }
+
+        return posted;
     }
 
     private async Task<bool> HasAlreadyApprovedAsync(string basePath, string projectId, CancellationToken ct)

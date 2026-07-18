@@ -81,6 +81,16 @@ public sealed class ReviewFindingEntity
     public string? File { get; set; }
     public int? Line { get; set; }
     public required string Text { get; set; }
+
+    /// <summary>Plattform-Id des von Naudit geposteten Inline-Kommentars — GitHub: Review-Comment-Id;
+    /// GitLab: Discussion-Id. Anker, um eine Antwort auf den Kommentar diesem Finding zuzuordnen
+    /// (PR 2b + Auswertung). Null bei Findings ohne Position oder wenn die Erfassung fehlschlug.</summary>
+    public string? PlatformCommentId { get; set; }
+
+    /// <summary>GitLab-Note-Id des Discussion-Wurzelkommentars (zusätzlich zur Discussion-Id in
+    /// PlatformCommentId) — Award-Emoji-Events referenzieren die Note, nicht die Discussion.
+    /// Auf GitHub null.</summary>
+    public string? PlatformNoteId { get; set; }
 }
 
 /// <summary>Ein verwalteter Konfigurationswert (Key in Doppelpunkt-Notation, z. B. "Naudit:Ai:Provider").

@@ -9,8 +9,11 @@ public interface IGitPlatform
 
     /// <summary>Postet den Summary-Kommentar und alle Inline-Kommentare an ihre Diff-Positionen.
     /// Das Verdikt stammt aus dem severity-bewussten Gate; ob es als echter Review-Status gepostet
-    /// wird, entscheidet die Plattform-Konfiguration (PostVerdict, Default aus).</summary>
-    Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default);
+    /// wird, entscheidet die Plattform-Konfiguration (PostVerdict, Default aus).
+    /// Liefert je Eingabe-Inline-Kommentar (index-gleich) die Plattform-Ids des erzeugten Kommentars
+    /// zurück (für die spätere Antwort-Zuordnung). Erfassung ist best-effort — schlägt sie fehl,
+    /// kommen null-Ids, nie eine Exception.</summary>
+    Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default);
 
     /// <summary>Liefert Klon-URL (inkl. Auth) und Head-Ref des MR/PR für den lokalen Checkout.</summary>
     Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default);

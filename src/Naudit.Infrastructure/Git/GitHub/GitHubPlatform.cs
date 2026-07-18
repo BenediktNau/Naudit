@@ -35,7 +35,7 @@ public sealed class GitHubPlatform(
             .ToList();
     }
 
-    public async Task PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
+    public async Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default)
     {
         // Ein Review-Call trägt Summary (body) UND alle Inline-Kommentare.
         // Echtes Verdikt nur opt-in (PostVerdict) — Default bleibt COMMENT (kein Review-Status;
@@ -54,9 +54,43 @@ public sealed class GitHubPlatform(
                 @event, request.ProjectId, request.MergeRequestIid);
             using var fallback = await PostReviewOnceAsync(url, request, summaryMarkdown, comments, "COMMENT", ct);
             fallback.EnsureSuccessStatusCode();
-            return;
+            return await CaptureCommentIdsAsync(request, fallback, comments, ct);
         }
         response.EnsureSuccessStatusCode();
+        return await CaptureCommentIdsAsync(request, response, comments, ct);
+    }
+
+    // Nach erfolgreichem Post: Review-Id lesen, dessen Kommentare holen und je Inline-Kommentar
+    // per (Pfad, Zeile) die Review-Comment-Id zuordnen. Best-effort: jeder Fehler ⇒ null-Ids,
+    // der Review ist bereits gepostet und darf nicht mehr kippen.
+    private async Task<IReadOnlyList<PostedComment>> CaptureCommentIdsAsync(
+        ReviewRequest request, HttpResponseMessage reviewResponse,
+        IReadOnlyList<InlineComment> comments, CancellationToken ct)
+    {
+        if (comments.Count == 0)
+            return [];   // keine Inline-Kommentare ⇒ nichts zu matchen, kein GET nötig.
+
+        var fallback = comments.Select(_ => new PostedComment(null, null)).ToList();
+        try
+        {
+            var review = await reviewResponse.Content.ReadFromJsonAsync<GitHubReviewResponse>(ct);
+            if (review is null)
+                return fallback;
+            using var resp = await SendAsync(HttpMethod.Get,
+                $"repos/{request.ProjectId}/pulls/{request.MergeRequestIid}/reviews/{review.Id}/comments?per_page=100",
+                request.ProjectId, null, ct);
+            resp.EnsureSuccessStatusCode();
+            var posted = await resp.Content.ReadFromJsonAsync<List<GitHubReviewComment>>(ct) ?? [];
+            return comments.Select(c =>
+            {
+                var m = posted.FirstOrDefault(p => p.Path == c.FilePath && p.Line == c.NewLine);
+                return new PostedComment(m?.Id.ToString(), null);
+            }).ToList();
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return fallback;   // Erfassung best-effort — der Review steht bereits.
+        }
     }
 
     private Task<HttpResponseMessage> PostReviewOnceAsync(

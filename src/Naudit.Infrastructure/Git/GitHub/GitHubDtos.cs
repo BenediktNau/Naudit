@@ -32,3 +32,12 @@ public sealed class GitHubFile
     [JsonPropertyName("filename")] public string Filename { get; set; } = "";
     [JsonPropertyName("patch")] public string? Patch { get; set; }
 }
+
+/// <summary>Antwort von POST …/reviews — die Review-Id, um danach genau die Kommentare DIESES Reviews zu holen.</summary>
+public sealed record GitHubReviewResponse([property: JsonPropertyName("id")] long Id);
+
+/// <summary>Ein Review-Comment aus GET …/reviews/{id}/comments — Id + Position, zum Matchen an unsere Inline-Kommentare.</summary>
+public sealed record GitHubReviewComment(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("path")] string? Path,
+    [property: JsonPropertyName("line")] int? Line);

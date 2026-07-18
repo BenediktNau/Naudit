@@ -630,4 +630,22 @@ public class ReviewServiceTests
 
         Assert.DoesNotContain("Project memory (maintainer guidance)", chat.LastMessages![1].Text);
     }
+
+    [Fact]
+    public async Task ReviewAsync_persistsPostedCommentIds_ontoAuditFindings()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[{"file":"a.cs","line":1,"comment":"bug","severity":"high","confidence":"high"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")])
+        {
+            PostedIds = [new PostedComment("gh-1", "gl-9")],   // aligned to the one inline comment
+        };
+        var audit = new FakeReviewAuditSink();
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, auditSink: audit);
+
+        await service.ReviewAsync(Request);
+
+        var finding = Assert.Single(audit.Recorded.Single().Findings);
+        Assert.Equal("gh-1", finding.PlatformCommentId);
+        Assert.Equal("gl-9", finding.PlatformNoteId);
+    }
 }

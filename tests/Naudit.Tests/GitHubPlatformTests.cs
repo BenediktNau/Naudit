@@ -216,4 +216,93 @@ public class GitHubPlatformTests
             () => platform.PostReviewAsync(Request, "## Naudit Review", [], ReviewVerdict.Approve));
         Assert.Single(capture.Calls);
     }
+
+    [Fact]
+    public async Task PostReviewAsync_capturesReviewCommentId_matchedByPathAndLine()
+    {
+        // Nach dem Post: Review-Id aus der Antwort lesen, dessen Kommentare holen und per (Pfad, Zeile) matchen.
+        var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": 1 } ]""", Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+            });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "sum",
+            [new InlineComment("a.cs", 1, null, "finding")], ReviewVerdict.Approve);
+
+        Assert.Equal("77", Assert.Single(posted).CommentId);
+        Assert.Null(posted[0].NoteId);
+        // Die GET-URL trägt die Review-Id aus der Post-Antwort, nicht eine geratene/globale.
+        Assert.Contains("repos/octo/hello-world/pulls/42/reviews/4242/comments",
+            capture.Calls.Single(c => c.Method == HttpMethod.Get).Uri!.ToString());
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_verdictRejected422_capturesCommentIdFromFallbackResponse()
+    {
+        // Erfassung muss auch am 422→COMMENT-Fallback-Pfad laufen, nicht nur am Normalpfad.
+        var postCalls = 0;
+        var capture = new StubHttpMessageHandler(req =>
+        {
+            if (req.Method == HttpMethod.Get)
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": 1 } ]""", Encoding.UTF8, "application/json"),
+                };
+            postCalls++;
+            return postCalls == 1
+                ? new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+                };
+        });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, "{}", capture), Tokens(),
+            Opts(postVerdict: true));
+
+        var posted = await platform.PostReviewAsync(Request, "## Naudit Review",
+            [new InlineComment("a.cs", 1, null, "finding here")], ReviewVerdict.RequestChanges);
+
+        Assert.Equal("77", Assert.Single(posted).CommentId);
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_withoutComments_returnsEmpty_withoutExtraGetCall()
+    {
+        // Leere Kommentarliste ⇒ [] ohne GET-Aufruf (kein Review-Comment zu matchen).
+        var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created));
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "## Naudit Review", [], ReviewVerdict.Approve);
+
+        Assert.Empty(posted);
+        Assert.Single(capture.Calls); // nur der POST, kein GET
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_noMatchingReviewComment_returnsNullId_notThrow()
+    {
+        // Best-effort: liefert GitHub für einen Inline-Kommentar keinen passenden (Pfad, Zeile)-Treffer,
+        // kommt eine null-Id zurück (kein Fehler) — der Review ist bereits gepostet.
+        var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""[ { "id": 77, "path": "andere.cs", "line": 9 } ]""", Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+            });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "sum",
+            [new InlineComment("a.cs", 1, null, "finding")], ReviewVerdict.Approve);
+
+        Assert.Null(Assert.Single(posted).CommentId);   // kein Match ⇒ null, keine Exception
+    }
 }
