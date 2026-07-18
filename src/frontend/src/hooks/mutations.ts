@@ -86,3 +86,16 @@ export function useToggleMemoryEntry(projectId: number | null) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["memory", projectId] }),
   });
 }
+
+/** Accept/Reject am Finding — invalidiert das Review-Detail (Status kommt vom Server zurück). */
+export function useSetResolution(reviewId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { findingId: number; status: "Accepted" | "Rejected" | null }) =>
+      api<{ id: number; resolutionStatus: string | null }>(`/api/findings/${vars.findingId}/resolution`, {
+        method: "PUT",
+        body: JSON.stringify({ status: vars.status }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["review", reviewId] }),
+  });
+}

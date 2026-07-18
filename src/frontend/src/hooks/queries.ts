@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import type {
   AccountsDto,
+  AnalyticsDto,
   ClaudeSessionDto,
   ClaudeSessionTest,
   DashboardDto,
@@ -102,6 +103,14 @@ export function useProjectMemory(projectId: number | null) {
     queryKey: ["memory", projectId],
     queryFn: () => api<ProjectMemoryDto>(`/api/projects/${projectId}/memory`),
     enabled: projectId !== null,
+  });
+}
+
+/** Auswertungs-Kennzahlen (Totals/Raten, Severity-Breakdown, Wochentrend, Gedächtnis-Wirkung). */
+export function useAnalytics(projectId: number | null, days: number) {
+  return useQuery({
+    queryKey: ["analytics", projectId, days],
+    queryFn: () => api<AnalyticsDto>(`/api/analytics?days=${days}${projectId ? `&projectId=${projectId}` : ""}`),
   });
 }
 
