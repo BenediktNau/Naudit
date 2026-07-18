@@ -14,6 +14,7 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
     public DbSet<SettingEntity> Settings => Set<SettingEntity>();
     public DbSet<SetupDraftEntity> SetupDrafts => Set<SetupDraftEntity>();
     public DbSet<MemoryEntryEntity> MemoryEntries => Set<MemoryEntryEntity>();
+    public DbSet<ProjectGuidelinesEntity> ProjectGuidelines => Set<ProjectGuidelinesEntity>();
 
     /// <summary>Data-Protection-Keys (Session-Cookie-Signatur) — in der DB statt im Dateisystem,
     /// damit Sessions Container-Neustarts auf beiden Backends überleben.</summary>
@@ -60,6 +61,11 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
             // Finding gelöscht (Review-Kaskade) ⇒ Eintrag bleibt, nur der Anker wird null.
             e.HasOne<ReviewFindingEntity>().WithMany()
                 .HasForeignKey(x => x.SourceFindingId).OnDelete(DeleteBehavior.SetNull);
+        });
+        b.Entity<ProjectGuidelinesEntity>(e =>
+        {
+            e.HasIndex(x => x.ProjectId).IsUnique();     // genau ein Profil pro Projekt
+            e.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<SettingEntity>(e => e.HasKey(x => x.Key));
         // Id wird von der App gesetzt (immer 1) — kein Autoincrement, hält die Migration provider-neutral.
