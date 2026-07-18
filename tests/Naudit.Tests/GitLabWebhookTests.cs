@@ -136,6 +136,20 @@ public class GitLabWebhookTests
     }
 
     [Fact]
+    public void ToCommentReply_null_whenAuthorUsernameMissing()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = null },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes { Note = "@naudit fp", NoteableType = "MergeRequest", DiscussionId = "abc123" },
+        };
+        Assert.Null(GitLabWebhook.ToCommentReply(payload));
+    }
+
+    [Fact]
     public void ToCommentReply_null_whenDiscussionIdMissing()
     {
         var payload = new GitLabNoteEvent

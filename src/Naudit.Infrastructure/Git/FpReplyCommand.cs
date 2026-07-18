@@ -11,9 +11,10 @@ public sealed record ParsedFpCommand(string? Reason);
 /// Plattform-agnostisch — GitHub- wie GitLab-Kommentar-Bodies laufen hier durch.</summary>
 public static class FpReplyCommand
 {
-    // ^ am (getrimmten) Zeilenanfang; fp|false-positive als ganzes Wort (\b); Rest = Grund.
+    // ^ am (getrimmten) Zeilenanfang; fp|false-positive muss durch Whitespace vom Grund getrennt sein
+    // (oder die Zeile endet direkt danach) — kein \b nötig, [ \t]+-oder-Ende lehnt "fp-something" schon ab.
     private static readonly Regex Pattern = new(
-        @"^@naudit\s+(?:fp|false-positive)\b[ \t]*(.*)$",
+        @"^@naudit\s+(?:fp|false-positive)(?:[ \t]+(.*))?$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public static ParsedFpCommand? TryParse(string? body)

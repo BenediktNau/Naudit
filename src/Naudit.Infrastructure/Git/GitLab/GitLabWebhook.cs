@@ -50,7 +50,12 @@ public static class GitLabWebhook
         if (cmd is null)
             return null;
 
+        // Ohne Autor-Username ist die Antwort nicht zuordenbar (Autorisierung/Protokoll brauchen ihn) —
+        // nicht mit einer leeren Identität weiterlaufen.
+        if (string.IsNullOrEmpty(user.Username))
+            return null;
+
         return new ReviewCommentReply(project.Id.ToString(), mr.Iid, attrs.DiscussionId, cmd.Reason,
-            user.Username ?? "", AuthorAssociation: null, user.Id);
+            user.Username, AuthorAssociation: null, user.Id);
     }
 }

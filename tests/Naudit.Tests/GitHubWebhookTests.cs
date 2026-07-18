@@ -220,6 +220,26 @@ public class GitHubWebhookTests
     }
 
     [Fact]
+    public void ToCommentReply_null_whenAuthorLoginMissing()
+    {
+        var payload = new GitHubReviewCommentEvent
+        {
+            Action = "created",
+            Repository = new GitHubRepository { FullName = "acme/widgets" },
+            PullRequest = new GitHubPullRequestRef { Number = 7 },
+            Comment = new GitHubReviewCommentPayload
+            {
+                Id = 999,
+                InReplyToId = 555,
+                Body = "@naudit fp",
+                User = new GitHubUser { Login = null },
+                AuthorAssociation = "MEMBER",
+            },
+        };
+        Assert.Null(GitHubWebhook.ToCommentReply("pull_request_review_comment", payload));
+    }
+
+    [Fact]
     public void ToCommentReply_null_whenActionNotCreated()
     {
         var payload = new GitHubReviewCommentEvent

@@ -34,9 +34,9 @@ public static class MemoryEndpoints
             if (!await CurrentAccount.CanSeeProjectAsync(db, acct, finding.Review.ProjectId, ctx.RequestAborted))
                 return Results.Forbid();
 
-            var entry = await Naudit.Infrastructure.Memory.MemoryEntryWriter.MarkFalsePositiveAsync(
+            var result = await Naudit.Infrastructure.Memory.MemoryEntryWriter.MarkFalsePositiveAsync(
                 db, finding, body?.Reason, acct.Username, ctx.RequestAborted);
-            return Results.Ok(new { id = entry.Id, active = entry.Active });
+            return Results.Ok(new { id = result.Entry.Id, active = result.Entry.Active });
         });
 
         // Undo (Fehlklick): deaktivieren statt löschen. Autorisierung wie bei POST am FINDING

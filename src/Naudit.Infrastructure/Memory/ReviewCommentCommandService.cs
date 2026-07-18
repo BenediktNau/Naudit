@@ -43,7 +43,18 @@ public sealed class ReviewCommentCommandService(
                 reply.ReplyToCommentId, reply.ProjectId, findings.Count);
 
         var finding = findings[0];
-        await MemoryEntryWriter.MarkFalsePositiveAsync(db, finding, reply.Reason, reply.AuthorLogin, ct);
+        var result = await MemoryEntryWriter.MarkFalsePositiveAsync(db, finding, reply.Reason, reply.AuthorLogin, ct);
+
+        // Redelivery-Schutz: nur bei einem ECHTEN Zustandswechsel (neu angelegt / reaktiviert) bestätigen —
+        // sonst würde ein erneut zugestelltes Webhook-Event (oder eine zweite Antwort auf ein bereits
+        // gemerktes Finding) eine weitere Bestätigungs-Antwort im Thread posten.
+        if (!result.NewlyMarked)
+        {
+            logger.LogInformation("Finding {FindingId} war bereits als FP markiert — keine erneute Bestätigung.",
+                finding.Id);
+            return;
+        }
+
         logger.LogInformation("Finding {FindingId} auf {Project}!{Iid} von {Author} als False Positive gemerkt.",
             finding.Id, reply.ProjectId, reply.MergeRequestIid, reply.AuthorLogin);
 

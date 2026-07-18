@@ -197,4 +197,35 @@ public class WebhookEndpointTests : IClassFixture<TestAppFactory>
         var response = await client.SendAsync(message);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GitLabWebhook_note_malformedTypes_returnsOk_notFiveHundred()
+    {
+        var client = _factory
+            .WithWebHostBuilder(b =>
+            {
+                b.UseSetting("Naudit:Git:Platform", "GitLab");
+                b.UseSetting("Naudit:GitLab:WebhookSecret", "test-secret");
+            })
+            .CreateClient();
+
+        // object_kind passiert den Peek (GitLabWebhookPayload liest discussion_id nicht), aber
+        // discussion_id als ZAHL lässt den GitLabNoteEvent-Deserialize (string?) werfen — der Guard
+        // muss das fangen und trotzdem 200 liefern (nicht 500), Invariante "200 nach Signatur".
+        var message = new HttpRequestMessage(HttpMethod.Post, "/webhook/gitlab")
+        {
+            Content = JsonContent.Create(new
+            {
+                object_kind = "note",
+                user = new { id = 42, username = "bob" },
+                project = new { id = 7 },
+                merge_request = new { iid = 13 },
+                object_attributes = new { note = "@naudit fp", noteable_type = "MergeRequest", discussion_id = 123 },
+            }),
+        };
+        message.Headers.Add("X-Gitlab-Token", "test-secret");
+
+        var response = await client.SendAsync(message);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
 }

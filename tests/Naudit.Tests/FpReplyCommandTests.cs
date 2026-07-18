@@ -44,6 +44,7 @@ public class FpReplyCommandTests
     [InlineData("fp")]                       // kein Mention
     [InlineData("@naudit please fix")]       // kein fp-Token
     [InlineData("@naudit fpx it")]           // Wortgrenze: fpx != fp
+    [InlineData("@naudit fp-something")]     // Grund muss durch Whitespace getrennt sein, nicht direkt anschließen
     [InlineData("thanks @naudit fp")]        // Mention nicht am Zeilenanfang
     public void TryParse_returnsNull_forNonCommand(string? body)
         => Assert.Null(FpReplyCommand.TryParse(body));

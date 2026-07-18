@@ -99,6 +99,8 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
         builder.Services.AddNauditInfrastructure(builder.Configuration);
         builder.Services.AddSingleton<IReviewQueue, ReviewQueue>();
         builder.Services.AddHostedService<ReviewBackgroundService>();
+        builder.Services.AddSingleton<IFpCommandQueue, FpCommandQueue>();
+        builder.Services.AddHostedService<FpCommandBackgroundService>();
     }
 
     var auth = builder.Services
@@ -237,7 +239,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
         if (platform == GitPlatformKind.GitHub)
         {
-            app.MapPost("/webhook/github", async (HttpContext context, IReviewQueue queue, IOptions<GitHubOptions> gitHubOptions) =>
+            app.MapPost("/webhook/github", async (HttpContext context, IReviewQueue queue, IFpCommandQueue fpQueue, IOptions<GitHubOptions> gitHubOptions) =>
             {
                 // Rohen Body lesen (Bytes) — die HMAC-Signatur geht über die exakten Bytes.
                 using var ms = new MemoryStream();
@@ -250,11 +252,17 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
                 var eventType = context.Request.Headers["X-GitHub-Event"].ToString();
 
-                // FP-Antwort-Kommando: Antwort auf einen Naudit-Inline-Kommentar. Synchron behandeln
-                // (kein Review-Queue-Job), immer 200 nach der Signaturprüfung.
+                // FP-Antwort-Kommando: Antwort auf einen Naudit-Inline-Kommentar. In die Queue statt
+                // synchron verarbeiten — immer 200 nach der Signaturprüfung.
                 if (eventType == "pull_request_review_comment")
                 {
-                    var commentEvent = JsonSerializer.Deserialize<GitHubReviewCommentEvent>(rawBody);
+                    GitHubReviewCommentEvent? commentEvent;
+                    try { commentEvent = JsonSerializer.Deserialize<GitHubReviewCommentEvent>(rawBody); }
+                    catch (JsonException ex)
+                    {
+                        app.Logger.LogWarning(ex, "GitHub-Comment-Event nicht deserialisierbar — ignoriert.");
+                        return Results.Ok();
+                    }
                     var reply = commentEvent is null ? null : GitHubWebhook.ToCommentReply(eventType, commentEvent);
                     if (reply is null)
                         return Results.Ok();   // kein "@naudit fp"-Kommando / keine Antwort
@@ -263,15 +271,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
                     if (!await commentGate.IsAllowedAsync(reply.ProjectId, context.RequestAborted))
                         return Results.Ok();
 
-                    try
-                    {
-                        var handler = context.RequestServices.GetRequiredService<Naudit.Infrastructure.Memory.ReviewCommentCommandService>();
-                        await handler.HandleAsync(reply, context.RequestAborted);
-                    }
-                    catch (Exception ex)
-                    {
-                        app.Logger.LogWarning(ex, "FP-Kommando-Verarbeitung (GitHub) fehlgeschlagen.");
-                    }
+                    await fpQueue.EnqueueAsync(reply, context.RequestAborted);
                     return Results.Ok();
                 }
 
@@ -298,7 +298,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
         }
         else // GitPlatformKind.GitLab
         {
-            app.MapPost("/webhook/gitlab", async (HttpContext context, IReviewQueue queue, IOptions<GitLabOptions> gitLabOptions) =>
+            app.MapPost("/webhook/gitlab", async (HttpContext context, IReviewQueue queue, IFpCommandQueue fpQueue, IOptions<GitLabOptions> gitLabOptions) =>
             {
                 var secret = gitLabOptions.Value.WebhookSecret;
                 var token = context.Request.Headers["X-Gitlab-Token"].ToString();
@@ -310,11 +310,27 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
                 using var ms = new MemoryStream();
                 await context.Request.Body.CopyToAsync(ms);
                 var rawBody = ms.ToArray();
-                var objectKind = JsonSerializer.Deserialize<GitLabWebhookPayload>(rawBody)?.ObjectKind;
+
+                string? objectKind;
+                try { objectKind = JsonSerializer.Deserialize<GitLabWebhookPayload>(rawBody)?.ObjectKind; }
+                catch (JsonException ex)
+                {
+                    app.Logger.LogWarning(ex, "GitLab-Webhook-Body nicht deserialisierbar — ignoriert.");
+                    return Results.Ok();
+                }
 
                 if (objectKind == "note")
                 {
-                    var noteEvent = JsonSerializer.Deserialize<GitLabNoteEvent>(rawBody);
+                    // Eigener Guard: der Note-Event liest ANDERE Felder als der object_kind-Peek
+                    // (discussion_id/user/merge_request) — ein typ-falsches Feld passiert den Peek,
+                    // würde hier aber werfen. Kaputter, aber signatur-gültiger Body ⇒ 200 statt 500.
+                    GitLabNoteEvent? noteEvent;
+                    try { noteEvent = JsonSerializer.Deserialize<GitLabNoteEvent>(rawBody); }
+                    catch (JsonException ex)
+                    {
+                        app.Logger.LogWarning(ex, "GitLab-Note-Event nicht deserialisierbar — ignoriert.");
+                        return Results.Ok();
+                    }
                     var reply = noteEvent is null ? null : GitLabWebhook.ToCommentReply(noteEvent);
                     if (reply is null)
                         return Results.Ok();   // kein "@naudit fp"-Kommando / keine MR-Antwort
@@ -323,15 +339,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
                     if (!await commentGate.IsAllowedAsync(reply.ProjectId, context.RequestAborted))
                         return Results.Ok();
 
-                    try
-                    {
-                        var handler = context.RequestServices.GetRequiredService<Naudit.Infrastructure.Memory.ReviewCommentCommandService>();
-                        await handler.HandleAsync(reply, context.RequestAborted);
-                    }
-                    catch (Exception ex)
-                    {
-                        app.Logger.LogWarning(ex, "FP-Kommando-Verarbeitung (GitLab) fehlgeschlagen.");
-                    }
+                    await fpQueue.EnqueueAsync(reply, context.RequestAborted);
                     return Results.Ok();
                 }
 

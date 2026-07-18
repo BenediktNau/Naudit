@@ -141,6 +141,23 @@ public class ReviewCommentCommandServiceTests
     }
 
     [Fact]
+    public async Task HandleAsync_secondCall_doesNotPostSecondConfirmation()
+    {
+        // Redelivery-Schutz (Fix 3): ein bereits als FP markiertes Finding löst bei einem erneuten
+        // Kommando keine zweite Bestätigungs-Antwort im Thread aus.
+        using var db = NewDb();
+        await SeedAsync(db, "acme/widgets", "555");
+        var responder = new FakeResponder(authorized: true);
+        var svc = new ReviewCommentCommandService(db, responder, NullLogger<ReviewCommentCommandService>.Instance);
+
+        await svc.HandleAsync(Reply("acme/widgets", "555"));
+        Assert.Single(responder.Replies);   // die erste Antwort bestätigt
+
+        await svc.HandleAsync(Reply("acme/widgets", "555"));
+        Assert.Single(responder.Replies);   // die zweite bleibt aus — Replies-Zähler unverändert
+    }
+
+    [Fact]
     public async Task HandleAsync_ambiguousCommentId_anchorsToFirstFindingById_andCreatesOnlyOneEntry()
     {
         using var db = NewDb();

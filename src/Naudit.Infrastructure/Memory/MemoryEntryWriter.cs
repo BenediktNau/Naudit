@@ -14,12 +14,22 @@ public static class MemoryEntryWriter
     /// — dort wird deshalb gekappt statt abgelehnt. Beide Schreibpfade teilen dieselbe Grenze.</summary>
     public const int MaxReasonLength = 4000;
 
-    private static string Cap(string s) => s.Length <= MaxReasonLength ? s : s[..MaxReasonLength];
+    private static string Cap(string s)
+    {
+        if (s.Length <= MaxReasonLength)
+            return s;
+        var end = MaxReasonLength;
+        // Kein Surrogat-Paar (z. B. Emoji) zerschneiden — sonst bleibt ein ungültiges lone surrogate stehen.
+        if (char.IsHighSurrogate(s[end - 1]))
+            end--;
+        return s[..end];
+    }
 
-    public static async Task<MemoryEntryEntity> MarkFalsePositiveAsync(
+    public static async Task<FpMarkResult> MarkFalsePositiveAsync(
         NauditDbContext db, ReviewFindingEntity finding, string? reason, string createdBy, CancellationToken ct = default)
     {
         var entry = await db.MemoryEntries.SingleOrDefaultAsync(m => m.SourceFindingId == finding.Id, ct);
+        var newlyMarked = entry is null || !entry.Active;
         if (entry is null)
         {
             entry = new MemoryEntryEntity
@@ -49,11 +59,17 @@ public static class MemoryEntryWriter
             // der Unique-Index lässt unser Insert scheitern. Idempotent behandeln.
             db.ChangeTracker.Clear();
             entry = await db.MemoryEntries.SingleAsync(m => m.SourceFindingId == finding.Id, ct);
+            newlyMarked = !entry.Active;
             entry.Active = true;
             if (!string.IsNullOrWhiteSpace(reason))
                 entry.Reason = Cap(reason.Trim());
             await db.SaveChangesAsync(ct);
         }
-        return entry;
+        return new FpMarkResult(entry, newlyMarked);
     }
 }
+
+/// <summary>Ergebnis eines FP-Markier-Versuchs: der (angelegte oder wiederverwendete) Eintrag, und ob
+/// DIESER Aufruf ihn von inaktiv/nicht-existent zu aktiv überführt hat (Anker für Duplicate-Reply-
+/// Unterdrückung im "@naudit fp"-Kommando — die WebUI ignoriert das Flag).</summary>
+public readonly record struct FpMarkResult(MemoryEntryEntity Entry, bool NewlyMarked);

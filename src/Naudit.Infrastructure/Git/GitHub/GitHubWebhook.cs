@@ -68,7 +68,12 @@ public static class GitHubWebhook
         if (cmd is null)
             return null;
 
+        // Ohne Autor-Login ist die Antwort nicht zuordenbar (Autorisierung/Protokoll brauchen ihn) —
+        // nicht mit einer leeren Identität weiterlaufen.
+        if (string.IsNullOrEmpty(payload.Comment.User?.Login))
+            return null;
+
         return new ReviewCommentReply(repo, pr.Number, replyTo.ToString(), cmd.Reason,
-            payload.Comment.User?.Login ?? "", payload.Comment.AuthorAssociation, AuthorId: null);
+            payload.Comment.User.Login, payload.Comment.AuthorAssociation, AuthorId: null);
     }
 }
