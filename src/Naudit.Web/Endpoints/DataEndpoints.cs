@@ -110,6 +110,7 @@ public static class DataEndpoints
                     line = f.Line,
                     text = f.Text,
                     falsePositive = fpIds.Contains(f.Id),
+                    resolutionStatus = f.ResolutionStatus,
                 }),
             });
         });
