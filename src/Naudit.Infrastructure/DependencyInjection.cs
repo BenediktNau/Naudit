@@ -155,6 +155,11 @@ public static class DependencyInjection
                     // Auth wird pro Request in GitHubPlatform gesetzt (Per-Projekt-Token), nicht als Default-Header.
                     ConfigureGitHubClient(http, opt.BaseUrl);
                 });
+                // FP-Antwort-Kommando: eigener typed Client (gleiche Basis-Header wie die API),
+                // Auth pro Request in der Impl.
+                services.AddHttpClient<IReviewCommentResponder, GitHubCommentResponder>((sp, http) =>
+                    ConfigureGitHubClient(http, sp.GetRequiredService<IOptions<GitHubOptions>>().Value.BaseUrl));
+
                 // Autor-Session-Routing: der Login steht auf GitHub schon im Request (Webhook-Mapping).
                 services.AddSingleton<IAuthorLoginResolver>(new PassthroughAuthorLoginResolver());
                 break;
@@ -175,8 +180,18 @@ public static class DependencyInjection
                     var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                 });
+
+                // FP-Antwort-Kommando: eigener typed Client auf denselben GitLab-Host.
+                services.AddHttpClient<IReviewCommentResponder, GitLabCommentResponder>((sp, http) =>
+                {
+                    var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
+                    http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
+                });
                 break;
         }
+
+        // FP-Antwort-Kommando-Orchestrator (scoped — nutzt DbContext + den plattform-spezifischen Responder).
+        services.AddScoped<Naudit.Infrastructure.Memory.ReviewCommentCommandService>();
 
         // SAST/SCA-Grounding: immer die Infrastruktur-Naht registrieren (harmlos wenn ungenutzt),
         // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.

@@ -64,3 +64,36 @@ public sealed record GitLabDiscussionResponse(
     [property: JsonPropertyName("notes")] List<GitLabDiscussionNote>? Notes);
 
 public sealed record GitLabDiscussionNote([property: JsonPropertyName("id")] long Id);
+
+/// <summary>Payload eines GitLab Note-Hooks (object_kind: note) — die Antwort/der Kommentar.</summary>
+public sealed class GitLabNoteEvent
+{
+    [JsonPropertyName("object_kind")] public string? ObjectKind { get; set; }
+    [JsonPropertyName("user")] public GitLabNoteUser? User { get; set; }
+    [JsonPropertyName("project")] public GitLabProject? Project { get; set; }
+    [JsonPropertyName("object_attributes")] public GitLabNoteAttributes? ObjectAttributes { get; set; }
+    [JsonPropertyName("merge_request")] public GitLabNoteMergeRequest? MergeRequest { get; set; }
+}
+
+public sealed class GitLabNoteUser
+{
+    [JsonPropertyName("id")] public long Id { get; set; }
+    [JsonPropertyName("username")] public string? Username { get; set; }
+}
+
+public sealed class GitLabNoteAttributes
+{
+    [JsonPropertyName("note")] public string? Note { get; set; }
+    [JsonPropertyName("noteable_type")] public string? NoteableType { get; set; }
+    // Discussion-Id der Antwort — identisch zur Discussion, in der Naudits Finding-Kommentar steckt.
+    [JsonPropertyName("discussion_id")] public string? DiscussionId { get; set; }
+}
+
+public sealed class GitLabNoteMergeRequest
+{
+    [JsonPropertyName("iid")] public int Iid { get; set; }
+}
+
+/// <summary>Ein Projekt-Mitglied aus GET …/members/all/{user_id} — nur das Zugriffslevel zählt
+/// (Developer=30, Maintainer=40, Owner=50).</summary>
+public sealed record GitLabMember([property: JsonPropertyName("access_level")] int AccessLevel);

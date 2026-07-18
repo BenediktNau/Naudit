@@ -34,45 +34,9 @@ public static class MemoryEndpoints
             if (!await CurrentAccount.CanSeeProjectAsync(db, acct, finding.Review.ProjectId, ctx.RequestAborted))
                 return Results.Forbid();
 
-            // Idempotent: der Eintrag zum selben Finding wird reaktiviert/aktualisiert, nie dupliziert.
-            var entry = await db.MemoryEntries.SingleOrDefaultAsync(m => m.SourceFindingId == id, ctx.RequestAborted);
-            if (entry is null)
-            {
-                entry = new MemoryEntryEntity
-                {
-                    ProjectId = finding.Review.ProjectId,
-                    Kind = "FalsePositive",
-                    File = finding.File,
-                    Text = finding.Text,
-                    SourceFindingId = id,
-                    CreatedBy = acct.Username,
-                    CreatedAt = DateTime.UtcNow,
-                    Active = true,
-                };
-                db.MemoryEntries.Add(entry);
-            }
-            entry.Active = true;
-            if (!string.IsNullOrWhiteSpace(body?.Reason))
-                entry.Reason = body!.Reason!.Trim();
-
-            try
-            {
-                await db.SaveChangesAsync(ctx.RequestAborted);
-            }
-            catch (DbUpdateException) when (entry.Id == 0)
-            {
-                // Race mit parallelem POST (Doppelklick): beide sahen entry==null, der andere legte
-                // zuerst an — der Unique-Index auf SourceFindingId lässt unser Insert scheitern.
-                // Idempotent behandeln: fehlgeschlagenen Insert verwerfen, den nun existierenden
-                // Eintrag laden und die eigene Reaktivierung/Reason anwenden (statt 500).
-                db.ChangeTracker.Clear();
-                entry = await db.MemoryEntries.SingleAsync(m => m.SourceFindingId == id, ctx.RequestAborted);
-                entry.Active = true;
-                if (!string.IsNullOrWhiteSpace(body?.Reason))
-                    entry.Reason = body!.Reason!.Trim();
-                await db.SaveChangesAsync(ctx.RequestAborted);
-            }
-            return Results.Ok(new { id = entry.Id, active = entry.Active });
+            var result = await Naudit.Infrastructure.Memory.MemoryEntryWriter.MarkFalsePositiveAsync(
+                db, finding, body?.Reason, acct.Username, ctx.RequestAborted);
+            return Results.Ok(new { id = result.Entry.Id, active = result.Entry.Active });
         });
 
         // Undo (Fehlklick): deaktivieren statt löschen. Autorisierung wie bei POST am FINDING

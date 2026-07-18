@@ -127,4 +127,22 @@ public sealed class GitLabHookCreatorTests
                 "https://gitlab.example.com", "t", "https://n.example/webhook/gitlab", "s",
                 [new GitLabHookTarget(GitLabHookTargetKind.Project, "1")], cts.Token));
     }
+
+    [Fact]
+    public async Task CreateAsync_requestsNoteEvents_forFpReplyCommand()
+    {
+        // GET (Idempotenz-Liste) leer, dann POST 201.
+        var handler = new StubHttpMessageHandler(req =>
+            req.Method == HttpMethod.Get
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]", Encoding.UTF8, "application/json") }
+                : new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{}", Encoding.UTF8, "application/json") });
+        var creator = new GitLabHookCreator(new HttpClient(handler));
+
+        await creator.CreateAsync("https://gitlab.example.com", "tok", "https://naudit.example.com/webhook/gitlab", "secret",
+            new[] { new GitLabHookTarget(GitLabHookTargetKind.Project, "7") });
+
+        var post = handler.Calls.Single(c => c.Method == HttpMethod.Post);
+        Assert.Contains("\"note_events\":true", post.Body);
+        Assert.Contains("\"merge_requests_events\":true", post.Body);   // unverändert
+    }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitLab;
 using Xunit;
 
@@ -75,5 +76,90 @@ public class GitLabWebhookTests
         };
 
         Assert.Null(GitLabWebhook.ToReviewRequest(payload)!.AuthorLogin);
+    }
+
+    [Fact]
+    public void ToCommentReply_mapsFpReply_onMergeRequestNote()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = "bob" },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes
+            {
+                Note = "@naudit fp legacy pattern",
+                NoteableType = "MergeRequest",
+                DiscussionId = "abc123",
+            },
+        };
+
+        var reply = GitLabWebhook.ToCommentReply(payload);
+
+        Assert.NotNull(reply);
+        Assert.Equal("7", reply!.ProjectId);
+        Assert.Equal(13, reply.MergeRequestIid);
+        Assert.Equal("abc123", reply.ReplyToCommentId);  // discussion_id → matcht PlatformCommentId
+        Assert.Equal("legacy pattern", reply.Reason);
+        Assert.Equal("bob", reply.AuthorLogin);
+        Assert.Null(reply.AuthorAssociation);            // GitLab: keine Association
+        Assert.Equal(42, reply.AuthorId);                // GitLab: user.id für den Mitglieds-Lookup
+    }
+
+    [Fact]
+    public void ToCommentReply_null_whenNoteableNotMergeRequest()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = "bob" },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes { Note = "@naudit fp", NoteableType = "Issue", DiscussionId = "abc123" },
+        };
+        Assert.Null(GitLabWebhook.ToCommentReply(payload));
+    }
+
+    [Fact]
+    public void ToCommentReply_null_whenNotACommand()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = "bob" },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes { Note = "thanks, merging", NoteableType = "MergeRequest", DiscussionId = "abc123" },
+        };
+        Assert.Null(GitLabWebhook.ToCommentReply(payload));
+    }
+
+    [Fact]
+    public void ToCommentReply_null_whenAuthorUsernameMissing()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = null },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes { Note = "@naudit fp", NoteableType = "MergeRequest", DiscussionId = "abc123" },
+        };
+        Assert.Null(GitLabWebhook.ToCommentReply(payload));
+    }
+
+    [Fact]
+    public void ToCommentReply_null_whenDiscussionIdMissing()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = "bob" },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes { Note = "@naudit fp", NoteableType = "MergeRequest", DiscussionId = null },
+        };
+        Assert.Null(GitLabWebhook.ToCommentReply(payload));
     }
 }
