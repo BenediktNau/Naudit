@@ -92,7 +92,16 @@ public sealed class DistillingReviewGuidelines(
                 stored.SourcesChangedAt = null;
                 stored.UpdatedBy = "naudit";
             }
-            await db.SaveChangesAsync(ct);       // auch ein LEERES Destillat speichern: der Hash verhindert Re-Destillieren
+            try
+            {
+                await db.SaveChangesAsync(ct);   // auch ein leeres Destillat speichern: der Hash verhindert Re-Destillieren
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // Speichern fehlgeschlagen (z. B. Concurrent-First-Store-Race auf dem Unique-Index, DB kurz weg):
+                // das frische, bereits per LLM bezahlte Profil trotzdem für DIESES Review nutzen, nur nicht persistiert.
+                logger.LogWarning(ex, "Guidelines-Speichern für {Project} fehlgeschlagen — Profil dieses Reviews genutzt, nicht persistiert.", projectId);
+            }
             return Emit(profile);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -123,8 +132,18 @@ public sealed class DistillingReviewGuidelines(
         };
         var response = await chatClient.GetResponseAsync(messages, new ChatOptions(), ct);
         var profile = response.Text.Trim();
-        var cap = options.Guidelines.MaxProfileChars;
-        return profile.Length <= cap ? profile : profile[..cap];
+        return CapProfile(profile, options.Guidelines.MaxProfileChars);
+    }
+
+    private static string CapProfile(string s, int cap)
+    {
+        if (s.Length <= cap)
+            return s;
+        var end = cap;
+        // Kein Surrogat-Paar (z. B. Emoji) zerschneiden — sonst bleibt ein ungültiges lone surrogate stehen.
+        if (char.IsHighSurrogate(s[end - 1]))
+            end--;
+        return s[..end];
     }
 
     // Deterministische Sammlung (stabile Reihenfolge ⇒ stabiler Hash): exakte Namen in Sources-Reihenfolge,

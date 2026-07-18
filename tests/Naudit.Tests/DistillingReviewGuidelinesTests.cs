@@ -32,6 +32,22 @@ public class DistillingReviewGuidelinesTests : IDisposable
         public void Dispose() { }
     }
 
+    // Ruft während des LLM-Calls einen Callback auf — simuliert deterministisch eine konkurrierende
+    // Schreib-Race zwischen dem initialen "stored"-Lesen und dem eigenen SaveChangesAsync.
+    private sealed class RaceInsertingChatClient(string response, Func<Task> onCall) : IChatClient
+    {
+        public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            await onCall();
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, response));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
     private readonly string _dir = Directory.CreateTempSubdirectory("naudit-guidelines-test").FullName;
     private readonly SqliteConnection _conn = new("DataSource=:memory:");
 
@@ -228,5 +244,54 @@ public class DistillingReviewGuidelinesTests : IDisposable
         Assert.DoesNotContain("xxxx", chat.LastPrompt);          // übergroße Quelle nicht im Prompt
         Assert.Contains("short rule", chat.LastPrompt);
         Assert.Equal("0123456789", result);                      // Profil auf MaxProfileChars gedeckelt
+    }
+
+    [Fact]
+    public async Task StoreFailure_stillReturnsFreshProfile()
+    {
+        using var db = NewDb();
+        var project = await SeedProjectAsync(db);
+        File.WriteAllText(Path.Combine(_dir, "CLAUDE.md"), "Rule A.");
+
+        // Simuliert eine Concurrent-First-Store-Race: zwischen dem "stored == null"-Lesen (vor dem
+        // LLM-Call) und dem eigenen SaveChangesAsync legt ein anderer Prozess bereits eine Zeile mit
+        // demselben ProjectId an — der Unique-Index lässt unser SaveChangesAsync scheitern.
+        var chat = new RaceInsertingChatClient("- Rule A.", async () =>
+        {
+            using var racer = NewDb();
+            racer.ProjectGuidelines.Add(new ProjectGuidelinesEntity
+            {
+                ProjectId = project.Id, Markdown = "- racer wrote first", SourceHash = "racer-hash",
+                DistilledAt = DateTime.UtcNow, UpdatedBy = "naudit",
+            });
+            await racer.SaveChangesAsync();
+        });
+
+        var result = await Sut(db, chat).GetAsync("acme/widgets", _dir);
+
+        Assert.Equal("- Rule A.", result);   // frisches, bereits per LLM bezahltes Profil trotz Store-Fehler
+        var row = await db.ProjectGuidelines.SingleAsync();
+        Assert.Equal("- racer wrote first", row.Markdown);   // Racer hat zuerst gespeichert, unser Save ist gescheitert
+    }
+
+    [Fact]
+    public async Task Distillate_cappedOnSurrogateBoundary()
+    {
+        using var db = NewDb();
+        await SeedProjectAsync(db);
+        var options = new ReviewOptions();
+        const int cap = 10;
+        options.Guidelines.MaxProfileChars = cap;
+        File.WriteAllText(Path.Combine(_dir, "CLAUDE.md"), "Rule A.");
+        // Deckelt exakt auf ein High-Surrogate eines Emoji (Surrogat-Paar) — darf nicht mittendrin
+        // zerschnitten werden, sonst bleibt ein ungültiges lone surrogate stehen.
+        var response = new string('a', cap - 1) + "😀";
+        var chat = new RecordingChatClient(response);
+
+        var result = await Sut(db, chat, options).GetAsync("acme/widgets", _dir);
+
+        Assert.NotNull(result);
+        Assert.Equal(cap - 1, result.Length);
+        Assert.False(char.IsHighSurrogate(result[^1]));
     }
 }
