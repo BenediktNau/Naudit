@@ -198,3 +198,11 @@ export type MemoryEntryDto = {
   sourceFindingId: number | null;
 };
 export type ProjectMemoryDto = { entries: MemoryEntryDto[] };
+
+export type ProjectGuidelinesDto = {
+  markdown: string | null;
+  distilledAt: string | null;
+  manuallyEdited: boolean;
+  sourcesChangedAt: string | null;
+  updatedBy: string | null;
+};
