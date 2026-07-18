@@ -18,6 +18,9 @@ public sealed class ReviewOptions
 
     /// <summary>Projekt-Gedächtnis: FPs + Konventionen als Prompt-Guidance (Naudit:Review:Memory).</summary>
     public ReviewMemoryOptions Memory { get; set; } = new();
+
+    /// <summary>Architektur-Profil: destillierte Projekt-Guidelines (Naudit:Review:Guidelines).</summary>
+    public ReviewGuidelinesOptions Guidelines { get; set; } = new();
 }
 
 /// <summary>Ab wann ein Review blockt (request_changes). Default: nur bestätigtes High/Critical.</summary>
@@ -65,4 +68,20 @@ public sealed class ReviewMemoryOptions
 
     /// <summary>Deckel für die Prompt-Sektion — Konventionen zuerst, dann FPs, je neueste zuerst.</summary>
     public int MaxEntries { get; set; } = 50;
+}
+
+/// <summary>Architektur-Profil. Default AN; Enabled=false ⇒ NullReviewGuidelines (heutiges Verhalten).</summary>
+public sealed class ReviewGuidelinesOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Deckel für den Destillat-Input (Summe der Quelldateien; übergroße Dateien werden ganz übersprungen).</summary>
+    public int MaxSourceChars { get; set; } = 60_000;
+
+    /// <summary>Deckel für das gespeicherte/eingespeiste Profil.</summary>
+    public int MaxProfileChars { get; set; } = 4_000;
+
+    /// <summary>Quellen relativ zum Repo-Root; Reihenfolge = Priorität. Exakte Namen oder das Muster "dir/**/*.md".</summary>
+    public List<string> Sources { get; set; } =
+        ["CLAUDE.md", "AGENTS.md", "README.md", "CONTRIBUTING.md", "docs/**/*.md"];
 }
