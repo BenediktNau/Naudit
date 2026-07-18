@@ -36,6 +36,9 @@ public static class GuidelinesEndpoints
         {
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Forbid();
+            if (!await db.Projects.AnyAsync(p => p.Id == id, ctx.RequestAborted)) return Results.NotFound();
+            if (!await CurrentAccount.CanSeeProjectAsync(db, acct, id, ctx.RequestAborted)) return Results.Forbid();
+
             // Recovery-sicher: ReviewOptions kommt aus AddNauditInfrastructure und fehlt im Recovery-Modus.
             var cap = (ctx.RequestServices.GetService<ReviewOptions>() ?? new ReviewOptions()).Guidelines.MaxProfileChars;
             var markdown = body.Markdown?.Trim();
@@ -43,8 +46,6 @@ public static class GuidelinesEndpoints
                 return Results.BadRequest(new { error = "markdown must not be empty" });
             if (markdown.Length > cap)
                 return Results.BadRequest(new { error = $"markdown must not exceed {cap} characters" });
-            if (!await db.Projects.AnyAsync(p => p.Id == id, ctx.RequestAborted)) return Results.NotFound();
-            if (!await CurrentAccount.CanSeeProjectAsync(db, acct, id, ctx.RequestAborted)) return Results.Forbid();
 
             var g = await db.ProjectGuidelines.SingleOrDefaultAsync(x => x.ProjectId == id, ctx.RequestAborted);
             if (g is null)
@@ -63,7 +64,24 @@ public static class GuidelinesEndpoints
             }
             g.ManuallyEdited = true;          // Kuration gewinnt: Auto-Refresh stoppt ab jetzt
             g.SourcesChangedAt = null;
-            await db.SaveChangesAsync(ctx.RequestAborted);
+            try
+            {
+                await db.SaveChangesAsync(ctx.RequestAborted);
+            }
+            catch (DbUpdateException) when (g.Id == 0)
+            {
+                // Race mit parallelem Erst-Write: beide sahen g==null, der andere legte zuerst an —
+                // der Unique-Index auf ProjectId lässt unser Insert scheitern. Idempotent behandeln:
+                // fehlgeschlagenen Insert verwerfen, den nun existierenden Eintrag laden und dieselbe
+                // Mutation als Update anwenden (statt 500).
+                db.ChangeTracker.Clear();
+                g = await db.ProjectGuidelines.SingleAsync(x => x.ProjectId == id, ctx.RequestAborted);
+                g.Markdown = markdown;
+                g.UpdatedBy = acct.Username;
+                g.ManuallyEdited = true;
+                g.SourcesChangedAt = null;
+                await db.SaveChangesAsync(ctx.RequestAborted);
+            }
             return Results.Ok(new { manuallyEdited = true });
         });
 

@@ -203,6 +203,14 @@ public class GuidelinesEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_unknownProject_returns404()
+    {
+        var (client, _) = await AdminApp();
+        var resp = await client.PutAsJsonAsync("/api/projects/99999/guidelines", new { markdown = "# Guidelines\nUse tabs." });
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task Put_foreignProject_returns403()
     {
         var (_, factory) = await AdminApp();
