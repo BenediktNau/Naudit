@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Naudit.Core.Models;
+using Naudit.Infrastructure.Git;
 
 namespace Naudit.Infrastructure.Git.GitHub;
 
@@ -44,5 +45,30 @@ public static class GitHubWebhook
 
         // Längen-Check zuerst: FixedTimeEquals wirft bei ungleicher Länge; computed ist immer 32 Byte und nicht geheim.
         return expected.Length == computed.Length && CryptographicOperations.FixedTimeEquals(computed, expected);
+    }
+
+    /// <summary>Mappt ein pull_request_review_comment-Event auf ein FP-Kommando, oder null wenn es
+    /// keine Antwort auf einen bestehenden Kommentar mit gültigem "@naudit fp"-Body ist.</summary>
+    public static ReviewCommentReply? ToCommentReply(string? eventType, GitHubReviewCommentEvent payload)
+    {
+        if (eventType != "pull_request_review_comment")
+            return null;
+        if (payload.Action != "created")
+            return null;
+        // Nur Antworten (in_reply_to_id gesetzt) — sie zeigen auf den Wurzel-Kommentar, unter dem Naudits
+        // Finding hängt. Top-Level-Kommentare ohne in_reply_to_id lassen sich keinem Finding zuordnen.
+        if (payload.Comment?.InReplyToId is not long replyTo)
+            return null;
+        if (payload.Repository?.FullName is not string repo)
+            return null;
+        if (payload.PullRequest is not { } pr)
+            return null;
+
+        var cmd = FpReplyCommand.TryParse(payload.Comment.Body);
+        if (cmd is null)
+            return null;
+
+        return new ReviewCommentReply(repo, pr.Number, replyTo.ToString(), cmd.Reason,
+            payload.Comment.User?.Login ?? "", payload.Comment.AuthorAssociation, AuthorId: null);
     }
 }

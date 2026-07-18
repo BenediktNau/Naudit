@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Xunit;
 
@@ -158,5 +159,76 @@ public class GitHubWebhookTests
     {
         var body = Encoding.UTF8.GetBytes("x");
         Assert.False(GitHubWebhook.IsValidSignature(body, "", Sign("", body)));
+    }
+
+    [Fact]
+    public void ToCommentReply_mapsFpReply_onReviewComment()
+    {
+        var payload = new GitHubReviewCommentEvent
+        {
+            Action = "created",
+            Repository = new GitHubRepository { FullName = "acme/widgets" },
+            PullRequest = new GitHubPullRequestRef { Number = 7 },
+            Comment = new GitHubReviewCommentPayload
+            {
+                Id = 999,
+                InReplyToId = 555,
+                Body = "@naudit fp intended",
+                User = new GitHubUser { Login = "alice" },
+                AuthorAssociation = "MEMBER",
+            },
+        };
+
+        var reply = GitHubWebhook.ToCommentReply("pull_request_review_comment", payload);
+
+        Assert.NotNull(reply);
+        Assert.Equal("acme/widgets", reply!.ProjectId);
+        Assert.Equal(7, reply.MergeRequestIid);
+        Assert.Equal("555", reply.ReplyToCommentId);   // in_reply_to_id → matcht PlatformCommentId
+        Assert.Equal("intended", reply.Reason);
+        Assert.Equal("alice", reply.AuthorLogin);
+        Assert.Equal("MEMBER", reply.AuthorAssociation);
+        Assert.Null(reply.AuthorId);                   // GitHub liefert author_association, keine numerische Id
+    }
+
+    [Theory]
+    [InlineData("issue_comment")]          // falscher Event-Typ
+    [InlineData("pull_request_review_comment")]
+    public void ToCommentReply_null_whenNotACommand(string eventType)
+    {
+        var payload = new GitHubReviewCommentEvent
+        {
+            Action = "created",
+            Repository = new GitHubRepository { FullName = "acme/widgets" },
+            PullRequest = new GitHubPullRequestRef { Number = 7 },
+            Comment = new GitHubReviewCommentPayload { InReplyToId = 555, Body = "looks fine", AuthorAssociation = "MEMBER" },
+        };
+        Assert.Null(GitHubWebhook.ToCommentReply(eventType, payload));
+    }
+
+    [Fact]
+    public void ToCommentReply_null_whenTopLevelComment_noInReplyTo()
+    {
+        var payload = new GitHubReviewCommentEvent
+        {
+            Action = "created",
+            Repository = new GitHubRepository { FullName = "acme/widgets" },
+            PullRequest = new GitHubPullRequestRef { Number = 7 },
+            Comment = new GitHubReviewCommentPayload { InReplyToId = null, Body = "@naudit fp", AuthorAssociation = "MEMBER" },
+        };
+        Assert.Null(GitHubWebhook.ToCommentReply("pull_request_review_comment", payload));
+    }
+
+    [Fact]
+    public void ToCommentReply_null_whenActionNotCreated()
+    {
+        var payload = new GitHubReviewCommentEvent
+        {
+            Action = "edited",
+            Repository = new GitHubRepository { FullName = "acme/widgets" },
+            PullRequest = new GitHubPullRequestRef { Number = 7 },
+            Comment = new GitHubReviewCommentPayload { InReplyToId = 555, Body = "@naudit fp", AuthorAssociation = "MEMBER" },
+        };
+        Assert.Null(GitHubWebhook.ToCommentReply("pull_request_review_comment", payload));
     }
 }
