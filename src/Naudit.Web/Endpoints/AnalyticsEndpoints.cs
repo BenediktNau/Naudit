@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Naudit.Infrastructure.Data;
 
@@ -14,12 +13,14 @@ public static class AnalyticsEndpoints
     {
         var api = app.MapGroup("/api").RequireAuthorization();
 
-        api.MapGet("/analytics", async (HttpContext ctx, NauditDbContext db, int? projectId, int days) =>
+        api.MapGet("/analytics", async (HttpContext ctx, NauditDbContext db, int? projectId, int? days) =>
         {
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Forbid();
-            if (days == 0) days = 30;
-            if (!AllowedDays.Contains(days))
+            // "days" ist optional (Default 30) — nullable, sonst behandelt der Minimal-API-Binder
+            // ein fehlendes Query-Param als Pflichtfeld (400 statt Default).
+            var d = days is null or 0 ? 30 : days.Value;
+            if (!AllowedDays.Contains(d))
                 return Results.BadRequest(new { error = "days must be 7, 30 or 90" });
 
             var projectsQuery = CurrentAccount.VisibleProjects(db, acct);
@@ -32,7 +33,7 @@ public static class AnalyticsEndpoints
                 .Include(p => p.Reviews).ThenInclude(r => r.Findings)
                 .ToListAsync(ctx.RequestAborted);
 
-            var since = DateTime.UtcNow.Date.AddDays(-days + 1);
+            var since = DateTime.UtcNow.Date.AddDays(-d + 1);
             var findings = projects
                 .SelectMany(p => p.Reviews)
                 .Where(r => r.CreatedAt.Date >= since)

@@ -87,6 +87,24 @@ public class AnalyticsEndpointTests : IClassFixture<TestAppFactory>
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    /// <summary>"days" ist optional (Default 30) — der Minimal-API-Binder darf ein fehlendes
+    /// Query-Param nicht als Pflichtfeld behandeln (wäre 400 statt Default).</summary>
+    [Fact]
+    public async Task Get_daysOmitted_defaultsTo30()
+    {
+        var (client, _) = await AdminApp();
+        var resp = await client.GetAsync("/api/analytics");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_explicitDays90_returns200()
+    {
+        var (client, _) = await AdminApp();
+        var resp = await client.GetAsync("/api/analytics?days=90");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+    }
+
     [Fact]
     public async Task Get_totals_computeRatesAndUnanswered()
     {
@@ -145,6 +163,26 @@ public class AnalyticsEndpointTests : IClassFixture<TestAppFactory>
         var weekly = res.GetProperty("weekly").EnumerateArray().ToList();
         Assert.Equal(2, weekly.Count);
         Assert.All(weekly, w => Assert.Equal(1, w.GetProperty("posted").GetInt32()));
+    }
+
+    [Fact]
+    public async Task Get_weekly_sameIsoWeek_collapsesIntoOneBucket()
+    {
+        var (client, factory) = await AdminApp();
+        // Montag der Vorwoche + Freitag derselben Woche — garantiert dieselbe ISO-Woche und
+        // (weil eine ganze Woche in der Vergangenheit) sicher innerhalb des 30-Tage-Fensters.
+        var today = DateTime.UtcNow.Date;
+        int diff = ((int)today.DayOfWeek + 6) % 7;   // Montag=0 … Sonntag=6
+        var monday = today.AddDays(-diff - 7);
+        var friday = monday.AddDays(4);
+
+        var projectId = await SeedReview(factory, "owner/weekly-same", monday, ("High", null));
+        await SeedReview(factory, "owner/weekly-same", friday, ("High", null));
+
+        var res = await client.GetFromJsonAsync<JsonElement>($"/api/analytics?projectId={projectId}&days=30");
+        var weekly = res.GetProperty("weekly").EnumerateArray().ToList();
+        Assert.Single(weekly);
+        Assert.Equal(2, weekly[0].GetProperty("posted").GetInt32());
     }
 
     [Fact]
