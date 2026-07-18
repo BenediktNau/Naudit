@@ -50,6 +50,7 @@ public sealed class GitLabHookCreator(HttpClient http)
                 url = webhookUrl,
                 token = secret,
                 merge_requests_events = true,
+                note_events = true,   // FP-Antwort-Kommando (@naudit fp) auf Inline-Kommentaren
                 push_events = false,
             }), Encoding.UTF8, "application/json");
             using var res = await http.SendAsync(req, ct);

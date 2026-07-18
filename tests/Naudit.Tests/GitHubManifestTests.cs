@@ -20,7 +20,7 @@ public sealed class GitHubManifestTests
         Assert.False(m.Public);
         Assert.Equal("write", m.DefaultPermissions["pull_requests"]);
         Assert.Equal("read", m.DefaultPermissions["contents"]);
-        Assert.Equal(["pull_request"], m.DefaultEvents);
+        Assert.Equal(["pull_request", "pull_request_review_comment"], m.DefaultEvents);
     }
 
     [Fact]
@@ -57,5 +57,13 @@ public sealed class GitHubManifestTests
     {
         Assert.Equal("https://github.com/apps/naudit-test/installations/new",
             GitHubManifest.InstallUrl(null, "naudit-test"));
+    }
+
+    [Fact]
+    public void Build_subscribesToReviewCommentEvent()
+    {
+        var manifest = GitHubManifest.Build("https://naudit.example.com", "Naudit", isPublic: false);
+        Assert.Contains("pull_request", manifest.DefaultEvents);
+        Assert.Contains("pull_request_review_comment", manifest.DefaultEvents);
     }
 }

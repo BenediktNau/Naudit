@@ -48,7 +48,8 @@ public static class GitHubManifest
         $"{Normalize(webHost)}/apps/{Uri.EscapeDataString(slug)}/installations/new";
 
     /// <summary>Permissions/Events entsprechen dem, was Naudit braucht: PRs kommentieren
-    /// (pull_requests:write), Code lesen (contents:read), Event pull_request (Spec).</summary>
+    /// (pull_requests:write), Code lesen (contents:read), Events pull_request (Review-Trigger)
+    /// und pull_request_review_comment (Antworten auf Inline-Kommentare, z. B. `@naudit fp`).</summary>
     public static GitHubAppManifest Build(string publicBaseUrl, string appName, bool isPublic)
     {
         var baseUrl = publicBaseUrl.TrimEnd('/');
@@ -59,7 +60,7 @@ public static class GitHubManifest
             RedirectUrl: $"{baseUrl}/api/setup/github/manifest-callback",
             Public: isPublic,
             DefaultPermissions: new Dictionary<string, string> { ["pull_requests"] = "write", ["contents"] = "read" },
-            DefaultEvents: ["pull_request"],
+            DefaultEvents: ["pull_request", "pull_request_review_comment"],
             Description: "Naudit code review bot");
     }
 }
