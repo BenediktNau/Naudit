@@ -105,6 +105,30 @@ public class GitLabWebhookTests
         Assert.Equal("bob", reply.AuthorLogin);
         Assert.Null(reply.AuthorAssociation);            // GitLab: keine Association
         Assert.Equal(42, reply.AuthorId);                // GitLab: user.id für den Mitglieds-Lookup
+        Assert.Equal(ReviewCommandKind.FalsePositive, reply.Command);
+    }
+
+    [Fact]
+    public void ToCommentReply_mapsOkReply_onMergeRequestNote()
+    {
+        var payload = new GitLabNoteEvent
+        {
+            ObjectKind = "note",
+            User = new GitLabNoteUser { Id = 42, Username = "bob" },
+            Project = new GitLabProject { Id = 7 },
+            MergeRequest = new GitLabNoteMergeRequest { Iid = 13 },
+            ObjectAttributes = new GitLabNoteAttributes
+            {
+                Note = "@naudit ok",
+                NoteableType = "MergeRequest",
+                DiscussionId = "abc123",
+            },
+        };
+
+        var reply = GitLabWebhook.ToCommentReply(payload);
+
+        Assert.NotNull(reply);
+        Assert.Equal(ReviewCommandKind.Accept, reply!.Command);
     }
 
     [Fact]

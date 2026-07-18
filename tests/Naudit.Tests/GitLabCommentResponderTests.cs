@@ -14,7 +14,7 @@ public class GitLabCommentResponderTests
         new ConfiguredGitTokenProvider("tok", System.Array.Empty<ProjectTokenEntry>());
 
     private static ReviewCommentReply Reply(long? authorId = 42) =>
-        new("7", 13, "abc123", "reason", "bob", AuthorAssociation: null, authorId);
+        new("7", 13, "abc123", "reason", "bob", AuthorAssociation: null, authorId, Command: ReviewCommandKind.FalsePositive);
 
     private static GitLabCommentResponder Responder(StubHttpMessageHandler handler) =>
         new(new HttpClient(handler) { BaseAddress = new System.Uri("https://gitlab.example.com/") }, Tokens());

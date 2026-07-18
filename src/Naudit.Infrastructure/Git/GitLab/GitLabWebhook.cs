@@ -56,6 +56,6 @@ public static class GitLabWebhook
             return null;
 
         return new ReviewCommentReply(project.Id.ToString(), mr.Iid, attrs.DiscussionId, cmd.Reason,
-            user.Username, AuthorAssociation: null, user.Id);
+            user.Username, AuthorAssociation: null, user.Id, Command: cmd.Kind);
     }
 }

@@ -64,7 +64,7 @@ public class ReviewCommentCommandServiceTests
     }
 
     private static ReviewCommentReply Reply(string projectId, string commentId, string? reason = "legacy") =>
-        new(projectId, 7, commentId, reason, "bob", AuthorAssociation: "MEMBER", AuthorId: 42);
+        new(projectId, 7, commentId, reason, "bob", AuthorAssociation: "MEMBER", AuthorId: 42, Command: ReviewCommandKind.FalsePositive);
 
     [Fact]
     public async Task HandleAsync_marksFp_andReplies_whenAuthorizedAndMatched()

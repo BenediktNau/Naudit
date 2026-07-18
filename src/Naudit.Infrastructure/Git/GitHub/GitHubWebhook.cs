@@ -74,6 +74,6 @@ public static class GitHubWebhook
             return null;
 
         return new ReviewCommentReply(repo, pr.Number, replyTo.ToString(), cmd.Reason,
-            payload.Comment.User.Login, payload.Comment.AuthorAssociation, AuthorId: null);
+            payload.Comment.User.Login, payload.Comment.AuthorAssociation, AuthorId: null, Command: cmd.Kind);
     }
 }

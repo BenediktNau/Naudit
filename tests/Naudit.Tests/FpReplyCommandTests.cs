@@ -15,7 +15,8 @@ public class FpReplyCommandTests
     {
         var cmd = FpReplyCommand.TryParse(body);
         Assert.NotNull(cmd);
-        Assert.Null(cmd!.Reason);
+        Assert.Equal(ReviewCommandKind.FalsePositive, cmd!.Kind);
+        Assert.Null(cmd.Reason);
     }
 
     [Theory]
@@ -26,14 +27,16 @@ public class FpReplyCommandTests
     {
         var cmd = FpReplyCommand.TryParse(body);
         Assert.NotNull(cmd);
-        Assert.Equal(expected, cmd!.Reason);
+        Assert.Equal(ReviewCommandKind.FalsePositive, cmd!.Kind);
+        Assert.Equal(expected, cmd.Reason);
     }
 
     [Fact]
     public void TryParse_readsOnlyFirstLine_forReason()
     {
         var cmd = FpReplyCommand.TryParse("@naudit fp only this\nnot this");
-        Assert.Equal("only this", cmd!.Reason);
+        Assert.Equal(ReviewCommandKind.FalsePositive, cmd!.Kind);
+        Assert.Equal("only this", cmd.Reason);
     }
 
     [Theory]
@@ -48,4 +51,32 @@ public class FpReplyCommandTests
     [InlineData("thanks @naudit fp")]        // Mention nicht am Zeilenanfang
     public void TryParse_returnsNull_forNonCommand(string? body)
         => Assert.Null(FpReplyCommand.TryParse(body));
+
+    [Theory]
+    [InlineData("@naudit ok")]
+    [InlineData("@naudit angenommen")]
+    [InlineData("@naudit accepted")]
+    [InlineData("@Naudit OK")]
+    public void TryParse_recognisesAcceptVerb(string body)
+    {
+        var cmd = FpReplyCommand.TryParse(body);
+        Assert.NotNull(cmd);
+        Assert.Equal(ReviewCommandKind.Accept, cmd!.Kind);
+    }
+
+    [Fact]
+    public void TryParse_fpStaysFalsePositiveKind()
+    {
+        var cmd = FpReplyCommand.TryParse("@naudit fp weil X");
+        Assert.Equal(ReviewCommandKind.FalsePositive, cmd!.Kind);
+        Assert.Equal("weil X", cmd.Reason);
+    }
+
+    [Fact]
+    public void TryParse_okWithTrailingText_keepsReason()
+    {
+        var cmd = FpReplyCommand.TryParse("@naudit ok danke");
+        Assert.Equal(ReviewCommandKind.Accept, cmd!.Kind);
+        Assert.Equal("danke", cmd.Reason);
+    }
 }

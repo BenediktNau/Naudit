@@ -3,21 +3,25 @@ using System.Text.RegularExpressions;
 
 namespace Naudit.Infrastructure.Git;
 
-/// <summary>Ein erkanntes FP-Antwort-Kommando: der Grund (Rest der Zeile) oder null.</summary>
-public sealed record ParsedFpCommand(string? Reason);
+/// <summary>Art des Antwort-Kommandos an einem Inline-Kommentar.</summary>
+public enum ReviewCommandKind { FalsePositive, Accept }
+
+/// <summary>Ein erkanntes Antwort-Kommando: Art + optionaler Grund (Rest der Zeile).</summary>
+public sealed record ParsedReviewCommand(ReviewCommandKind Kind, string? Reason);
 
 /// <summary>Parst die Antwort auf einen Inline-Kommentar: "@naudit fp|false-positive &lt;grund&gt;"
-/// (case-insensitiv, am Zeilenanfang). Rest der ersten Zeile = Grund. Kein Match ⇒ null.
+/// (⇒ FalsePositive) oder "@naudit ok|angenommen|accepted &lt;text&gt;" (⇒ Accept), case-insensitiv,
+/// am Zeilenanfang, Verb durch Whitespace vom Rest getrennt oder Zeilenende. Kein Match ⇒ null.
 /// Plattform-agnostisch — GitHub- wie GitLab-Kommentar-Bodies laufen hier durch.</summary>
 public static class FpReplyCommand
 {
-    // ^ am (getrimmten) Zeilenanfang; fp|false-positive muss durch Whitespace vom Grund getrennt sein
+    // ^ am (getrimmten) Zeilenanfang; das Verb muss durch Whitespace vom Rest getrennt sein
     // (oder die Zeile endet direkt danach) — kein \b nötig, [ \t]+-oder-Ende lehnt "fp-something" schon ab.
     private static readonly Regex Pattern = new(
-        @"^@naudit\s+(?:fp|false-positive)(?:[ \t]+(.*))?$",
+        @"^@naudit\s+(?<verb>fp|false-positive|ok|angenommen|accepted)(?:[ \t]+(?<rest>.*))?$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    public static ParsedFpCommand? TryParse(string? body)
+    public static ParsedReviewCommand? TryParse(string? body)
     {
         if (string.IsNullOrWhiteSpace(body))
             return null;
@@ -33,7 +37,9 @@ public static class FpReplyCommand
         if (!m.Success)
             return null;
 
-        var reason = m.Groups[1].Value.Trim();
-        return new ParsedFpCommand(reason.Length == 0 ? null : reason);
+        var verb = m.Groups["verb"].Value.ToLowerInvariant();
+        var kind = verb is "fp" or "false-positive" ? ReviewCommandKind.FalsePositive : ReviewCommandKind.Accept;
+        var rest = m.Groups["rest"].Value.Trim();
+        return new ParsedReviewCommand(kind, rest.Length == 0 ? null : rest);
     }
 }
