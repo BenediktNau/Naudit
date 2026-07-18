@@ -184,19 +184,49 @@ comment(s).
   more than 100 inline comments the overflow comments get `null` ids;
   consumers must treat a `null` id as "unmapped", never as an error.
 
-This mapping (PR 2a) is a small, self-contained change with no consumer yet
-— it is the anchor two follow-on features build on: PR 2b, the `@naudit fp`
-reply command below, and the review-analytics feature
-(`docs/superpowers/specs/2026-07-17-review-analytics-design.md`), both of
-which need a stored comment id to correlate later platform activity back to
-the finding that caused it.
+This mapping (PR 2a) is the anchor two follow-on features build on: the
+`@naudit fp` reply command below (PR 2b, shipped — see the next section) and
+the review-analytics feature
+(`docs/superpowers/specs/2026-07-17-review-analytics-design.md`, still
+future work), both of which need a stored comment id to correlate later
+platform activity back to the finding that caused it.
 
-## Outlook: PR 2b
+## Reply command: `@naudit fp` (PR 2b)
 
-This is PR 2a of the review-memory feature (PR 1 was the seam/DB/prompt
-section/WebUI from the earlier section above; PR 2a is the comment→finding
-mapping described just above). PR 2b adds the platform feedback channel:
-replying `@naudit fp <optional reason>` on the bot's inline comment creates
-the same false-positive entry without leaving the merge request/pull
-request, resolving the reply back to its finding via the
-`PlatformCommentId`/`PlatformNoteId` captured above.
+A repo member can mark a finding as a false positive **without leaving the MR/PR**:
+reply to Naudit's inline comment with `@naudit fp` (or `@naudit false-positive`,
+case-insensitive). The rest of that first line becomes the optional reason. The
+command creates exactly the same entry as the WebUI "False positive" button
+(shared `MemoryEntryWriter`, idempotent on the finding).
+
+**Webhook events** — handled on the existing endpoints, synchronously, always
+answering `200` after the signature check:
+
+- **GitHub** `pull_request_review_comment` (action `created`), verified by the
+  same `X-Hub-Signature-256` HMAC as PR/MR events. Only replies count
+  (`in_reply_to_id` set); the reply's `in_reply_to_id` is the review-comment id
+  Naudit stored as `PlatformCommentId`.
+- **GitLab** Note Hook (`object_kind: note`, `noteable_type: MergeRequest`),
+  verified by the same `X-Gitlab-Token` secret. The reply note's `discussion_id`
+  is the discussion id Naudit stored as `PlatformCommentId`.
+
+**Authorization is fail-closed** — an unverifiable author is ignored (logged,
+still `200`):
+
+- GitHub: `author_association ∈ {OWNER, MEMBER, COLLABORATOR}` (straight from the
+  payload, no extra API call).
+- GitLab: a members lookup (`GET …/members/all/{user_id}`) requiring
+  `access_level ≥ 30` (Developer).
+
+On success Naudit records the entry and replies in the same thread with
+`"Als False Positive gemerkt."`. If the reply maps to no finding for that
+project, nothing happens (logged). The **known edge** from PR 2a — two findings
+on the same file+line sharing one GitHub comment id — is resolved deterministically
+to the first finding by id (and logged).
+
+**Setup wizard** subscribes to these events automatically: GitLab hooks are
+created with `note_events: true`, the GitHub App manifest lists
+`pull_request_review_comment` in `default_events`.
+
+No new configuration key and no migration — the anchor columns
+(`PlatformCommentId`/`PlatformNoteId`) already exist from PR 2a.
