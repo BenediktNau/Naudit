@@ -18,7 +18,8 @@ public sealed class ReviewService(
     IReviewAuditSink auditSink,
     IReviewToolProvider toolProvider,
     IReviewRoundtripCounter roundtripCounter,
-    IReviewMemory reviewMemory)
+    IReviewMemory reviewMemory,
+    IReviewGuidelines reviewGuidelines)
 {
     // Web-Defaults: camelCase + case-insensitive — passt zu summary/comments/severity/confidence.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -41,8 +42,8 @@ public sealed class ReviewService(
         if (changes.Count == 0)
             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
 
-        // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext (je leer, wenn Feature aus).
-        var (findings, context) = await GatherGroundingAsync(request, changes, ct);
+        // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext + Architektur-Profil (je leer/null, wenn Feature aus).
+        var (findings, context, guidelines) = await GatherGroundingAsync(request, changes, ct);
 
         // Projekt-Gedächtnis: Auswahl braucht kein Repo (unabhängig vom Checkout);
         // Fail-open lebt in der Implementierung — hier kommt schlimmstenfalls eine leere Liste an.
@@ -69,11 +70,14 @@ public sealed class ReviewService(
                 Reason = m.Reason is null ? null : await redactor.RedactAsync(m.Reason, ct),
             });
 
+        // Architektur-Profil läuft — wie alles — vor dem Prompt durch den Redactor.
+        var redGuidelines = guidelines is null ? null : await redactor.RedactAsync(guidelines, ct);
+
         // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
         // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
         var tools = await toolProvider.GetToolsAsync(request, ct);
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
-            redMemory, toolsAvailable: tools.Count > 0);
+            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         if (tools.Count > 0)
@@ -156,14 +160,16 @@ public sealed class ReviewService(
         }
     }
 
-    // Ein Checkout für beide Grounding-Quellen: SAST-Analyzer UND Kontext-Sammler. Checkout nur,
-    // wenn mindestens eine Quelle aktiv ist. Checkout-Fehler ⇒ diff-only (Infrastructure hat geloggt).
-    private async Task<(IReadOnlyList<ScanFinding> Findings, ReviewContext Context)> GatherGroundingAsync(
+    // Ein Checkout für alle Grounding-Quellen: SAST-Analyzer, Kontext-Sammler UND Architektur-Profil.
+    // Checkout nur, wenn mindestens eine Quelle aktiv ist. Checkout-Fehler ⇒ diff-only
+    // (Infrastructure hat geloggt); das Architektur-Profil fragt reviewGuidelines dennoch ohne
+    // Workspace ab — die Implementierung fällt dabei ggf. auf ein gespeichertes Profil zurück.
+    private async Task<(IReadOnlyList<ScanFinding> Findings, ReviewContext Context, string? Guidelines)> GatherGroundingAsync(
         ReviewRequest request, IReadOnlyList<CodeChange> changes, CancellationToken ct)
     {
         var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
         if (!needCheckout)
-            return ([], ReviewContext.Empty);
+            return ([], ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
 
         IReviewWorkspace workspace;
         try
@@ -172,7 +178,8 @@ public sealed class ReviewService(
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
-            return ([], ReviewContext.Empty); // Checkout fehlgeschlagen → diff-only
+            // Checkout fehlgeschlagen → diff-only
+            return ([], ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
         }
 
         await using (workspace)
@@ -185,7 +192,9 @@ public sealed class ReviewService(
                 ? await SafeCollectContextAsync(workspace, changes, ct)
                 : ReviewContext.Empty;
 
-            return (findings, context);
+            var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ct);
+
+            return (findings, context, guidelines);
         }
     }
 

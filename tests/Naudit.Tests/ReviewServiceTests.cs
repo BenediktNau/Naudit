@@ -22,7 +22,8 @@ public class ReviewServiceTests
         IAiClientRouter? router = null,
         IReviewToolProvider? toolProvider = null,
         IReviewRoundtripCounter? roundtrips = null,
-        IReviewMemory? memory = null)
+        IReviewMemory? memory = null,
+        IReviewGuidelines? guidelines = null)
         => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
@@ -32,7 +33,8 @@ public class ReviewServiceTests
             auditSink ?? new FakeReviewAuditSink(),
             toolProvider ?? new NullReviewToolProvider(),
             roundtrips ?? new FakeRoundtripCounter(),
-            memory ?? new FakeReviewMemory());
+            memory ?? new FakeReviewMemory(),
+            guidelines ?? new FakeReviewGuidelines(null));
 
     [Fact]
     public async Task ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull()
