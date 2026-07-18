@@ -1,6 +1,7 @@
 // tests/Naudit.Tests/ReviewCommentCommandServiceTests.cs
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Data;
@@ -12,6 +13,41 @@ namespace Naudit.Tests;
 
 public class ReviewCommentCommandServiceTests
 {
+    // Simuliert das echte Doppel-POST-Race in MemoryEntryWriter.MarkFalsePositiveAsync deterministisch:
+    // kurz VOR dem ersten SaveChangesAsync-Commit des getrackten MemoryEntry-Inserts schreibt ein
+    // ZWEITER Kontext (dieselbe SQLite-Connection, am ChangeTracker des ersten Kontexts vorbei) bereits
+    // einen Eintrag mit derselben SourceFindingId — der Unique-Index lässt den getrackten Insert danach
+    // mit einer echten DbUpdateException scheitern, genau wie beim realen Race zweier Prozesse.
+    private sealed class ConcurrentInsertInterceptor(DbContextOptions<NauditDbContext> opts, int findingId, int projectId)
+        : SaveChangesInterceptor
+    {
+        private bool _fired;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken ct = default)
+        {
+            if (!_fired && eventData.Context is not null
+                && eventData.Context.ChangeTracker.Entries<MemoryEntryEntity>().Any(e => e.State == EntityState.Added))
+            {
+                _fired = true;
+                using var other = new NauditDbContext(opts);
+                other.MemoryEntries.Add(new MemoryEntryEntity
+                {
+                    ProjectId = projectId,
+                    Kind = "FalsePositive",
+                    File = "src/Foo.cs",
+                    Text = "flag",
+                    SourceFindingId = findingId,
+                    CreatedBy = "other",
+                    CreatedAt = DateTime.UtcNow,
+                    Active = true,
+                });
+                await other.SaveChangesAsync(ct);
+            }
+            return await base.SavingChangesAsync(eventData, result, ct);
+        }
+    }
+
     // Fake-Responder: konfigurierbare Autorisierung, zeichnet gepostete Antworten auf.
     // throwOnReply simuliert einen fehlschlagenden Bestätigungs-Post (best-effort, siehe T7-Test unten).
     private sealed class FakeResponder(bool authorized, bool throwOnReply = false) : IReviewCommentResponder
@@ -217,6 +253,44 @@ public class ReviewCommentCommandServiceTests
     }
 
     [Fact]
+    public async Task Fp_concurrentMemoryInsertRace_resolutionStillPersists()
+    {
+        // Regression: MemoryEntryWriter.MarkFalsePositiveAsync ruft im DbUpdateException-Catch-Zweig
+        // (Doppel-POST-Race auf dem SourceFindingId-Unique-Index) db.ChangeTracker.Clear() auf — das
+        // detached "finding". Würde die Resolution-Schreibung NACH dem Gedächtnis-Mark laufen, würde
+        // sie ein bereits detachtes Finding mutieren: SaveChangesAsync liefe durch (kein Fehler), aber
+        // OHNE etwas zu persistieren. Der Fix schreibt die Resolution ZUERST — bevor das Race auftreten
+        // kann. Mit der alten Reihenfolge schlägt dieser Test fehl (ResolutionStatus bliebe null).
+        var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        var opts = new DbContextOptionsBuilder<NauditDbContext>().UseSqlite(conn).Options;
+        using (var seedDb = new NauditDbContext(opts))
+        {
+            seedDb.Database.EnsureCreated();
+            var seeded = await SeedAsync(seedDb, "acme/widgets", "555");
+
+            var raceOpts = new DbContextOptionsBuilder<NauditDbContext>()
+                .UseSqlite(conn)
+                .AddInterceptors(new ConcurrentInsertInterceptor(opts, seeded.Id, seeded.Review.ProjectId))
+                .Options;
+            using var db = new NauditDbContext(raceOpts);
+            var responder = new FakeResponder(authorized: true);
+            var svc = Service(db, responder);
+
+            await svc.HandleAsync(Reply("acme/widgets", "555"));   // fp — löst intern das Race aus
+        }
+
+        // Frischer, unabhängiger Kontext auf derselben Connection — beweist, was tatsächlich in der DB steht.
+        using var verifyDb = new NauditDbContext(opts);
+        var f = await verifyDb.ReviewFindings.AsNoTracking().SingleAsync();
+        Assert.Equal("Rejected", f.ResolutionStatus);
+        Assert.Equal("Command", f.ResolutionSource);
+        // Das Gedächtnis-Race selbst wurde idempotent aufgelöst — genau EIN aktiver Eintrag.
+        var entry = await verifyDb.MemoryEntries.AsNoTracking().SingleAsync();
+        Assert.True(entry.Active);
+    }
+
+    [Fact]
     public async Task Ok_writesAcceptedResolution_confirms_noMemoryEntry()
     {
         using var db = NewDb();
@@ -259,5 +333,6 @@ public class ReviewCommentCommandServiceTests
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));   // fp
         Assert.Single(db.MemoryEntries);                        // Memory unabhängig vom Resolution-Schalter
+        Assert.Null((await db.ReviewFindings.SingleAsync(x => x.Id == finding.Id)).ResolutionStatus);
     }
 }

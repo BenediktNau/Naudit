@@ -63,11 +63,16 @@ public sealed class ReviewCommentCommandService(
 
     private async Task HandleFalsePositiveAsync(ReviewCommentReply reply, ReviewFindingEntity finding, CancellationToken ct)
     {
-        var result = await MemoryEntryWriter.MarkFalsePositiveAsync(db, finding, reply.Reason, reply.AuthorLogin, ct);
-
-        // Resolution-Tracking läuft unabhängig vom Gedächtnis-Eintrag (eigener Schalter, Review-Analytics PR 3).
+        // Reihenfolge ist bewusst: die Resolution-Schreibung MUSS vor MarkFalsePositiveAsync laufen.
+        // Im Doppel-POST-Race dort ruft der DbUpdateException-Catch-Zweig db.ChangeTracker.Clear() auf,
+        // was "finding" detached — liefe die Resolution-Schreibung danach, würde sie ein bereits
+        // detachtes Finding mutieren: SaveChangesAsync liefe durch (kein Fehler), aber persistiert
+        // nichts (stiller Datenverlust). Resolution-Tracking läuft unabhängig vom Gedächtnis-Eintrag
+        // (eigener Schalter, Review-Analytics PR 3).
         if (options.Resolution.Enabled)
             await ResolutionWriter.ApplyAsync(db, finding, "Rejected", ResolutionSource, reply.AuthorLogin, ct);
+
+        var result = await MemoryEntryWriter.MarkFalsePositiveAsync(db, finding, reply.Reason, reply.AuthorLogin, ct);
 
         // Redelivery-Schutz: nur bei einem ECHTEN Zustandswechsel (neu angelegt / reaktiviert) bestätigen —
         // sonst würde ein erneut zugestelltes Webhook-Event (oder eine zweite Antwort auf ein bereits

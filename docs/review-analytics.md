@@ -9,7 +9,7 @@ per-project dashboard.
 This is **PR 3** of the review-analytics feature (see the design doc,
 `docs/superpowers/specs/2026-07-17-review-analytics-design.md`): explicit
 signals only. LLM-classified free-text replies, the GitHub checkbox footer,
-and GitLab award-emoji events are **PR 4** — see [Outlook](#outlook-pr-4)
+and GitLab award-emoji events are **PR 4** — see [Outlook](#outlook-pr-4-planned)
 below.
 
 ## What it tracks
@@ -96,7 +96,7 @@ and future signal source:
    (including another explicit source's) is currently set — no guard, no
    "are you sure".
 2. **`Llm` only fills blanks** (PR 4, not wired yet — see
-   [Outlook](#outlook-pr-4)): a write with source `Llm` is applied only when
+   [Outlook](#outlook-pr-4-planned)): a write with source `Llm` is applied only when
    the finding is currently unresolved or was itself last set by `Llm`. It
    can never overwrite a human decision, and any later explicit signal
    corrects it permanently.

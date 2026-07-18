@@ -38,7 +38,7 @@ export function AnalyticsPage() {
   return (
     <div className="flex flex-col gap-5 p-7">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-[15px] font-semibold text-ink">Auswertung</h1>
+        <h1 className="text-[15px] font-semibold text-ink">Analytics</h1>
         <select
           className="rounded-lg border border-border bg-elev px-2.5 py-1.5 font-mono text-[12.5px] text-ink"
           value={projectId ?? ""}
