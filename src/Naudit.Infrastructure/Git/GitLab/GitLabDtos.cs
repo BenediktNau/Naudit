@@ -93,3 +93,7 @@ public sealed class GitLabNoteMergeRequest
 {
     [JsonPropertyName("iid")] public int Iid { get; set; }
 }
+
+/// <summary>Ein Projekt-Mitglied aus GET …/members/all/{user_id} — nur das Zugriffslevel zählt
+/// (Developer=30, Maintainer=40, Owner=50).</summary>
+public sealed record GitLabMember([property: JsonPropertyName("access_level")] int AccessLevel);
