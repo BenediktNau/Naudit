@@ -32,12 +32,35 @@ public sealed class DbReviewMemory(NauditDbContext db, ReviewOptions options, IL
             var conventions = entries.Where(m => m.Kind == "Convention");
             var fps = entries.Where(m => m.Kind == "FalsePositive" && (m.File is null || files.Contains(m.File)));
 
-            return conventions.Concat(fps)
+            var selectedEntities = conventions.Concat(fps)
                 .Take(Math.Max(0, options.Memory.MaxEntries))
+                .ToList();
+
+            var result = selectedEntities
                 .Select(m => new MemoryEntry(
                     m.Kind == "Convention" ? MemoryKind.Convention : MemoryKind.FalsePositive,
                     m.File, m.Text, m.Reason))
                 .ToList();
+
+            // "Learnings applied"-Zähler: best-effort — ein Save-Fehler hier darf die bereits
+            // berechnete Auswahl nicht wegwerfen, daher eigener innerer try/catch statt des
+            // äußeren fail-open-catch (der würde [] zurückgeben und das ganze Memory kippen).
+            var now = DateTime.UtcNow;
+            foreach (var e in selectedEntities)
+            {
+                e.TimesApplied++;
+                e.LastAppliedAtUtc = now;
+            }
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "TimesApplied-Zähler-Update fehlgeschlagen — Auswahl bleibt gültig.");
+            }
+
+            return result;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

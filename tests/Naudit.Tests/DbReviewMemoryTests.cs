@@ -126,6 +126,26 @@ public class DbReviewMemoryTests
     }
 
     [Fact]
+    public async Task Select_incrementsTimesApplied_onSelectedEntries()
+    {
+        using var test = new TestDb();
+        var db = test.Context;
+        var p = SeedProject(db);
+        db.MemoryEntries.Add(Entry(p.Id, "Convention", null, "Konvention"));
+        await db.SaveChangesAsync();
+
+        var memory = new DbReviewMemory(db, new ReviewOptions(), NullLogger<DbReviewMemory>.Instance);
+        await memory.SelectAsync("owner/repo", Changes("x.cs"));
+
+        var m = await db.MemoryEntries.SingleAsync();
+        Assert.Equal(1, m.TimesApplied);
+        Assert.NotNull(m.LastAppliedAtUtc);
+
+        await memory.SelectAsync("owner/repo", Changes("x.cs"));
+        Assert.Equal(2, (await db.MemoryEntries.SingleAsync()).TimesApplied);
+    }
+
+    [Fact]
     public async Task ReviewFinding_persistsPlatformCommentAndNoteIds_afterMigrate()
     {
         await using var db = NewMigratedDb();
