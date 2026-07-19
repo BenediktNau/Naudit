@@ -274,4 +274,45 @@ public class PromptBuilderTests
     [Fact]
     public void DefaultSystemPrompt_mentionsProjectMemory()
         => Assert.Contains("Project memory", PromptBuilder.DefaultSystemPrompt);
+
+    [Fact]
+    public void Build_withGuidelines_rendersAuthoritativeSection_beforeMemory()
+    {
+        var request = new ReviewRequest("7", 1, "Titel");
+        var changes = new List<CodeChange> { new("src/A.cs", "@@ -0,0 +1 @@\n+x") };
+        var memory = new List<MemoryEntry> { new(MemoryKind.Convention, null, "Konvention X", null) };
+
+        var messages = PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes,
+            memory: memory, guidelines: "- Webhook endpoints must enqueue and return 200 immediately.");
+        var text = string.Join("\n", messages.Select(m => m.Text));
+
+        Assert.Contains("# Project guidelines (distilled from this repository's own documentation; maintainer-curated, authoritative)", text);
+        Assert.Contains("Webhook endpoints must enqueue", text);
+        // Guidelines-Sektion steht VOR der Memory-Sektion (Memory bleibt zuletzt).
+        Assert.True(text.IndexOf("# Project guidelines", StringComparison.Ordinal)
+                  < text.IndexOf("# Project memory", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_withoutGuidelines_isByteIdentical()
+    {
+        var request = new ReviewRequest("7", 1, "Titel");
+        var changes = new List<CodeChange> { new("src/A.cs", "@@ -0,0 +1 @@\n+x") };
+
+        var without = string.Join("\n", PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes).Select(m => m.Text));
+        var withNull = string.Join("\n", PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes, guidelines: null).Select(m => m.Text));
+        var withBlank = string.Join("\n", PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes, guidelines: "   ").Select(m => m.Text));
+
+        Assert.Equal(without, withNull);
+        Assert.Equal(without, withBlank);
+    }
+
+    [Fact]
+    public void DefaultSystemPrompt_containsAltitudeAndSecurityInstructions()
+    {
+        Assert.Contains("architecture level", PromptBuilder.DefaultSystemPrompt);
+        Assert.Contains("Project guidelines", PromptBuilder.DefaultSystemPrompt);
+        Assert.Contains("injection surfaces", PromptBuilder.DefaultSystemPrompt);
+        Assert.Contains("omit \"line\"", PromptBuilder.DefaultSystemPrompt);
+    }
 }
