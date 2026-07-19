@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Docker;
 using Naudit.Infrastructure.Ui;
 using Naudit.Tests.Fakes;
 using Xunit;
@@ -20,6 +23,31 @@ public class ClaudeSessionServiceTests
 
     private static ClaudeSessionService Service(TestDb db) =>
         new(db.Context, new EphemeralDataProtectionProvider());
+
+    /// <summary>Echter SessionContainerManager als Sandbox-Kollaborateur, mit einem gestellten
+    /// IDockerClient (FakeDockerClient oder ThrowingDockerClient).</summary>
+    private static SessionContainerManager Sandbox(IDockerClient docker)
+        => new(docker, new SessionSandboxOptions(), NullLogger<SessionContainerManager>.Instance, new FakeTime());
+
+    /// <summary>IDockerClient, dessen für RemoveAsync relevante Methoden immer DockerUnavailableException
+    /// werfen — simuliert "Docker-Engine down" für den Best-effort-Pfad.</summary>
+    private sealed class ThrowingDockerClient : IDockerClient
+    {
+        public Task<bool> PingAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<string?> InspectSelfImageAsync(string hostname, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<ContainerInfo?> InspectContainerAsync(string name, CancellationToken ct = default) => Task.FromResult<ContainerInfo?>(null);
+        public Task RunDetachedAsync(ContainerRunSpec spec, CancellationToken ct = default) => Task.CompletedTask;
+        public Task StartAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+        public Task StopAsync(string name, CancellationToken ct = default) => throw new DockerUnavailableException("fake: docker down");
+        public Task RemoveContainerAsync(string name, CancellationToken ct = default) => throw new DockerUnavailableException("fake: docker down");
+        public Task RemoveVolumeAsync(string name, CancellationToken ct = default) => throw new DockerUnavailableException("fake: docker down");
+        public Task WriteFileAsync(string name, string directory, string fileName, string content, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<DockerExecResult> ExecAsync(string name, IReadOnlyList<string> argv,
+            IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default)
+            => Task.FromResult(new DockerExecResult(0, "", ""));
+        public Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ContainerListEntry>>(new List<ContainerListEntry>());
+    }
 
     [Fact]
     public async Task SetToken_encryptsAtRest_andRoundTrips()
@@ -86,6 +114,65 @@ public class ClaudeSessionServiceTests
         Assert.Null(acct.ClaudeSessionToken);
         Assert.Null(acct.ClaudeSessionUpdatedAtUtc);
         Assert.Equal("alice", acct.GitAuthorLogin);   // Login bleibt — Nutzer will nur den Token weg
+    }
+
+    [Fact]
+    public async Task RemoveToken_removesSandboxContainerAndVolume()
+    {
+        using var db = new TestDb();
+        var acct = Account(db);
+        var docker = new FakeDockerClient();
+        docker.Containers[SessionContainerManager.ContainerName(acct.Id)] = true;
+        docker.Volumes.Add(SessionContainerManager.ContainerName(acct.Id));
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider(), Sandbox(docker));
+
+        await svc.RemoveTokenAsync(acct.Id);
+
+        Assert.Empty(docker.Containers); // stop + rm + rmvol gelaufen
+        Assert.Empty(docker.Volumes);
+    }
+
+    [Fact]
+    public async Task SetShareInPool_false_removesContainer_true_doesNot()
+    {
+        using var db = new TestDb();
+        var acct = Account(db);
+        var docker = new FakeDockerClient();
+        docker.Containers[SessionContainerManager.ContainerName(acct.Id)] = true;
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider(), Sandbox(docker));
+
+        await svc.SetShareInPoolAsync(acct.Id, share: true);
+        Assert.NotEmpty(docker.Containers); // Opt-in räumt nichts ab
+
+        await svc.SetShareInPoolAsync(acct.Id, share: false);
+        Assert.Empty(docker.Containers);
+    }
+
+    [Fact]
+    public async Task RemoveToken_sandboxFailure_doesNotFailTokenRemoval()
+    {
+        using var db = new TestDb();
+        var acct = Account(db);
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider(), Sandbox(new ThrowingDockerClient()));
+        await svc.SetTokenAsync(acct.Id, "tok", "alice");
+
+        await svc.RemoveTokenAsync(acct.Id); // darf NICHT werfen — best-effort
+
+        Assert.Null(acct.ClaudeSessionToken);
+        Assert.Null(acct.ClaudeSessionUpdatedAtUtc);
+    }
+
+    [Fact]
+    public async Task RemoveToken_withoutSandbox_isUnchanged()
+    {
+        using var db = new TestDb();
+        var acct = Account(db);
+        var svc = new ClaudeSessionService(db.Context, new EphemeralDataProtectionProvider()); // sandbox = null (None-Modus)
+        await svc.SetTokenAsync(acct.Id, "tok", "alice");
+
+        await svc.RemoveTokenAsync(acct.Id); // wie bisher, kein Docker-Kontakt
+
+        Assert.Null(acct.ClaudeSessionToken);
     }
 
     [Fact]

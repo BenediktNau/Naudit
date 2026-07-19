@@ -1,12 +1,18 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Data;
 
 namespace Naudit.Infrastructure.Ui;
 
 /// <summary>Verwaltet den pro Account hinterlegten Claude-Code-OAuth-Token (Autor-Sessions).
 /// Token liegt DP-verschlüsselt in der DB; Entschlüsselung nur unmittelbar vor dem CLI-Lauf.</summary>
-public sealed class ClaudeSessionService(NauditDbContext db, IDataProtectionProvider dataProtection)
+public sealed class ClaudeSessionService(
+    NauditDbContext db,
+    IDataProtectionProvider dataProtection,
+    SessionContainerManager? sandbox = null,
+    ILogger<ClaudeSessionService>? logger = null)
 {
     public const string ProtectorPurpose = "Naudit.AiSessions";
 
@@ -40,6 +46,7 @@ public sealed class ClaudeSessionService(NauditDbContext db, IDataProtectionProv
         account.ClaudeSessionToken = null;
         account.ClaudeSessionUpdatedAtUtc = null;
         await db.SaveChangesAsync(ct);
+        await RemoveSandboxAsync(accountId, ct);
     }
 
     /// <summary>Aktiver Account mit Token zum Autor-Login, oder null. Bei (fehlkonfigurierten)
@@ -67,6 +74,8 @@ public sealed class ClaudeSessionService(NauditDbContext db, IDataProtectionProv
         var account = await db.Accounts.SingleAsync(a => a.Id == accountId, ct);
         account.ShareSessionInPool = share;
         await db.SaveChangesAsync(ct);
+        if (!share)
+            await RemoveSandboxAsync(accountId, ct);
     }
 
     /// <summary>Nicht entschlüsselbar (Keyring weg, fremder Ciphertext, kaputtes Base64url) ⇒ null
@@ -76,5 +85,23 @@ public sealed class ClaudeSessionService(NauditDbContext db, IDataProtectionProv
         if (account.ClaudeSessionToken is null) return null;
         try { return dataProtection.CreateProtector(ProtectorPurpose).Unprotect(account.ClaudeSessionToken); }
         catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or FormatException) { return null; }
+    }
+
+    // Sandbox-Lifecycle: ohne Token/Pool-Opt-in soll der Account-Container samt Volume (enthält
+    // CLI-Credentials!) verschwinden. Best-effort — ein Docker-Fehler kippt nie die DB-Operation.
+    // Im Author-Modus kostet ein Pool-Austritt so schlimmstenfalls einen Kaltstart beim nächsten Review.
+    private async Task RemoveSandboxAsync(int accountId, CancellationToken ct)
+    {
+        if (sandbox is null)
+            return;
+        try
+        {
+            await sandbox.RemoveAsync(accountId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex,
+                "Session-Sandbox: Container-Abbau für Konto {AccountId} fehlgeschlagen (best-effort).", accountId);
+        }
     }
 }
