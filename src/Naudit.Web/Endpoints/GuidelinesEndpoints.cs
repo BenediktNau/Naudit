@@ -29,6 +29,9 @@ public static class GuidelinesEndpoints
                 manuallyEdited = g?.ManuallyEdited ?? false,
                 sourcesChangedAt = g?.SourcesChangedAt,
                 updatedBy = g?.UpdatedBy,
+                // Redistill hat die Flags geleert, das nächste Review destilliert erst noch —
+                // das alte Markdown ist sichtbar, darf aber nicht als fertig "distilled" gelten.
+                pending = g is not null && !g.ManuallyEdited && g.SourceHash.Length == 0,
             });
         });
 

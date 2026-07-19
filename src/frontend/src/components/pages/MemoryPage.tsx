@@ -47,7 +47,9 @@ export function MemoryPage() {
       </div>
 
       {/* Architektur-Profil (destillierte Guidelines) */}
-      <GuidelinesCard projectId={selected} />
+      {/* key erzwingt Remount je Projekt: editing/draft dürfen einen Projektwechsel nicht
+          überleben — sonst überschreibt "Save" das NEUE Projekt mit dem alten Entwurf. */}
+      <GuidelinesCard key={selected ?? "none"} projectId={selected} />
 
       {/* Konvention anlegen */}
       <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +135,9 @@ function GuidelinesCard({ projectId }: { projectId: number | null }) {
         <h2 className="text-[13.5px] font-semibold text-ink">Architecture profile</h2>
         <span className="font-mono text-[10.5px] text-ink3">
           {data.markdown
-            ? `${data.manuallyEdited ? "curated" : "distilled"} · ${data.updatedBy ?? ""}${data.distilledAt ? ` · ${new Date(data.distilledAt).toLocaleDateString()}` : ""}`
+            ? data.pending
+              ? "re-distills on the next review — showing the previous profile"
+              : `${data.manuallyEdited ? "curated" : "distilled"} · ${data.updatedBy ?? ""}${data.distilledAt ? ` · ${new Date(data.distilledAt).toLocaleDateString()}` : ""}`
             : "distills from the repo's docs on the next review"}
         </span>
         <div className="ml-auto flex gap-2">

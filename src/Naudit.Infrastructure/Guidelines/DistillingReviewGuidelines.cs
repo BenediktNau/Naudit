@@ -49,7 +49,16 @@ public sealed class DistillingReviewGuidelines(
             if (stored is not null && stored.ManuallyEdited)
             {
                 // Menschliche Kuration gewinnt: nie überschreiben, nur das Stale-Signal setzen.
-                if (stored.SourcesChangedAt is null)
+                // Ausnahme Erst-Kuration: der PUT-Endpoint hat keinen Checkout und legt die Zeile mit
+                // SourceHash "" an — das ist KEINE Baseline. Aktuellen Quellstand übernehmen statt
+                // sofort ein falsches "Doku geändert" zu melden (das zum Verwerfen der frischen
+                // Kuration via Re-Distill verleiten würde).
+                if (stored.SourceHash.Length == 0)
+                {
+                    stored.SourceHash = hash;
+                    await db.SaveChangesAsync(ct);
+                }
+                else if (stored.SourcesChangedAt is null)
                 {
                     stored.SourcesChangedAt = DateTime.UtcNow;
                     await db.SaveChangesAsync(ct);
@@ -100,6 +109,9 @@ public sealed class DistillingReviewGuidelines(
             {
                 // Speichern fehlgeschlagen (z. B. Concurrent-First-Store-Race auf dem Unique-Index, DB kurz weg):
                 // das frische, bereits per LLM bezahlte Profil trotzdem für DIESES Review nutzen, nur nicht persistiert.
+                // Die gescheiterte Entität detachen — der Kontext ist im Review-Scope geteilt (Audit-Sink!),
+                // getrackt bliebe der kaputte Insert und ließe jedes spätere SaveChangesAsync erneut scheitern.
+                db.Entry(stored).State = EntityState.Detached;
                 logger.LogWarning(ex, "Guidelines-Speichern für {Project} fehlgeschlagen — Profil dieses Reviews genutzt, nicht persistiert.", projectId);
             }
             return Emit(profile);
@@ -137,7 +149,10 @@ public sealed class DistillingReviewGuidelines(
 
     private static string CapProfile(string s, int cap)
     {
-        if (s.Length <= cap)
+        // Ungültiger Deckel (≤ 0, z. B. Tippfehler auf der Settings-Seite) deckelt nicht, statt mit
+        // IndexOutOfRange zu crashen — der fail-open-Wrapper würde das schlucken, aber den Hash-Cache
+        // still lahmlegen (jedes Review zahlte den LLM-Call erneut).
+        if (cap <= 0 || s.Length <= cap)
             return s;
         var end = cap;
         // Kein Surrogat-Paar (z. B. Emoji) zerschneiden — sonst bleibt ein ungültiges lone surrogate stehen.
@@ -157,7 +172,12 @@ public sealed class DistillingReviewGuidelines(
         {
             foreach (var file in ResolvePattern(root, pattern))
             {
-                if (!File.Exists(file))
+                // Byte-Länge VOR dem Einlesen prüfen: der Checkout enthält Fremd-Content (PR eines
+                // externen Contributors) — eine absichtlich riesige .md-Datei darf den Prozess nicht
+                // erst voll in den Speicher zwingen. UTF-8 → UTF-16: 1 char belegt höchstens 3 Bytes
+                // (4-Byte-Sequenzen ergeben 2 chars), d. h. > budget*3 Bytes ⇒ sicher > budget chars.
+                var info = new FileInfo(file);
+                if (!info.Exists || info.Length > (long)budget * 3)
                     continue;
                 var content = await File.ReadAllTextAsync(file, ct);
                 if (content.Length > budget)

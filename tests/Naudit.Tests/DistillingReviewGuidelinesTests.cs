@@ -154,6 +154,36 @@ public class DistillingReviewGuidelinesTests : IDisposable
     }
 
     [Fact]
+    public async Task CuratedWithoutBaseline_adoptsHash_insteadOfFalseStaleSignal()
+    {
+        using var db = NewDb();
+        var project = await SeedProjectAsync(db);
+        // Zustand nach einer ERST-Kuration über PUT: ManuallyEdited, aber nie destilliert — der
+        // Endpoint hat keinen Checkout und initialisiert SourceHash mit "" (keine echte Baseline).
+        db.ProjectGuidelines.Add(new ProjectGuidelinesEntity
+        {
+            ProjectId = project.Id, Markdown = "- kuratierte Regel", SourceHash = "",
+            DistilledAt = DateTime.UtcNow, ManuallyEdited = true, UpdatedBy = "bob",
+        });
+        await db.SaveChangesAsync();
+        File.WriteAllText(Path.Combine(_dir, "CLAUDE.md"), "Docs.");
+        var chat = new RecordingChatClient("- darf nicht genutzt werden");
+
+        var result = await Sut(db, chat).GetAsync("acme/widgets", _dir);
+
+        Assert.Equal("- kuratierte Regel", result);
+        Assert.Equal(0, chat.Calls);
+        var row = await db.ProjectGuidelines.SingleAsync();
+        // Kein falsches "Doku geändert"-Signal direkt nach der Kuration: der aktuelle Quellstand
+        // wird als Baseline übernommen; erst eine ECHTE Doku-Änderung danach setzt das Signal.
+        Assert.Null(row.SourcesChangedAt);
+        Assert.NotEqual("", row.SourceHash);
+
+        await Sut(db, chat).GetAsync("acme/widgets", _dir);
+        Assert.Null((await db.ProjectGuidelines.SingleAsync()).SourcesChangedAt);   // Baseline matcht jetzt
+    }
+
+    [Fact]
     public async Task NoWorkspace_returnsStoredProfile_withoutLlmCall()
     {
         using var db = NewDb();
@@ -272,6 +302,51 @@ public class DistillingReviewGuidelinesTests : IDisposable
         Assert.Equal("- Rule A.", result);   // frisches, bereits per LLM bezahltes Profil trotz Store-Fehler
         var row = await db.ProjectGuidelines.SingleAsync();
         Assert.Equal("- racer wrote first", row.Markdown);   // Racer hat zuerst gespeichert, unser Save ist gescheitert
+    }
+
+    [Fact]
+    public async Task StoreFailure_doesNotPoisonChangeTracker_forLaterSaves()
+    {
+        using var db = NewDb();
+        var project = await SeedProjectAsync(db);
+        File.WriteAllText(Path.Combine(_dir, "CLAUDE.md"), "Rule A.");
+        // Gleiche Race wie oben: der Racer schreibt zuerst, unser Insert scheitert am Unique-Index.
+        var chat = new RaceInsertingChatClient("- Rule A.", async () =>
+        {
+            using var racer = NewDb();
+            racer.ProjectGuidelines.Add(new ProjectGuidelinesEntity
+            {
+                ProjectId = project.Id, Markdown = "- racer wrote first", SourceHash = "racer-hash",
+                DistilledAt = DateTime.UtcNow, UpdatedBy = "naudit",
+            });
+            await racer.SaveChangesAsync();
+        });
+        await Sut(db, chat).GetAsync("acme/widgets", _dir);
+
+        // Der DbContext ist im Review-Scope geteilt (Audit-Sink speichert später im selben Kontext):
+        // die gescheiterte Entität darf nicht getrackt bleiben, sonst stirbt JEDES spätere
+        // SaveChangesAsync erneut am selben Insert.
+        db.Projects.Add(new ProjectEntity { PlatformProjectId = "acme/other", FirstReviewedAt = DateTime.UtcNow, LastReviewedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await db.Projects.CountAsync());
+    }
+
+    [Fact]
+    public async Task MaxProfileCharsZero_doesNotDefeatDistillation()
+    {
+        using var db = NewDb();
+        await SeedProjectAsync(db);
+        var options = new ReviewOptions();
+        options.Guidelines.MaxProfileChars = 0;   // DB-verwalteter Settings-Wert ohne Untergrenze
+        File.WriteAllText(Path.Combine(_dir, "CLAUDE.md"), "Rule A.");
+        var chat = new RecordingChatClient("- Rule A.");
+
+        // Ungültiger Deckel (≤ 0) darf nicht crashen (IndexOutOfRange im Cap) — der fail-open-Wrapper
+        // würde das schlucken, aber jedes Review liefe erneut in den LLM-Call (Hash-Cache defekt).
+        var result = await Sut(db, chat, options).GetAsync("acme/widgets", _dir);
+
+        Assert.Equal("- Rule A.", result);
+        Assert.NotEqual("", (await db.ProjectGuidelines.SingleAsync()).SourceHash);   // Cache greift
     }
 
     [Fact]

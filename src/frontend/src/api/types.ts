@@ -205,4 +205,6 @@ export type ProjectGuidelinesDto = {
   manuallyEdited: boolean;
   sourcesChangedAt: string | null;
   updatedBy: string | null;
+  /** Redistill angestoßen, nächstes Review destilliert erst noch — Markdown ist der alte Stand. */
+  pending: boolean;
 };

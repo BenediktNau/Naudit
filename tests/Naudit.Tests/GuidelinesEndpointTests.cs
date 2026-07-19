@@ -135,6 +135,35 @@ public class GuidelinesEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Get_afterRedistill_exposesPendingState()
+    {
+        var (client, factory) = await AdminApp();
+        var projectId = await Seed(factory);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+            db.ProjectGuidelines.Add(new ProjectGuidelinesEntity
+            {
+                ProjectId = projectId, Markdown = "- Regel", SourceHash = "h",
+                DistilledAt = DateTime.UtcNow, UpdatedBy = "naudit",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Frisch destilliert: nicht pending.
+        var before = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/guidelines");
+        Assert.False(before.GetProperty("pending").GetBoolean());
+
+        await client.PostAsync($"/api/projects/{projectId}/guidelines/redistill", null);
+
+        // Nach Redistill: altes Markdown bleibt sichtbar, aber als "wird neu destilliert" markiert —
+        // sonst zeigte die Karte das stale Profil wieder als fertig "distilled" an.
+        var after = await client.GetFromJsonAsync<JsonElement>($"/api/projects/{projectId}/guidelines");
+        Assert.True(after.GetProperty("pending").GetBoolean());
+        Assert.Equal("- Regel", after.GetProperty("markdown").GetString());
+    }
+
+    [Fact]
     public async Task Redistill_resetsCurationFlags()
     {
         var (client, factory) = await AdminApp();
