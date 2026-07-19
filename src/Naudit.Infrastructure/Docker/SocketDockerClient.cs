@@ -15,6 +15,11 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
+    // Docker-Engine-API erwartet PascalCase-Feldnamen (Image, Cmd, HostConfig, Binds, AttachStdin, …);
+    // die Web-Defaults von JsonOpts würden beim Serialisieren camelCasen. Darum für ausgehende Bodies
+    // eigene Options ohne NamingPolicy — Lesen (JsonOpts) bleibt case-insensitiv wie gehabt.
+    private static readonly JsonSerializerOptions OutJsonOpts = new();
+
     // Kein Client-Timeout: lange Execs (claude-Review) laufen bis zum CancellationToken des Aufrufers.
     private readonly HttpClient _http = new(new SocketsHttpHandler
     {
@@ -81,7 +86,7 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
         };
         using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
             $"/containers/create?name={Uri.EscapeDataString(spec.Name)}")
-        { Content = JsonContent.Create(create, options: JsonOpts) }, ct);
+        { Content = JsonContent.Create(create, options: OutJsonOpts) }, ct);
         // 409 = Name existiert bereits (Race zweier EnsureRunning) — dann genügt der Start.
         await EnsureAsync(resp, ct, HttpStatusCode.Conflict);
         await StartAsync(spec.Name, ct);
@@ -148,12 +153,12 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
             WorkingDir = workingDirectory,
         };
         using var createResp = await SendAsync(new HttpRequestMessage(HttpMethod.Post, $"/containers/{name}/exec")
-        { Content = JsonContent.Create(create, options: JsonOpts) }, ct);
+        { Content = JsonContent.Create(create, options: OutJsonOpts) }, ct);
         await EnsureAsync(createResp, ct);
         var execId = (await ReadJsonAsync<ExecCreateResponse>(createResp, ct)).Id;
 
         using var startReq = new HttpRequestMessage(HttpMethod.Post, $"/exec/{execId}/start")
-        { Content = JsonContent.Create(new { Detach = false, Tty = false }, options: JsonOpts) };
+        { Content = JsonContent.Create(new { Detach = false, Tty = false }, options: OutJsonOpts) };
         // ResponseHeadersRead: der Body IST der (multiplexte) stdout/stderr-Stream des Execs.
         using var startResp = await SendAsync(startReq, ct, HttpCompletionOption.ResponseHeadersRead);
         await EnsureAsync(startResp, ct);
@@ -216,9 +221,20 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
             $"Docker-API {(int)resp.StatusCode} bei {resp.RequestMessage?.RequestUri?.PathAndQuery}: {body}");
     }
 
+    // Jeder Transport-/API-/Parse-Fehler läuft über DockerUnavailableException (Fail-Open-Naht) —
+    // auch ein kaputter/unerwarteter 2xx-Body (JsonException) darf hier nicht roh durchschlagen.
     private static async Task<T> ReadJsonAsync<T>(HttpResponseMessage resp, CancellationToken ct)
-        => await resp.Content.ReadFromJsonAsync<T>(JsonOpts, ct)
-           ?? throw new DockerUnavailableException($"Docker-API lieferte kein parsebares JSON ({typeof(T).Name}).");
+    {
+        try
+        {
+            return await resp.Content.ReadFromJsonAsync<T>(JsonOpts, ct)
+                   ?? throw new DockerUnavailableException($"Docker-API lieferte kein parsebares JSON ({typeof(T).Name}).");
+        }
+        catch (JsonException ex)
+        {
+            throw new DockerUnavailableException($"Docker-API lieferte kein parsebares JSON ({typeof(T).Name}).", ex);
+        }
+    }
 
     // Nur die benötigten Felder der Engine-Antworten.
     private sealed record InspectResponse(string? Image, InspectState? State);
