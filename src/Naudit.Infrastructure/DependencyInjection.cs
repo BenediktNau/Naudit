@@ -106,6 +106,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IDockerClient>(), sandboxOptions,
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<SessionContainerManager>()));
             services.AddSingleton<ISessionRunnerFactory, DockerSessionRunnerFactory>();
+            services.AddHostedService<SandboxSweeperService>();
         }
         else
         {

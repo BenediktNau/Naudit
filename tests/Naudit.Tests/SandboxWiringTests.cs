@@ -43,4 +43,22 @@ public class SandboxWiringTests
         Assert.NotNull(sp.GetRequiredService<SessionContainerManager>());
         Assert.NotNull(sp.GetRequiredService<SessionSandboxState>());
     }
+
+    [Fact]
+    public void DockerMode_registersSweeperHostedService()
+    {
+        var settings = BaseSettings();
+        settings["Naudit:Ai:SessionSandbox"] = "Docker";
+        using var sp = Build(settings);
+        Assert.Contains(sp.GetServices<Microsoft.Extensions.Hosting.IHostedService>(),
+            s => s is SandboxSweeperService);
+    }
+
+    [Fact]
+    public void Default_registersNoSweeper()
+    {
+        using var sp = Build(BaseSettings());
+        Assert.DoesNotContain(sp.GetServices<Microsoft.Extensions.Hosting.IHostedService>(),
+            s => s is SandboxSweeperService);
+    }
 }
