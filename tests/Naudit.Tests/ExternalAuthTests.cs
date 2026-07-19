@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Naudit.Tests.Fakes;
 using Xunit;
@@ -11,13 +12,8 @@ public class ExternalAuthTests : IClassFixture<TestAppFactory>
     public ExternalAuthTests(TestAppFactory factory) => _factory = factory;
 
     private HttpClient CreateClient(bool gitHubEnabled)
-    {
-        var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-ext-{Guid.NewGuid():N}.db")}";
-        return _factory.WithWebHostBuilder(b =>
+        => AuthFactory(b =>
         {
-            b.UseSetting("Naudit:Git:Platform", "GitLab");
-            b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-            b.UseSetting("Naudit:Db:ConnectionString", db);
             if (gitHubEnabled)
             {
                 b.UseSetting("Naudit:Ui:Auth:GitHub:Enabled", "true");
@@ -25,7 +21,6 @@ public class ExternalAuthTests : IClassFixture<TestAppFactory>
                 b.UseSetting("Naudit:Ui:Auth:GitHub:ClientSecret", "test-secret");
             }
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-    }
 
     [Fact]
     public async Task GitHubChallenge_redirectsToGitHub_whenEnabled()
@@ -63,5 +58,57 @@ public class ExternalAuthTests : IClassFixture<TestAppFactory>
     {
         var response = await CreateClient(gitHubEnabled: false).GetAsync("/auth/login/oidc");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // Provider aktiviert, aber Credentials leer: die OAuth-/OIDC-Handler validieren ihre Options erst
+    // LAZY beim ersten Request (IAuthenticationRequestHandler, von der AuthenticationMiddleware bei
+    // JEDEM Request initialisiert). Eine leere ClientId schlägt daher nicht beim Login, sondern als
+    // 500 auf beliebigen Requests durch — die ganze App ist unerreichbar. Deshalb: Fail-fast beim
+    // Start mit klarer, handlungsleitender Meldung.
+    private WebApplicationFactory<Program> AuthFactory(Action<IWebHostBuilder> configure)
+    {
+        var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-ext-{Guid.NewGuid():N}.db")}";
+        return _factory.WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Naudit:Git:Platform", "GitLab");
+            b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
+            b.UseSetting("Naudit:Db:ConnectionString", db);
+            configure(b);
+        });
+    }
+
+    [Fact]
+    public void Startup_failsFast_whenGitHubAuthEnabled_withoutClientId()
+    {
+        var factory = AuthFactory(b => b.UseSetting("Naudit:Ui:Auth:GitHub:Enabled", "true"));
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+        Assert.Contains("Naudit:Ui:Auth:GitHub", ex.Message);
+        Assert.Contains("ClientId", ex.Message);
+    }
+
+    [Fact]
+    public void Startup_failsFast_whenGitHubAuthEnabled_withClientIdButNoSecret()
+    {
+        var factory = AuthFactory(b =>
+        {
+            b.UseSetting("Naudit:Ui:Auth:GitHub:Enabled", "true");
+            b.UseSetting("Naudit:Ui:Auth:GitHub:ClientId", "abc");
+        });
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+        Assert.Contains("ClientSecret", ex.Message);
+    }
+
+    [Fact]
+    public void Startup_failsFast_whenOidcAuthEnabled_withoutAuthority()
+    {
+        var factory = AuthFactory(b =>
+        {
+            b.UseSetting("Naudit:Ui:Auth:Oidc:Enabled", "true");
+            b.UseSetting("Naudit:Ui:Auth:Oidc:ClientId", "naudit");
+            b.UseSetting("Naudit:Ui:Auth:Oidc:ClientSecret", "s");
+        });
+        var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+        Assert.Contains("Naudit:Ui:Auth:Oidc", ex.Message);
+        Assert.Contains("Authority", ex.Message);
     }
 }
