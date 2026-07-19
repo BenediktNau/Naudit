@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Process;
 using Naudit.Infrastructure.Ui;
@@ -33,7 +34,8 @@ public class RoundRobinSessionRouterTests
         RoundRobinCursor cursor, IProcessRunner runner, IChatClient global)
     {
         var selectionFactory = new SessionSelectionFactory(new AuthorSessionsOptions(),
-            new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global, runner, health, NullLoggerFactory.Instance);
+            new AiOptions { Provider = AiProvider.Ollama, Model = "egal" }, global,
+            new InProcessSessionRunnerFactory(runner), health, NullLoggerFactory.Instance);
         return new(sessions, health, cursor, selectionFactory, NullLogger<RoundRobinSessionRouter>.Instance);
     }
 

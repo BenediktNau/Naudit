@@ -1,7 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Naudit.Core.Abstractions;
-using Naudit.Infrastructure.Process;
+using Naudit.Infrastructure.Ai.Sandbox;
 
 namespace Naudit.Infrastructure.Ai.ClaudeCode;
 
@@ -12,7 +12,7 @@ public sealed class SessionSelectionFactory(
     AuthorSessionsOptions options,
     AiOptions aiOptions,
     IChatClient globalClient,
-    IProcessRunner runner,
+    ISessionRunnerFactory runnerFactory,
     SessionHealthRegistry health,
     ILoggerFactory loggerFactory)
 {
@@ -28,7 +28,7 @@ public sealed class SessionSelectionFactory(
             Model = options.Model,
             ApiKey = token,
             TimeoutSeconds = aiOptions.TimeoutSeconds,
-        }, runner);
+        }, runnerFactory.ForAccount(accountId));
 
         // Cooldown darf nie 0/negativ werden (sonst Retry-Storm gegen ein rate-limitiertes Abo).
         var cooldown = TimeSpan.FromMinutes(Math.Max(1, options.CooldownMinutes));
