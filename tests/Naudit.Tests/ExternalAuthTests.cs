@@ -12,13 +12,8 @@ public class ExternalAuthTests : IClassFixture<TestAppFactory>
     public ExternalAuthTests(TestAppFactory factory) => _factory = factory;
 
     private HttpClient CreateClient(bool gitHubEnabled)
-    {
-        var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-ext-{Guid.NewGuid():N}.db")}";
-        return _factory.WithWebHostBuilder(b =>
+        => AuthFactory(b =>
         {
-            b.UseSetting("Naudit:Git:Platform", "GitLab");
-            b.UseSetting("Naudit:GitLab:WebhookSecret", "s");
-            b.UseSetting("Naudit:Db:ConnectionString", db);
             if (gitHubEnabled)
             {
                 b.UseSetting("Naudit:Ui:Auth:GitHub:Enabled", "true");
@@ -26,7 +21,6 @@ public class ExternalAuthTests : IClassFixture<TestAppFactory>
                 b.UseSetting("Naudit:Ui:Auth:GitHub:ClientSecret", "test-secret");
             }
         }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-    }
 
     [Fact]
     public async Task GitHubChallenge_redirectsToGitHub_whenEnabled()
