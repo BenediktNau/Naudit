@@ -9,7 +9,7 @@ namespace Naudit.Web.Endpoints;
 public static class ResolutionEndpoints
 {
     private sealed record ResolutionBody(string? Status);
-    private static readonly string[] Valid = ["Accepted", "Rejected"];
+    private static readonly string[] Valid = [ResolutionValues.Accepted, ResolutionValues.Rejected];
 
     public static void MapResolutionEndpoints(this WebApplication app)
     {
@@ -29,7 +29,7 @@ public static class ResolutionEndpoints
             if (!await CurrentAccount.CanSeeProjectAsync(db, acct, finding.Review.ProjectId, ctx.RequestAborted))
                 return Results.Forbid();
 
-            await ResolutionWriter.ApplyAsync(db, finding, body.Status, "WebUi", acct.Username, ctx.RequestAborted);
+            await ResolutionWriter.ApplyAsync(db, finding, body.Status, ResolutionValues.Sources.WebUi, acct.Username, ctx.RequestAborted);
             return Results.Ok(new { id = finding.Id, resolutionStatus = finding.ResolutionStatus });
         });
     }

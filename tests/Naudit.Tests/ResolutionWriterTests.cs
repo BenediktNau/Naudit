@@ -119,6 +119,20 @@ public class ResolutionWriterTests
     }
 
     [Fact]
+    public async Task Apply_sameStatusAndSource_differentActor_updatesResolvedBy()
+    {
+        using var db = NewDb();
+        var f = await SeedFindingAsync(db);
+        await ResolutionWriter.ApplyAsync(db, f, "Accepted", "WebUi", "bob");
+        // Zweiter, ANDERER Akteur mit identischem (Status, Quelle): kein No-Op —
+        // die Attribution (ResolvedBy/ResolvedAtUtc) wandert zum letzten Akteur.
+        // No-Op bleibt nur die echte Redelivery (gleicher Akteur, siehe Test oben).
+        var changed = await ResolutionWriter.ApplyAsync(db, f, "Accepted", "WebUi", "carol");
+        Assert.True(changed);
+        Assert.Equal("carol", (await db.ReviewFindings.SingleAsync()).ResolvedBy);
+    }
+
+    [Fact]
     public async Task Apply_sameStatus_explicitOverLlm_updatesSourceAndBy()
     {
         using var db = NewDb();

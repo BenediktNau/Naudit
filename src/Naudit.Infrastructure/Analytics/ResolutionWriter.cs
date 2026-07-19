@@ -8,8 +8,6 @@ namespace Naudit.Infrastructure.Analytics;
 /// rückgängig gemachte ist. Liefert true, wenn sich etwas geändert hat (redelivery-sichere Bestätigung).</summary>
 public static class ResolutionWriter
 {
-    private const string Llm = "Llm";
-
     public static async Task<bool> ApplyAsync(
         NauditDbContext db, ReviewFindingEntity finding, string? status, string source, string by, CancellationToken ct = default)
     {
@@ -21,17 +19,18 @@ public static class ResolutionWriter
             if (finding.ResolutionStatus is null || currentSource != source)
                 return false;
         }
-        else if (source == Llm)
+        else if (source == ResolutionValues.Sources.Llm)
         {
             // LLM füllt nur Lücken oder korrigiert sich selbst — nie eine explizite Entscheidung.
-            if (finding.ResolutionStatus is not null && currentSource != Llm)
+            if (finding.ResolutionStatus is not null && currentSource != ResolutionValues.Sources.Llm)
                 return false;
         }
         // Explizite Quellen überschreiben immer (kein Guard nötig).
 
-        // Keine echte Änderung ⇒ false, ohne SaveChanges.
+        // Keine echte Änderung ⇒ false, ohne SaveChanges. "by" zählt mit: ein ANDERER Akteur
+        // mit gleichem (Status, Quelle) ist keine Redelivery — die Attribution wandert zu ihm.
         if (finding.ResolutionStatus == status
-            && (status is null || (finding.ResolutionSource == source)))
+            && (status is null || (finding.ResolutionSource == source && finding.ResolvedBy == by)))
             return false;
 
         finding.ResolutionStatus = status;

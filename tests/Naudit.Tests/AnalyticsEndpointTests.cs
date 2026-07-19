@@ -87,6 +87,16 @@ public class AnalyticsEndpointTests : IClassFixture<TestAppFactory>
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    /// <summary>Explizites days=0 ist KEIN "weggelassen": 0 liegt nicht in {7,30,90}
+    /// und muss 400 liefern statt still auf den Default zu fallen.</summary>
+    [Fact]
+    public async Task Get_daysZero_returns400()
+    {
+        var (client, _) = await AdminApp();
+        var resp = await client.GetAsync("/api/analytics?days=0");
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
     /// <summary>"days" ist optional (Default 30) — der Minimal-API-Binder darf ein fehlendes
     /// Query-Param nicht als Pflichtfeld behandeln (wäre 400 statt Default).</summary>
     [Fact]

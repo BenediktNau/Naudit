@@ -42,18 +42,21 @@ public sealed class DbReviewMemory(NauditDbContext db, ReviewOptions options, IL
                     m.File, m.Text, m.Reason))
                 .ToList();
 
-            // "Learnings applied"-Zähler: best-effort — ein Save-Fehler hier darf die bereits
+            // "Learnings applied"-Zähler: best-effort — ein Fehler hier darf die bereits
             // berechnete Auswahl nicht wegwerfen, daher eigener innerer try/catch statt des
             // äußeren fail-open-catch (der würde [] zurückgeben und das ganze Memory kippen).
+            // DB-seitiges Inkrement (ExecuteUpdate) statt Read-Modify-Write auf den getrackten
+            // Instanzen: atomar unter konkurrierenden Reviews und ohne SaveChanges-Seiteneffekt
+            // auf fremde, im selben Kontext bereits getrackte Änderungen.
             var now = DateTime.UtcNow;
-            foreach (var e in selectedEntities)
-            {
-                e.TimesApplied++;
-                e.LastAppliedAtUtc = now;
-            }
+            var selectedIds = selectedEntities.Select(e => e.Id).ToList();
             try
             {
-                await db.SaveChangesAsync(ct);
+                await db.MemoryEntries
+                    .Where(m => selectedIds.Contains(m.Id))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(m => m.TimesApplied, m => m.TimesApplied + 1)
+                        .SetProperty(m => m.LastAppliedAtUtc, now), ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {

@@ -22,12 +22,15 @@ function pct(n: number): string {
 
 /** Auswertung: Accept-/FP-Rate, Severity-Breakdown, Wochentrend, Gedächtnis-Wirkung. */
 export function AnalyticsPage() {
-  const { data: dash, isLoading: dashLoading } = useDashboard();
+  const { data: dash, isLoading: dashLoading, isError: dashError } = useDashboard();
   const [projectId, setProjectId] = useState<number | null>(null);
   const [days, setDays] = useState<(typeof RANGE_OPTIONS)[number]>(30);
   const { data, isLoading, isError } = useAnalytics(projectId, days);
 
   if (dashLoading) return <div className="p-7"><Skeleton className="h-4 w-64" /></div>;
+  // Fehler vor Leerzustand: ein gescheiterter Dashboard-Fetch ist keine leere Projektliste.
+  if (dashError)
+    return <div className="p-7 font-mono text-[13px] text-danger">failed to load projects</div>;
   if (!dash || dash.projects.length === 0)
     return (
       <div className="p-7 font-mono text-[13px] text-ink3">

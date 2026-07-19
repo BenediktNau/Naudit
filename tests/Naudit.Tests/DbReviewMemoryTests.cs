@@ -137,12 +137,33 @@ public class DbReviewMemoryTests
         var memory = new DbReviewMemory(db, new ReviewOptions(), NullLogger<DbReviewMemory>.Instance);
         await memory.SelectAsync("owner/repo", Changes("x.cs"));
 
-        var m = await db.MemoryEntries.SingleAsync();
+        // AsNoTracking: das Inkrement läuft DB-seitig (ExecuteUpdate), die Identity-Map-Instanz bleibt stale.
+        var m = await db.MemoryEntries.AsNoTracking().SingleAsync();
         Assert.Equal(1, m.TimesApplied);
         Assert.NotNull(m.LastAppliedAtUtc);
 
         await memory.SelectAsync("owner/repo", Changes("x.cs"));
-        Assert.Equal(2, (await db.MemoryEntries.SingleAsync()).TimesApplied);
+        Assert.Equal(2, (await db.MemoryEntries.AsNoTracking().SingleAsync()).TimesApplied);
+    }
+
+    [Fact]
+    public async Task Select_incrementsTimesApplied_atomically_notFromStaleTrackedValue()
+    {
+        using var test = new TestDb();
+        var db = test.Context;
+        var p = SeedProject(db);
+        db.MemoryEntries.Add(Entry(p.Id, "Convention", null, "Konvention"));
+        await db.SaveChangesAsync();   // Eintrag ist jetzt getrackt — die Identity-Map liefert fortan diese Instanz
+
+        // Konkurrierendes Review hat den Zähler inzwischen in der DB erhöht (am Tracker vorbei).
+        await db.Database.ExecuteSqlRawAsync("UPDATE MemoryEntries SET TimesApplied = 5");
+
+        var memory = new DbReviewMemory(db, new ReviewOptions(), NullLogger<DbReviewMemory>.Instance);
+        await memory.SelectAsync("owner/repo", Changes("x.cs"));
+
+        // Read-Modify-Write auf der stale getrackten Instanz würde 1 schreiben (5 verloren);
+        // das DB-seitige Inkrement muss 5+1=6 ergeben.
+        Assert.Equal(6, (await db.MemoryEntries.AsNoTracking().SingleAsync()).TimesApplied);
     }
 
     [Fact]

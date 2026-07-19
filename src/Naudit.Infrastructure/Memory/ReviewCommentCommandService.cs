@@ -19,8 +19,8 @@ public sealed class ReviewCommentCommandService(
     public const string ConfirmationText = "Als False Positive gemerkt.";
     public const string AcceptConfirmationText = "Als angenommen vermerkt.";
 
-    // Quelle für ResolutionWriter.ApplyAsync: explizite Autor-Kommandos (case-sensitiv, siehe Präzedenz-Regel dort).
-    private const string ResolutionSource = "Command";
+    // Quelle für ResolutionWriter.ApplyAsync: explizite Autor-Kommandos (siehe Präzedenz-Regel dort).
+    private const string ResolutionSource = ResolutionValues.Sources.Command;
 
     public async Task HandleAsync(ReviewCommentReply reply, CancellationToken ct = default)
     {
@@ -70,7 +70,7 @@ public sealed class ReviewCommentCommandService(
         // nichts (stiller Datenverlust). Resolution-Tracking läuft unabhängig vom Gedächtnis-Eintrag
         // (eigener Schalter, Review-Analytics PR 3).
         if (options.Resolution.Enabled)
-            await ResolutionWriter.ApplyAsync(db, finding, "Rejected", ResolutionSource, reply.AuthorLogin, ct);
+            await ResolutionWriter.ApplyAsync(db, finding, ResolutionValues.Rejected, ResolutionSource, reply.AuthorLogin, ct);
 
         var result = await MemoryEntryWriter.MarkFalsePositiveAsync(db, finding, reply.Reason, reply.AuthorLogin, ct);
 
@@ -99,7 +99,7 @@ public sealed class ReviewCommentCommandService(
             return;
         }
 
-        var changed = await ResolutionWriter.ApplyAsync(db, finding, "Accepted", ResolutionSource, reply.AuthorLogin, ct);
+        var changed = await ResolutionWriter.ApplyAsync(db, finding, ResolutionValues.Accepted, ResolutionSource, reply.AuthorLogin, ct);
 
         // Redelivery-Schutz analog zum FP-Zweig: nur bei echtem Zustandswechsel bestätigen.
         if (!changed)

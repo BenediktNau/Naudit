@@ -242,7 +242,7 @@ public class ReviewCommentCommandServiceTests
         using var db = NewDb();
         var finding = await SeedAsync(db, "acme/widgets", "555");
         var responder = new FakeResponder(authorized: true);
-        var svc = Service(db, responder);   // helper building the service with ReviewOptions (Resolution.Enabled=true)
+        var svc = Service(db, responder);   // Helper baut den Service mit ReviewOptions (Resolution.Enabled=true)
 
         await svc.HandleAsync(Reply("acme/widgets", "555"));   // fp
 
