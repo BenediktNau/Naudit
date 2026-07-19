@@ -16,6 +16,7 @@ internal sealed class FakeDockerClient : IDockerClient
     public string? SelfImage { get; set; } = "sha256:self-image";
     public int FailNextExecs { get; set; }
     public TimeSpan? ExecDelay { get; set; }
+    public TimeSpan? RunDelay { get; set; }   // simuliert einen langsamen `docker run` (Concurrency-Tests)
     public ContainerRunSpec? LastRunSpec { get; private set; }
 
     public Task<bool> PingAsync(CancellationToken ct = default)
@@ -33,13 +34,14 @@ internal sealed class FakeDockerClient : IDockerClient
     public Task<ContainerInfo?> InspectContainerAsync(string name, CancellationToken ct = default)
         => Task.FromResult(Containers.TryGetValue(name, out var running) ? new ContainerInfo(running) : null);
 
-    public Task RunDetachedAsync(ContainerRunSpec spec, CancellationToken ct = default)
+    public async Task RunDetachedAsync(ContainerRunSpec spec, CancellationToken ct = default)
     {
         Calls.Add($"run:{spec.Name}");
         LastRunSpec = spec;
+        if (RunDelay is { } d)
+            await Task.Delay(d, ct);
         Containers[spec.Name] = true;
         Volumes.Add(spec.VolumeName);
-        return Task.CompletedTask;
     }
 
     public Task StartAsync(string name, CancellationToken ct = default)

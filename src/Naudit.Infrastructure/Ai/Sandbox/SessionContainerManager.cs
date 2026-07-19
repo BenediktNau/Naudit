@@ -25,29 +25,43 @@ public sealed class SessionContainerManager(
     private readonly Dictionary<int, DateTimeOffset> _lastUsed = [];
     private string? _image;
 
+    // Serialisiert Cap-Prüfung + Create über alle Accounts (check-then-act ist sonst racy: zwei
+    // gleichzeitige EnsureRunningAsync für verschiedene Accounts könnten beide den Cap passieren,
+    // bevor einer der beiden seinen Container angelegt hat). Kurz gehalten — der eigentliche Exec
+    // läuft NICHT unter diesem Gate, nur Inspect/Cap/Create/Start.
+    private readonly SemaphoreSlim _createGate = new(1, 1);
+
     public static string ContainerName(int accountId) => $"{NamePrefix}{accountId}";
 
     /// <summary>Container existiert + läuft; legt fehlende an (Image = Override oder
     /// Selbst-Inspektion), startet gestoppte, erzwingt vorher das LRU-Cap. Liefert den Namen.</summary>
     public async Task<string> EnsureRunningAsync(int accountId, CancellationToken ct = default)
     {
-        var name = ContainerName(accountId);
-        var info = await docker.InspectContainerAsync(name, ct);
-        if (info is null)
+        await _createGate.WaitAsync(ct);
+        try
         {
-            await EnforceCapAsync(accountId, ct);
-            var image = await ResolveImageAsync(ct);
-            logger.LogInformation("Session-Sandbox: lege Container {Name} an (Image {Image}).", name, image);
-            await docker.RunDetachedAsync(
-                new ContainerRunSpec(name, image, VolumeName: name, VolumeTarget, ["sleep", "infinity"]), ct);
+            var name = ContainerName(accountId);
+            var info = await docker.InspectContainerAsync(name, ct);
+            if (info is null)
+            {
+                await EnforceCapAsync(accountId, ct);
+                var image = await ResolveImageAsync(ct);
+                logger.LogInformation("Session-Sandbox: lege Container {Name} an (Image {Image}).", name, image);
+                await docker.RunDetachedAsync(
+                    new ContainerRunSpec(name, image, VolumeName: name, VolumeTarget, ["sleep", "infinity"]), ct);
+            }
+            else if (!info.Running)
+            {
+                await EnforceCapAsync(accountId, ct);
+                await docker.StartAsync(name, ct);
+            }
+            Touch(accountId); // deckt auch die Laufzeit des folgenden Execs ab (Sweep-Schutz)
+            return name;
         }
-        else if (!info.Running)
+        finally
         {
-            await EnforceCapAsync(accountId, ct);
-            await docker.StartAsync(name, ct);
+            _createGate.Release();
         }
-        Touch(accountId); // deckt auch die Laufzeit des folgenden Execs ab (Sweep-Schutz)
-        return name;
     }
 
     /// <summary>Exklusiv-Lock pro Account — nie zwei Execs gleichzeitig im selben Container.</summary>
@@ -61,6 +75,19 @@ public sealed class SessionContainerManager(
         }
         await sem.WaitAsync(ct);
         return new Releaser(sem);
+    }
+
+    /// <summary>Nicht-blockierender Lock-Versuch: null = Account hat gerade einen Exec in Flight
+    /// (Sweep/LRU dürfen dessen Container dann nicht stoppen — docker stop killt den Exec).</summary>
+    private async Task<IDisposable?> TryAcquireLockAsync(int accountId)
+    {
+        SemaphoreSlim sem;
+        lock (_gate)
+        {
+            if (!_locks.TryGetValue(accountId, out sem!))
+                _locks[accountId] = sem = new SemaphoreSlim(1, 1);
+        }
+        return await sem.WaitAsync(0) ? new Releaser(sem) : null;
     }
 
     public void Touch(int accountId)
@@ -85,9 +112,21 @@ public sealed class SessionContainerManager(
             var last = LastUsed(accountId) ?? DateTimeOffset.MinValue;
             if (last > cutoff)
                 continue;
-            logger.LogInformation("Session-Sandbox: stoppe idle Container {Name} (zuletzt genutzt {Last:u}).",
-                entry.Name, last);
-            await docker.StopAsync(entry.Name, ct);
+            // Nicht-blockierend versuchen: ein laufender Exec (Lock belegt) bedeutet "in Nutzung",
+            // nicht idle — der Container wird dann übersprungen statt unter dem Exec weggestoppt zu werden.
+            var held = await TryAcquireLockAsync(accountId);
+            if (held is null)
+            {
+                logger.LogInformation("Session-Sandbox: überspringe idle Container {Name} — Exec läuft gerade.",
+                    entry.Name);
+                continue;
+            }
+            using (held)
+            {
+                logger.LogInformation("Session-Sandbox: stoppe idle Container {Name} (zuletzt genutzt {Last:u}).",
+                    entry.Name, last);
+                await docker.StopAsync(entry.Name, ct);
+            }
         }
     }
 
@@ -137,14 +176,35 @@ public sealed class SessionContainerManager(
         var excess = running.Count - (cap - 1);
         if (excess <= 0)
             return;
-        var victims = running
-            .OrderBy(e => TryParseAccountId(e.Name, out var id) ? LastUsed(id) ?? DateTimeOffset.MinValue : DateTimeOffset.MinValue)
-            .Take(excess);
-        foreach (var victim in victims)
+        // Kandidaten aufsteigend nach LRU; ein per Exec gesperrter Kandidat wird übersprungen und
+        // NICHT auf die Stop-Quote angerechnet — dafür rückt der nächst-älteste nach (stopsNextLru).
+        var candidates = running
+            .OrderBy(e => TryParseAccountId(e.Name, out var id) ? LastUsed(id) ?? DateTimeOffset.MinValue : DateTimeOffset.MinValue);
+        var stopped = 0;
+        foreach (var candidate in candidates)
         {
-            logger.LogInformation("Session-Sandbox: MaxLiveContainers ({Cap}) erreicht — stoppe LRU-Container {Name}.",
-                cap, victim.Name);
-            await docker.StopAsync(victim.Name, ct);
+            if (stopped >= excess)
+                break;
+            if (!TryParseAccountId(candidate.Name, out var candidateAccountId))
+                continue;
+            // Nicht-blockierend versuchen: ein laufender Exec (Lock belegt) darf nicht per LRU
+            // weggestoppt werden — der Container wird dann übersprungen (Cap bleibt transient
+            // überschritten, das ist hinnehmbar) statt der Exec killen.
+            var held = await TryAcquireLockAsync(candidateAccountId);
+            if (held is null)
+            {
+                logger.LogInformation(
+                    "Session-Sandbox: LRU-Kandidat {Name} hat einen laufenden Exec — übersprungen, Cap ({Cap}) bleibt transient überschritten.",
+                    candidate.Name, cap);
+                continue;
+            }
+            using (held)
+            {
+                logger.LogInformation("Session-Sandbox: MaxLiveContainers ({Cap}) erreicht — stoppe LRU-Container {Name}.",
+                    cap, candidate.Name);
+                await docker.StopAsync(candidate.Name, ct);
+            }
+            stopped++;
         }
     }
 

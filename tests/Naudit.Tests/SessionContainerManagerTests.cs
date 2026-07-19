@@ -175,4 +175,58 @@ public class SessionContainerManagerTests
 
         Assert.Equal(1, await manager.CountRunningAsync());
     }
+
+    [Fact]
+    public async Task Sweep_skipsContainerWithInFlightExecLock()
+    {
+        var docker = new FakeDockerClient();
+        var time = new FakeTime();
+        var manager = Create(docker, time, new SessionSandboxOptions { IdleTimeout = TimeSpan.FromHours(1) });
+
+        await manager.EnsureRunningAsync(1);
+        time.UtcNow = time.UtcNow.AddHours(2); // Konto 1 ist jetzt idle
+
+        var inFlight = await manager.AcquireLockAsync(1); // simuliert einen laufenden Exec
+        await manager.SweepIdleAsync();
+        Assert.DoesNotContain("stop:naudit-session-1", docker.Calls);
+        Assert.True(docker.Containers["naudit-session-1"]);
+
+        inFlight.Dispose();
+        await manager.SweepIdleAsync(); // kein Exec mehr in Flight ⇒ jetzt darf gestoppt werden
+        Assert.Contains("stop:naudit-session-1", docker.Calls);
+    }
+
+    [Fact]
+    public async Task EnforceCap_skipsLockedAccount_stopsNextLru()
+    {
+        var docker = new FakeDockerClient();
+        var time = new FakeTime();
+        var manager = Create(docker, time, new SessionSandboxOptions { MaxLiveContainers = 2 });
+
+        await manager.EnsureRunningAsync(1); // ältester
+        time.UtcNow = time.UtcNow.AddMinutes(1);
+        await manager.EnsureRunningAsync(2);
+        time.UtcNow = time.UtcNow.AddMinutes(1);
+
+        var inFlight = await manager.AcquireLockAsync(1); // Konto 1 (LRU-Kandidat) hat einen Exec in Flight
+
+        await manager.EnsureRunningAsync(3); // Cap 2 erreicht ⇒ Konto 1 überspringen, Konto 2 stoppen
+
+        Assert.Contains("stop:naudit-session-2", docker.Calls);
+        Assert.DoesNotContain("stop:naudit-session-1", docker.Calls);
+        Assert.True(docker.Containers["naudit-session-1"]);
+
+        inFlight.Dispose();
+    }
+
+    [Fact]
+    public async Task EnsureRunning_concurrentCreates_respectCap()
+    {
+        var docker = new FakeDockerClient { RunDelay = TimeSpan.FromMilliseconds(50) };
+        var manager = Create(docker, options: new SessionSandboxOptions { MaxLiveContainers = 1 });
+
+        await Task.WhenAll(manager.EnsureRunningAsync(1), manager.EnsureRunningAsync(2));
+
+        Assert.Equal(1, await manager.CountRunningAsync());
+    }
 }
