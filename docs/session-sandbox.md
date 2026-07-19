@@ -97,7 +97,8 @@ falls back to the existing in-process runner:
 | Situation | Behaviour |
 | --- | --- |
 | Socket missing or unusable (`PingAsync` fails) | In-process fallback for every run; the sweeper re-pings every 5 minutes and switches back to sandboxed runs automatically once the socket is reachable again (self-healing, no restart needed). |
-| Container start/exec fails with a Docker-plumbing error | One retry (re-`EnsureRunning` + exec again — covers "container was stopped/removed externally"); if that also fails, in-process fallback for that review. |
+| Initial container create/start fails (Docker-plumbing error) | Immediate fallback to the in-process runner (no retry); the review proceeds. |
+| Exec fails mid-session (e.g. container removed externally after a successful start) | One retry (re-`EnsureRunning`, stdin re-upload, exec again), then fallback to the in-process runner. |
 | Exec exceeds the review timeout | Same semantics as the in-process runner: the container is stopped (which kills the exec) and a `TimeoutException` is thrown — this is **not** swallowed as a fallback case, it is a real timeout. |
 | `claude` itself exits non-zero | Not a sandbox failure at all — it's a normal CLI error and follows the regular error path, same as an in-process run. |
 
