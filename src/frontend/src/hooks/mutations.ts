@@ -105,3 +105,26 @@ export function useSetResolution(reviewId: number | null) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["review", reviewId] }),
   });
 }
+
+/** Architektur-Profil manuell kuratieren (überschreibt, stoppt Auto-Re-Destillation). */
+export function useSaveGuidelines(projectId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { markdown: string }) =>
+      api<{ manuallyEdited: boolean }>(`/api/projects/${projectId}/guidelines`, {
+        method: "PUT",
+        body: JSON.stringify({ markdown: vars.markdown }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["guidelines", projectId] }),
+  });
+}
+
+/** Neu-Destillation anstoßen (auf dem nächsten Review — kein Inline-LLM-Call in der WebUI). */
+export function useRedistillGuidelines(projectId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<{ pending: boolean }>(`/api/projects/${projectId}/guidelines/redistill`, { method: "POST" }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["guidelines", projectId] }),
+  });
+}

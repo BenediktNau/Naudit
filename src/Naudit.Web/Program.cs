@@ -133,6 +133,19 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
     if (uiConfig.Auth.GitHub.Enabled)
     {
+        // Fail-fast: OAuth-Handler validieren ihre Options erst lazy beim ersten Request (sie sind
+        // IAuthenticationRequestHandler, die AuthenticationMiddleware initialisiert sie bei JEDEM
+        // Request). Eine leere ClientId schlägt sonst nicht beim Login, sondern als 500 auf jedem
+        // Request durch — die ganze App wäre unerreichbar. Lieber hier hart und mit klarer Meldung
+        // (konsistent zum GitHub-App-Auth in AddNauditInfrastructure).
+        if (string.IsNullOrWhiteSpace(uiConfig.Auth.GitHub.ClientId)
+            || string.IsNullOrWhiteSpace(uiConfig.Auth.GitHub.ClientSecret))
+        {
+            throw new InvalidOperationException(
+                "Naudit:Ui:Auth:GitHub:Enabled=true benötigt Naudit:Ui:Auth:GitHub:ClientId und "
+                + ":ClientSecret (aus der GitHub-OAuth-App). Beide setzen — oder das GitHub-Login mit "
+                + "Naudit:Ui:Auth:GitHub:Enabled=false abschalten.");
+        }
         auth.AddOAuth("GitHub", o =>
         {
             o.SignInScheme = Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme;
@@ -163,6 +176,17 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     }
     if (uiConfig.Auth.Oidc.Enabled)
     {
+        // Fail-fast wie bei GitHub oben: leere Authority/ClientId/ClientSecret sonst erst als
+        // Per-Request-500, nicht beim Start. Authority = OIDC-Issuer (z. B. Keycloak-Realm-URL).
+        if (string.IsNullOrWhiteSpace(uiConfig.Auth.Oidc.Authority)
+            || string.IsNullOrWhiteSpace(uiConfig.Auth.Oidc.ClientId)
+            || string.IsNullOrWhiteSpace(uiConfig.Auth.Oidc.ClientSecret))
+        {
+            throw new InvalidOperationException(
+                "Naudit:Ui:Auth:Oidc:Enabled=true benötigt Naudit:Ui:Auth:Oidc:Authority (OIDC-Issuer-URL), "
+                + ":ClientId und :ClientSecret. Alle drei setzen — oder das OIDC-Login mit "
+                + "Naudit:Ui:Auth:Oidc:Enabled=false abschalten.");
+        }
         auth.AddOpenIdConnect("Oidc", o =>
         {
             o.SignInScheme = Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme;
@@ -436,6 +460,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     app.MapMemoryEndpoints();
     app.MapResolutionEndpoints();
     app.MapAnalyticsEndpoints();
+    app.MapGuidelinesEndpoints();
     app.MapSettingsEndpoints();
     app.MapSetupEndpoints(setup);
 

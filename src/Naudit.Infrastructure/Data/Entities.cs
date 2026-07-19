@@ -140,3 +140,19 @@ public sealed class MemoryEntryEntity
     public int TimesApplied { get; set; }
     public DateTime? LastAppliedAtUtc { get; set; }
 }
+
+/// <summary>Architektur-Profil eines Projekts: destillierte Projekt-Guidelines als EIN Blob.
+/// Auto-Refresh (Neu-Destillieren bei Doku-Änderung) läuft nur, solange nicht manuell editiert —
+/// menschliche Kuration gewinnt; SourcesChangedAt trägt dann das Stale-Signal für die WebUI.</summary>
+public sealed class ProjectGuidelinesEntity
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+    public ProjectEntity Project { get; set; } = null!;
+    public required string Markdown { get; set; }
+    public required string SourceHash { get; set; }    // SHA256 über die destillierten Quellinhalte
+    public DateTime DistilledAt { get; set; }
+    public bool ManuallyEdited { get; set; }           // WebUI-Edit ⇒ Auto-Refresh stoppt
+    public DateTime? SourcesChangedAt { get; set; }    // Quellen geändert, Refresh blockiert ⇒ Stale-Hinweis
+    public required string UpdatedBy { get; set; }     // Editor-Username bzw. "naudit" für Destillate
+}

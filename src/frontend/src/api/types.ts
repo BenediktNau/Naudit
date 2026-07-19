@@ -214,3 +214,13 @@ export interface AnalyticsDto {
   weekly: { weekStart: string; posted: number; accepted: number; rejected: number }[];
   memory: { entries: number; active: number; timesApplied: number };
 }
+
+export type ProjectGuidelinesDto = {
+  markdown: string | null;
+  distilledAt: string | null;
+  manuallyEdited: boolean;
+  sourcesChangedAt: string | null;
+  updatedBy: string | null;
+  /** Redistill angestoßen, nächstes Review destilliert erst noch — Markdown ist der alte Stand. */
+  pending: boolean;
+};

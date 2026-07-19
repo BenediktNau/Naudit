@@ -29,12 +29,18 @@ public static class PromptBuilder
         "use it to understand what the change does and how it fits, but report findings ONLY on the diff lines shown with line numbers. " +
         "A read-only \"Project memory\" section may follow - it contains maintainer decisions: " +
         "do NOT report findings matching a known false positive again, and treat the listed conventions " +
-        "as authoritative project rules, not as issues to flag.";
+        "as authoritative project rules, not as issues to flag. " +
+        "A read-only \"Project guidelines\" section may follow - it contains the project's own architecture and convention rules, " +
+        "distilled from its documentation and curated by maintainers: treat them as authoritative and report violations of them as findings. " +
+        "Also review the change at the architecture level: breaks of contracts or patterns the codebase itself establishes, and layering violations. " +
+        "Such findings often map to no single changed line - report them without a line (omit \"line\") rather than dropping them. " +
+        "For security, specifically check: new endpoints or handlers for missing authentication or authorization; " +
+        "injection surfaces (SQL, command, path, SSRF); secrets or tokens in code or logs; and unsafe deserialization.";
 
     public static IList<ChatMessage> Build(
         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
         IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
-        IReadOnlyList<MemoryEntry>? memory = null, bool toolsAvailable = false)
+        IReadOnlyList<MemoryEntry>? memory = null, bool toolsAvailable = false, string? guidelines = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# Merge Request: {request.Title}");
@@ -50,6 +56,7 @@ public static class PromptBuilder
         AppendContext(sb, context);
         AppendFindings(sb, findings ?? []);
         AppendToolGuidance(sb, toolsAvailable);
+        AppendGuidelines(sb, guidelines);
         AppendMemory(sb, memory);
 
         return new List<ChatMessage>
@@ -188,6 +195,18 @@ public static class PromptBuilder
         sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
             "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
             "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
+    }
+
+    // Architektur-Profil: destillierte, maintainer-kuratierte Projekt-Guidelines — autoritativ,
+    // direkt vor dem Memory (beide tragen Maintainer-Entscheidungen; Memory bleibt zuletzt).
+    private static void AppendGuidelines(StringBuilder sb, string? guidelines)
+    {
+        if (string.IsNullOrWhiteSpace(guidelines))
+            return;
+        sb.AppendLine();
+        sb.AppendLine("# Project guidelines (distilled from this repository's own documentation; maintainer-curated, authoritative)");
+        sb.AppendLine();
+        sb.AppendLine(guidelines.Trim());
     }
 
     // Maintainer-Guidance als LETZTE Sektion (am nächsten an der Antwort = höchstes Gewicht).

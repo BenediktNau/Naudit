@@ -7,6 +7,7 @@ import type {
   ClaudeSessionTest,
   DashboardDto,
   GitHubAppDto,
+  ProjectGuidelinesDto,
   ProjectMemoryDto,
   ReviewDetailDto,
   SettingsDto,
@@ -111,6 +112,15 @@ export function useAnalytics(projectId: number | null, days: number) {
   return useQuery({
     queryKey: ["analytics", projectId, days],
     queryFn: () => api<AnalyticsDto>(`/api/analytics?days=${days}${projectId ? `&projectId=${projectId}` : ""}`),
+  });
+}
+
+/** Destilliertes Architektur-Profil eines Projekts. */
+export function useProjectGuidelines(projectId: number | null) {
+  return useQuery({
+    queryKey: ["guidelines", projectId],
+    queryFn: () => api<ProjectGuidelinesDto>(`/api/projects/${projectId}/guidelines`),
+    enabled: projectId !== null,
   });
 }
 

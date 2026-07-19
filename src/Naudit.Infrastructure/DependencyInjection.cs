@@ -13,6 +13,7 @@ using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
+using Naudit.Infrastructure.Guidelines;
 using Naudit.Infrastructure.Mcp;
 using Naudit.Infrastructure.Memory;
 using Naudit.Infrastructure.Process;
@@ -265,6 +266,13 @@ public static class DependencyInjection
             services.AddScoped<IReviewMemory, DbReviewMemory>();
         else
             services.AddSingleton<IReviewMemory, NullReviewMemory>();
+
+        // Architektur-Profil: destillierte Guidelines aus der Repo-Doku (Naudit:Review:Guidelines).
+        // Aus ⇒ NullReviewGuidelines (immer null) = heutiges Prompt-Verhalten.
+        if (reviewOptions.Guidelines.Enabled)
+            services.AddScoped<IReviewGuidelines, DistillingReviewGuidelines>();
+        else
+            services.AddSingleton<IReviewGuidelines, NullReviewGuidelines>();
 
         var uiOptions = configuration.GetSection("Naudit:Ui").Get<UiOptions>() ?? new UiOptions();
         services.AddSingleton(uiOptions);

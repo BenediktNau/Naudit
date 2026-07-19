@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useDashboard, useProjectMemory } from "@/hooks/queries";
-import { useCreateConvention, useToggleMemoryEntry } from "@/hooks/mutations";
+import { useDashboard, useProjectGuidelines, useProjectMemory } from "@/hooks/queries";
+import { useCreateConvention, useRedistillGuidelines, useSaveGuidelines, useToggleMemoryEntry } from "@/hooks/mutations";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 const kindPill: Record<string, string> = {
@@ -45,6 +45,11 @@ export function MemoryPage() {
           ))}
         </select>
       </div>
+
+      {/* Architektur-Profil (destillierte Guidelines) */}
+      {/* key erzwingt Remount je Projekt: editing/draft dürfen einen Projektwechsel nicht
+          überleben — sonst überschreibt "Save" das NEUE Projekt mit dem alten Entwurf. */}
+      <GuidelinesCard key={selected ?? "none"} projectId={selected} />
 
       {/* Konvention anlegen */}
       <div className="flex flex-wrap items-center gap-2">
@@ -101,6 +106,81 @@ export function MemoryPage() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Architektur-Profil-Karte: destilliertes Profil anzeigen, kuratieren, Neu-Destillation anstoßen. */
+function GuidelinesCard({ projectId }: { projectId: number | null }) {
+  const { data, isLoading } = useProjectGuidelines(projectId);
+  const save = useSaveGuidelines(projectId);
+  const redistill = useRedistillGuidelines(projectId);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  if (isLoading || !data) return null;
+
+  const startEdit = () => { setDraft(data.markdown ?? ""); setEditing(true); };
+  const submit = () => {
+    const t = draft.trim();
+    if (!t || save.isPending) return;
+    save.mutate({ markdown: t }, { onSuccess: () => setEditing(false) });
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-elev p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <h2 className="text-[13.5px] font-semibold text-ink">Architecture profile</h2>
+        <span className="font-mono text-[10.5px] text-ink3">
+          {data.markdown
+            ? data.pending
+              ? "re-distills on the next review — showing the previous profile"
+              : `${data.manuallyEdited ? "curated" : "distilled"} · ${data.updatedBy ?? ""}${data.distilledAt ? ` · ${new Date(data.distilledAt).toLocaleDateString()}` : ""}`
+            : "distills from the repo's docs on the next review"}
+        </span>
+        <div className="ml-auto flex gap-2">
+          {!editing && data.markdown && (
+            <button className="rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink" onClick={startEdit}>edit</button>
+          )}
+          {!editing && (
+            <button
+              className="rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink disabled:opacity-50"
+              disabled={redistill.isPending}
+              title="Discards manual edits; the profile is re-distilled on the next review."
+              onClick={() => { if (window.confirm("Re-distill from repository docs on the next review? Manual edits are discarded.")) redistill.mutate(); }}
+            >
+              re-distill
+            </button>
+          )}
+        </div>
+      </div>
+      {data.sourcesChangedAt && (
+        <div className="mb-2 font-mono text-[11px] text-warn">
+          Repository docs changed since this profile was curated — “re-distill” to rebuild it.
+        </div>
+      )}
+      {!editing && data.markdown && (
+        <pre className="whitespace-pre-wrap font-mono text-[12px] leading-snug text-ink2">{data.markdown}</pre>
+      )}
+      {editing && (
+        <div className="flex flex-col gap-2">
+          <textarea
+            className="min-h-[10rem] rounded-lg border border-border bg-elev p-2.5 font-mono text-[12px] text-ink"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <button
+              className="rounded-lg bg-acc/12 px-3 py-1.5 text-[13px] font-semibold text-acc disabled:opacity-50"
+              disabled={!draft.trim() || save.isPending}
+              onClick={submit}
+            >
+              Save
+            </button>
+            <button className="rounded-lg px-3 py-1.5 text-[13px] text-ink3 hover:text-ink" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
         </div>
       )}
     </div>

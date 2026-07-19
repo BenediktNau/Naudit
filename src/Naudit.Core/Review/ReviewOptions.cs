@@ -21,6 +21,9 @@ public sealed class ReviewOptions
 
     /// <summary>Finding-Resolution-Tracking (Review-Analytics, Naudit:Review:Resolution).</summary>
     public ReviewResolutionOptions Resolution { get; set; } = new();
+
+    /// <summary>Architektur-Profil: destillierte Projekt-Guidelines (Naudit:Review:Guidelines).</summary>
+    public ReviewGuidelinesOptions Guidelines { get; set; } = new();
 }
 
 /// <summary>Ab wann ein Review blockt (request_changes). Default: nur bestätigtes High/Critical.</summary>
@@ -77,4 +80,20 @@ public sealed class ReviewResolutionOptions
     public bool Enabled { get; set; } = true;
     public bool LlmClassification { get; set; } = true;   // Freitext-Klassifikation (PR 4)
     public bool RenderCheckbox { get; set; } = true;       // GitHub-Checkbox-Footer (PR 4)
+}
+
+/// <summary>Architektur-Profil. Default AN; Enabled=false ⇒ NullReviewGuidelines (heutiges Verhalten).</summary>
+public sealed class ReviewGuidelinesOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Deckel für den Destillat-Input (Summe der Quelldateien; übergroße Dateien werden ganz übersprungen).</summary>
+    public int MaxSourceChars { get; set; } = 60_000;
+
+    /// <summary>Deckel für das gespeicherte/eingespeiste Profil.</summary>
+    public int MaxProfileChars { get; set; } = 4_000;
+
+    /// <summary>Quellen relativ zum Repo-Root; Reihenfolge = Priorität. Exakte Namen oder das Muster "dir/**/*.md".</summary>
+    public List<string> Sources { get; set; } =
+        ["CLAUDE.md", "AGENTS.md", "README.md", "CONTRIBUTING.md", "docs/**/*.md"];
 }
