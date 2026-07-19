@@ -135,6 +135,18 @@ public class GuidelinesEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_literalJsonNullBody_returns400_not500()
+    {
+        var (client, factory) = await AdminApp();
+        var projectId = await Seed(factory);
+        // Ein Client kann ein wörtliches JSON "null" als Body schicken — das darf kein 500
+        // (NullReferenceException auf body.Markdown) werden, sondern gehört zu den 400ern.
+        using var content = new StringContent("null", System.Text.Encoding.UTF8, "application/json");
+        var resp = await client.PutAsync($"/api/projects/{projectId}/guidelines", content);
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task Get_afterRedistill_exposesPendingState()
     {
         var (client, factory) = await AdminApp();

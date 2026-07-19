@@ -120,8 +120,11 @@ review:
 
 - **No checkout at all** (no SAST analyzer configured and `Review:Context:Enabled
   = false`, or the checkout itself failed) ⇒ `workspaceDir` is `null`;
-  `GetAsync` returns the **stored** profile (if any) without attempting to collect
-  or distill sources, and without an LLM call.
+  `GetAsync` returns the stored profile **only if it was manually curated**
+  (`ManuallyEdited`), without an LLM call. A purely machine-distilled profile is
+  *not* used here: without a workspace its source hash cannot be re-verified, so
+  it might have been distilled from an unmerged PR's docs (see the trust section
+  below).
 - **No source files found** in the checkout ⇒ same fallback: the stored profile
   (if any), no LLM call.
 - **The distillation LLM call throws** ⇒ the stored profile (if any) is returned;
@@ -134,6 +137,40 @@ In every fallback case, "no stored profile" simply means no guidelines section i
 rendered — `PromptBuilder` only emits the "Project guidelines" section when the
 value is non-null/non-whitespace, so the prompt stays byte-identical to the
 guidelines-off case.
+
+## Trust model: sources come from the reviewed PR's checkout
+
+Sources are collected from the **same checkout that is being reviewed** — i.e.
+potentially from an unmerged branch. A PR that edits `CLAUDE.md`/`docs/**.md`
+can therefore influence the profile that gets distilled and stored during its
+own review. Three properties bound that risk:
+
+- **Hash self-healing:** the stored profile is only *used* by a review whose own
+  checkout produces the same source hash. The next review of any clean PR sees
+  the unmodified docs, gets a hash mismatch, re-distills from the clean sources
+  and overwrites the stored row. A poisoned profile therefore never reaches the
+  prompt of another PR's review (as long as reviews run with a checkout, which
+  is the default).
+- **Curation wins:** a `ManuallyEdited` profile is never overwritten by
+  distillation — poisoning cannot displace human curation.
+- **No-checkout guard:** without a workspace, only curated profiles are trusted
+  (see Degradation above) — a machine-distilled profile whose hash cannot be
+  re-verified is not injected.
+
+Residual exposure: the WebUI shows the last-stored profile, so a maintainer
+could see (and curate on top of) content distilled from a malicious PR between
+that PR's review and the next clean review — the card's `distilled · naudit ·
+date` provenance line is the tell. Distilling from the *target* branch instead
+would remove this entirely but requires a second checkout per review; revisit
+if it becomes a real problem.
+
+One more small window exists on the curation side: a `PUT` on a project without
+a prior distillation stores `SourceHash = ""` (the endpoint has no checkout, so
+there is no real baseline). The next review adopts the docs it sees as the
+baseline without raising `sourcesChangedAt`. Docs that change *between* the PUT
+and that next review are treated as the baseline rather than as a change — the
+alternative (flagging "docs changed" for every first curation) would be wrong
+100% of the time, so the rare swallowed signal is the better trade-off.
 
 ## Configuration
 
@@ -169,6 +206,6 @@ unknown project id returns `404`.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/projects/{id}/guidelines` | Current profile: `{ markdown, distilledAt, manuallyEdited, sourcesChangedAt, updatedBy }` — all fields `null`/`false` if no row exists yet |
+| `GET /api/projects/{id}/guidelines` | Current profile: `{ markdown, distilledAt, manuallyEdited, sourcesChangedAt, updatedBy, pending }` — all fields `null`/`false` if no row exists yet; `pending = true` after a redistill until the next review has re-distilled (the card then shows the old markdown as "re-distills on the next review") |
 | `PUT /api/projects/{id}/guidelines` | Manually set the profile: `{ "markdown": "..." }`; `400` if empty or over `MaxProfileChars`; sets `manuallyEdited = true` |
 | `POST /api/projects/{id}/guidelines/redistill` | Reset curation flags so the next review re-distills from the repo's current docs; idempotent, no-op-but-`200` if no row exists yet |

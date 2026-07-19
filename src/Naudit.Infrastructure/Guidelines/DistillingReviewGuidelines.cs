@@ -35,8 +35,12 @@ public sealed class DistillingReviewGuidelines(
                 ? null
                 : await db.ProjectGuidelines.SingleOrDefaultAsync(g => g.ProjectId == project.Id, ct);
 
+            // Kein Checkout ⇒ nur ein menschlich kuratiertes Profil ist vertrauenswürdig. Ein rein
+            // maschinell destilliertes stammt aus dem Checkout irgendeines früheren (ggf. unmerged,
+            // bösartigen) PRs; ohne Workspace ist sein Quell-Hash nicht re-verifizierbar — mit
+            // Checkout heilt der Hash-Vergleich das von selbst (fremde Docs ⇒ Mismatch ⇒ frisch).
             if (workspaceDir is null)
-                return Emit(stored?.Markdown);   // kein Checkout ⇒ gespeichertes Profil (oder nichts)
+                return Emit(stored is { ManuallyEdited: true } ? stored.Markdown : null);
 
             var sources = await CollectSourcesAsync(workspaceDir, ct);
             if (sources.Count == 0)

@@ -184,19 +184,39 @@ public class DistillingReviewGuidelinesTests : IDisposable
     }
 
     [Fact]
-    public async Task NoWorkspace_returnsStoredProfile_withoutLlmCall()
+    public async Task NoWorkspace_returnsCuratedProfile_withoutLlmCall()
     {
         using var db = NewDb();
         var project = await SeedProjectAsync(db);
         db.ProjectGuidelines.Add(new ProjectGuidelinesEntity
         {
             ProjectId = project.Id, Markdown = "- stored", SourceHash = "h",
-            DistilledAt = DateTime.UtcNow, UpdatedBy = "naudit",
+            DistilledAt = DateTime.UtcNow, ManuallyEdited = true, UpdatedBy = "bob",
         });
         await db.SaveChangesAsync();
         var chat = new RecordingChatClient("x");
 
         Assert.Equal("- stored", await Sut(db, chat).GetAsync("acme/widgets", null));
+        Assert.Equal(0, chat.Calls);
+    }
+
+    [Fact]
+    public async Task NoWorkspace_machineDistilledProfile_isNotTrusted()
+    {
+        using var db = NewDb();
+        var project = await SeedProjectAsync(db);
+        // Maschinell destilliertes Profil (nicht kuratiert): ohne Checkout ist sein Quell-Hash
+        // nicht re-verifizierbar — es könnte aus den Docs eines unmerged Fremd-PRs stammen
+        // (Poisoning-Pfad). Nur menschlich kuratierte Profile sind checkout-los vertrauenswürdig.
+        db.ProjectGuidelines.Add(new ProjectGuidelinesEntity
+        {
+            ProjectId = project.Id, Markdown = "- machine", SourceHash = "h",
+            DistilledAt = DateTime.UtcNow, ManuallyEdited = false, UpdatedBy = "naudit",
+        });
+        await db.SaveChangesAsync();
+        var chat = new RecordingChatClient("x");
+
+        Assert.Null(await Sut(db, chat).GetAsync("acme/widgets", null));
         Assert.Equal(0, chat.Calls);
     }
 
