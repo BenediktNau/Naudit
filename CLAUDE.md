@@ -245,6 +245,18 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   undecryptable-token accounts, empty pool ⇒ global — sequential, not parallel; it is deliberate
   account-sharing under Anthropic's consumer terms, gated behind per-user consent. See
   `docs/author-sessions.md`.
+- **Session sandbox (containerised subscription sessions):** `Naudit:Ai:SessionSandbox = None | Docker`
+  (default `None` = in-process CLI runs, today's behaviour). `Docker` moves Author/RoundRobin session
+  runs into long-lived sibling containers per account (host Docker socket, same Naudit image,
+  `sleep infinity` + `docker exec`; named volume `naudit-session-<accountId>` at `/home/app` keeps
+  CLI auth warm). Seam: `ISessionRunnerFactory` (`src/Naudit.Infrastructure/Ai/Sandbox/`) consumed by
+  `SessionSelectionFactory.ForAccount`; `SessionContainerManager` owns lifecycle (per-account locks,
+  LRU cap `MaxLiveContainers`, idle sweeper stops after `IdleTimeout`, adoption after restart);
+  `IDockerClient`/`SocketDockerClient` (`src/Naudit.Infrastructure/Docker/`) is a hand-rolled
+  Engine-API client over the Unix socket (no new NuGet). Fail-open everywhere: any Docker error falls
+  back to the in-process runner — a review never fails because of the sandbox. Opt-in integration
+  test via `NAUDIT_TEST_DOCKER=1`. Status: `GET /api/me/session-sandbox` (mapped only in Docker
+  mode). See `docs/session-sandbox.md`.
 - **Review memory:** `IReviewMemory` (Core `Abstractions`) selects per-project maintainer
   guidance for a review; the default `DbReviewMemory`
   (`src/Naudit.Infrastructure/Memory/`) deterministically picks active conventions + false

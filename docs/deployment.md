@@ -182,6 +182,34 @@ with `--build-arg CLAUDE_CODE_VERSION=<version>` instead of the empty default.
   Anthropic GPG-signs that manifest (`manifest.json.sig`), but this build does not verify the
   signature — it guards against a corrupt download, not a compromised upstream.
 
+## Session sandbox (optional)
+
+With `Naudit:Ai:SessionSandbox=Docker`, [author-session](author-sessions.md) subscription
+runs (`Author`/`RoundRobin` routing) move into long-lived sibling containers over the
+**host's own Docker socket** instead of running in-process — warm CLI auth per account,
+isolated per account. It is off by default (`None`) and purely opt-in; see
+[Session sandbox](session-sandbox.md) for the full picture (config keys, lifecycle,
+fail-open behaviour, and a security note on what mounting the Docker socket implies).
+
+Mount the socket and give the non-root Naudit process the host's `docker` group:
+
+```yaml
+services:
+  naudit:
+    image: ghcr.io/benediktnau/naudit:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "984"   # GID of the docker group on the HOST: stat -c '%g' /var/run/docker.sock
+    environment:
+      Naudit__Ai__SessionSandbox: "Docker"
+```
+
+Read the GID with `stat -c '%g' /var/run/docker.sock` **on the host** — it varies by
+distro and must match exactly, or the non-root container user cannot use the mounted
+socket. Getting it wrong is not fatal: Naudit logs a warning and falls back to
+in-process session runs, same as if the socket were missing entirely.
+
 ## Automatic deploy on each release
 
 The CI does **not** deploy — Coolify owns deployment. The recommended pattern is push-based:

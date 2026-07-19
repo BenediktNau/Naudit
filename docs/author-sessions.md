@@ -78,3 +78,14 @@ round-robin pool"** on their profile (a token set for author-mode is *not* poole
 that consent). Only active accounts with a token **and** that opt-in are rotated; accounts
 on cooldown are skipped, and an empty pool falls back to the global provider. Failures fall
 back to the global client with one retry, exactly as in author mode.
+
+## Runtime isolation
+
+By default, both `Author` and `RoundRobin` runs execute the `claude` CLI as an
+in-process subprocess with a fresh, empty `CLAUDE_CONFIG_DIR` per review — a cold
+re-auth every time. With `Naudit:Ai:SessionSandbox=Docker` each account's CLI instead
+runs in its own long-lived sibling container over the host's Docker socket, keeping
+its authenticated session warm between reviews and isolated from every other account's
+container. This is a separate, opt-in switch (default `None` = today's behaviour,
+unaffected by anything above) — see [Session sandbox](session-sandbox.md) for config,
+lifecycle, and the security trade-offs of mounting the Docker socket.
