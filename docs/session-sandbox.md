@@ -41,7 +41,7 @@ requires a restart via the "restart required" banner, same as other config chang
 | `Naudit:Ai:Sandbox:IdleTimeout` | `2.00:00:00` (2 days) | How long a running account container may sit unused before the sweeper stops it (stop, not remove). |
 | `Naudit:Ai:Sandbox:MaxLiveContainers` | `5` | Cap on simultaneously *running* session containers; the manager stops the least-recently-used one before starting one more (a floor of 1 is enforced). |
 | `Naudit:Ai:Sandbox:DockerSocketPath` | `/var/run/docker.sock` | Path to the Docker engine socket. |
-| `Naudit:Ai:Sandbox:Image` | *(empty)* | Optional image override. Empty means self-inspection: Naudit resolves its own image via `docker inspect $HOSTNAME`, so the `claude` CLI baked into the Naudit image is always used and never drifts from the running version. |
+| `Naudit:Ai:Sandbox:Image` | *(empty)* | Optional image override. Empty means self-inspection: Naudit resolves its own image via `docker inspect $HOSTNAME`, so the `claude` CLI baked into the Naudit image is always used and never drifts from the running version. Deployments that override the container hostname (e.g. `--hostname`, or Compose's `hostname:`) break self-inspection, since `$HOSTNAME` then no longer matches the running container's actual name — set this key explicitly in that case. |
 
 `IdleTimeout` is deliberately long: in day-to-day operation `MaxLiveContainers`
 (LRU-stop before every new start) is the real resource bound, not the sweeper. The
@@ -78,11 +78,15 @@ sweeper is the safety net for "this account has been quiet for a couple of days"
   `naudit-session-*` containers and adopts them as "just used" — Naudit's own
   config-change restart loop does not touch these sibling containers, so a restart
   never orphans a warm session.
-- **Removal on token deletion / pool opt-out.** Deleting an account's stored Claude
-  session token, or turning off "share my session in the round-robin pool", removes
-  that account's container **and** its volume (best-effort — a Docker failure there
-  never blocks the underlying DB change). This is deliberate: the volume holds live
-  CLI credentials and must not outlive the account's consent to use them.
+- **Removal on token deletion / pool opt-out / account suspension.** Deleting an
+  account's stored Claude session token, turning off "share my session in the
+  round-robin pool", or an admin suspending/deactivating the account (any status
+  transition away from Active), removes that account's container **and** its volume
+  (best-effort — a Docker failure there never blocks the underlying DB change). This
+  is deliberate: the volume holds live CLI credentials and must not outlive the
+  account's consent — or authorization — to use them. Reactivating the account
+  (transitioning back to Active) does not touch the sandbox; the next review simply
+  starts a fresh container cold.
 - **A running exec is never stopped out from under itself.** Both the idle sweeper and
   the LRU cap use a non-blocking lock attempt before stopping a container; if an exec
   is in flight for that account, the container is skipped that round rather than being
@@ -107,8 +111,8 @@ falls back to the existing in-process runner:
 - **`MaxLiveContainers` is the resource bound you tune for capacity**; the idle sweeper
   is the safety net for stale accounts, not the primary control.
 - Volumes persisting across stops **and** restarts is intentional, not a leak — that is
-  what makes sessions warm. They are only removed on token deletion or pool opt-out (see
-  above).
+  what makes sessions warm. They are only removed on token deletion, pool opt-out, or
+  account suspension/deactivation (see above).
 - **Resetting one account's session** (e.g. after a bad CLI state): either remove the
   container and volume directly —
   ```bash
@@ -138,7 +142,8 @@ Within that trust boundary, be aware that:
   run (e.g. via `docker inspect`/`docker top` while it executes);
 - the CLI's authenticated credentials live in the account's named volume; and
 - that volume **intentionally survives** container stops and Naudit restarts (see
-  Lifecycle above) — it is only removed on explicit token deletion or pool opt-out.
+  Lifecycle above) — it is only removed on explicit token deletion, pool opt-out, or
+  account suspension/deactivation.
 
 None of this is new risk *created* by the sandbox beyond what socket access already
 implies — it is called out here so operators go in with eyes open rather than

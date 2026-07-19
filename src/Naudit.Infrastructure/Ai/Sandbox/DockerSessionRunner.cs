@@ -37,6 +37,9 @@ public sealed class DockerSessionRunner(
             logger.LogWarning(ex,
                 "Session-Sandbox für Konto {AccountId} nicht verfügbar — Fallback auf In-Process-Lauf.",
                 accountId);
+            // Der Fallback bekommt bewusst das VOLLE spec.Timeout erneut (Worst-Case-Wall-Clock ≈
+            // Docker-Versuch + In-Process-Timeout) — kein geteiltes Budget, damit der Fallback nie
+            // ausgehungert startet.
             return await inProcessFallback.RunAsync(spec, ct);
         }
     }

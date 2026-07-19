@@ -1,12 +1,18 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Data;
 
 namespace Naudit.Infrastructure.Ui;
 
 /// <summary>Account-Verwaltung: lokale Nutzer (Admin legt an ⇒ sofort aktiv), externe
 /// Materialisierung (Self-Service ⇒ pending), Status-Übergänge, GitHub-Links, Seed-Admin.</summary>
-public sealed class AccountService(NauditDbContext db, UiOptions options)
+public sealed class AccountService(
+    NauditDbContext db,
+    UiOptions options,
+    SessionContainerManager? sandbox = null,
+    ILogger<AccountService>? logger = null)
 {
     private static readonly PasswordHasher<AccountEntity> Hasher = new();
 
@@ -115,6 +121,12 @@ public sealed class AccountService(NauditDbContext db, UiOptions options)
         if (acct is null) return false;
         acct.Status = status;
         await db.SaveChangesAsync(ct);
+        // Jeder Statuswechsel WEG von Active (Suspendieren/Deaktivieren/Ablehnen) räumt die
+        // Sandbox ab — ein suspendierter Account darf sein Credential-Volume nicht behalten.
+        // Rückkehr zu Active fasst die Sandbox bewusst nicht an (kein Auto-Warmstart bei
+        // Reaktivierung, der nächste Review startet einfach kalt neu).
+        if (status != AccountStatus.Active)
+            await RemoveSandboxAsync(id, ct);
         return true;
     }
 
@@ -139,4 +151,22 @@ public sealed class AccountService(NauditDbContext db, UiOptions options)
 
     private static IEnumerable<string> Normalize(IReadOnlyList<string> logins) =>
         logins.Select(l => l.Trim().ToLowerInvariant()).Where(l => l.Length > 0).Distinct();
+
+    // Sandbox-Lifecycle (analog ClaudeSessionService.RemoveSandboxAsync): ein suspendierter
+    // Account darf sein Credential-Volume nicht behalten — best-effort, ein Docker-Fehler
+    // kippt nie die Status-Änderung.
+    private async Task RemoveSandboxAsync(int accountId, CancellationToken ct)
+    {
+        if (sandbox is null)
+            return;
+        try
+        {
+            await sandbox.RemoveAsync(accountId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex,
+                "Session-Sandbox: Container-Abbau für Konto {AccountId} nach Status-Änderung fehlgeschlagen (best-effort).", accountId);
+        }
+    }
 }
