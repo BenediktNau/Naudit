@@ -8,6 +8,7 @@ import type {
   GitHubAppDto,
   ProjectMemoryDto,
   ReviewDetailDto,
+  SessionSandboxDto,
   SettingsDto,
   UsageDto,
 } from "@/api/types";
@@ -65,6 +66,16 @@ export function useGitHubApp() {
   return useQuery({
     queryKey: ["github-app"],
     queryFn: () => api<GitHubAppDto>("/api/me/github-app"),
+    retry: false,
+  });
+}
+
+/** Sandbox-Status (Docker-Modus der Autor-Sessions). 404 = Feature aus (SessionSandbox=None)
+ *  ⇒ kein Retry, data bleibt undefined, die Statuszeile in der ClaudeSessionCard rendert nichts. */
+export function useSessionSandbox() {
+  return useQuery({
+    queryKey: ["session-sandbox"],
+    queryFn: () => api<SessionSandboxDto>("/api/me/session-sandbox"),
     retry: false,
   });
 }

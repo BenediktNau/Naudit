@@ -186,6 +186,12 @@ export interface ClaudeSessionTest {
   error: string | null;
 }
 
+export interface SessionSandboxDto {
+  mode: string;
+  socketReachable: boolean | null;
+  liveContainers: number | null;
+}
+
 export type MemoryEntryDto = {
   id: number;
   kind: "FalsePositive" | "Convention";
