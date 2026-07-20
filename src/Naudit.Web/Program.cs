@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Naudit.Core.Models;
 using Naudit.Core.Review;
 using Naudit.Infrastructure;
+using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
@@ -429,6 +430,9 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
         app.MapGitHubAppEndpoints(
             app.Services.GetRequiredService<GitOptions>(),
             app.Services.GetRequiredService<IOptions<GitHubOptions>>().Value);
+
+        // Session-Sandbox-Status fürs SPA — mappt sich selbst nur bei SessionSandbox=Docker.
+        app.MapSessionSandboxEndpoints(app.Services.GetRequiredService<AiOptions>());
     }
     else if (setup.SetupRequired)
     {

@@ -8,8 +8,10 @@ using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Context;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Docker;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
 using Naudit.Infrastructure.Git.GitLab;
@@ -90,6 +92,29 @@ public static class DependencyInjection
         services.AddSingleton(authorSessions);
         services.AddSingleton<SessionHealthRegistry>();
         services.AddSingleton<RoundRobinCursor>();
+
+        // Session-Sandbox (containerisierte Author/RoundRobin-Sessions): Default None = heutiger
+        // In-Process-Runner. Docker ⇒ account-gebundene Runner über den Host-Docker-Socket; jeder
+        // Fehlerpfad fällt auf den In-Process-Runner zurück (ein Review scheitert nie an der Sandbox).
+        var sandboxOptions = configuration.GetSection("Naudit:Ai:Sandbox").Get<SessionSandboxOptions>()
+            ?? new SessionSandboxOptions();
+        services.AddSingleton(sandboxOptions);
+        services.AddSingleton<SessionSandboxState>();
+        if (aiOptions.SessionSandbox == SessionSandbox.Docker)
+        {
+            services.AddSingleton<IDockerClient>(_ => new SocketDockerClient(sandboxOptions.DockerSocketPath));
+            services.AddSingleton(sp => new SessionContainerManager(
+                sp.GetRequiredService<IDockerClient>(), sandboxOptions,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<SessionContainerManager>()));
+            services.AddSingleton<ISessionRunnerFactory, DockerSessionRunnerFactory>();
+            services.AddHostedService<SandboxSweeperService>();
+        }
+        else
+        {
+            services.AddSingleton<ISessionRunnerFactory>(sp =>
+                new InProcessSessionRunnerFactory(sp.GetRequiredService<IProcessRunner>()));
+        }
+
         services.AddSingleton<SessionSelectionFactory>();
 
         // Router-Naht: 3 Modi. Single = globaler Client (heutiges Verhalten); Author/RoundRobin

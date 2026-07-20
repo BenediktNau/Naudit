@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Docker;
 using Naudit.Infrastructure.Ui;
+using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -16,7 +20,34 @@ public class AccountServiceTests
         return db;
     }
 
-    private static AccountService NewService(NauditDbContext db, UiOptions? o = null) => new(db, o ?? new UiOptions());
+    private static AccountService NewService(NauditDbContext db, UiOptions? o = null, SessionContainerManager? sandbox = null) =>
+        new(db, o ?? new UiOptions(), sandbox);
+
+    /// <summary>Echter SessionContainerManager als Sandbox-Kollaborateur, mit einem gestellten
+    /// IDockerClient (FakeDockerClient oder ThrowingDockerClient) — Pattern aus ClaudeSessionServiceTests.</summary>
+    private static SessionContainerManager Sandbox(IDockerClient docker)
+        => new(docker, new SessionSandboxOptions(), NullLogger<SessionContainerManager>.Instance, new FakeTime());
+
+    /// <summary>IDockerClient, dessen für RemoveAsync relevante Methoden immer DockerUnavailableException
+    /// werfen — simuliert "Docker-Engine down" für den Best-effort-Pfad (Duplikat aus
+    /// ClaudeSessionServiceTests: dort private, hier eigenständig gehalten statt geteilt).</summary>
+    private sealed class ThrowingDockerClient : IDockerClient
+    {
+        public Task<bool> PingAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<string?> InspectSelfImageAsync(string hostname, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<ContainerInfo?> InspectContainerAsync(string name, CancellationToken ct = default) => Task.FromResult<ContainerInfo?>(null);
+        public Task RunDetachedAsync(ContainerRunSpec spec, CancellationToken ct = default) => Task.CompletedTask;
+        public Task StartAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+        public Task StopAsync(string name, CancellationToken ct = default) => throw new DockerUnavailableException("fake: docker down");
+        public Task RemoveContainerAsync(string name, CancellationToken ct = default) => throw new DockerUnavailableException("fake: docker down");
+        public Task RemoveVolumeAsync(string name, CancellationToken ct = default) => throw new DockerUnavailableException("fake: docker down");
+        public Task WriteFileAsync(string name, string directory, string fileName, string content, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<DockerExecResult> ExecAsync(string name, IReadOnlyList<string> argv,
+            IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default)
+            => Task.FromResult(new DockerExecResult(0, "", ""));
+        public Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ContainerListEntry>>(new List<ContainerListEntry>());
+    }
 
     [Fact]
     public async Task CreateLocal_isActiveImmediately_andVerifiesPassword()
@@ -134,6 +165,54 @@ public class AccountServiceTests
 
         var links = await db.GitHubLinks.Where(l => l.AccountId == acct.Id).Select(l => l.Login).OrderBy(x => x).ToListAsync();
         Assert.Equal(["acme-org", "u"], links);
+    }
+
+    [Fact]
+    public async Task SetStatus_awayFromActive_removesSandboxContainerAndVolume()
+    {
+        // Suspendieren/Deaktivieren (jeder Status ≠ Active) darf das Credential-Volume des
+        // Accounts nicht überleben lassen — analog zu ClaudeSessionService bei Token-Löschung.
+        await using var db = NewDb();
+        var acct = await NewService(db).CreateLocalAsync("bene", "sehr-geheim", isAdmin: false, []);
+        var docker = new FakeDockerClient();
+        docker.Containers[SessionContainerManager.ContainerName(acct.Id)] = true;
+        docker.Volumes.Add(SessionContainerManager.ContainerName(acct.Id));
+        var svc = NewService(db, sandbox: Sandbox(docker));
+
+        await svc.SetStatusAsync(acct.Id, AccountStatus.Rejected);
+
+        Assert.Empty(docker.Containers); // stop + rm + rmvol gelaufen
+        Assert.Empty(docker.Volumes);
+    }
+
+    [Fact]
+    public async Task SetStatus_backToActive_doesNotTouchSandbox()
+    {
+        await using var db = NewDb();
+        var acct = await NewService(db).CreateLocalAsync("bene", "sehr-geheim", isAdmin: false, []);
+        var docker = new FakeDockerClient();
+        docker.Containers[SessionContainerManager.ContainerName(acct.Id)] = true;
+        docker.Volumes.Add(SessionContainerManager.ContainerName(acct.Id));
+        var svc = NewService(db, sandbox: Sandbox(docker));
+
+        await svc.SetStatusAsync(acct.Id, AccountStatus.Active); // war schon aktiv — Reaktivierung fasst nichts an
+
+        Assert.NotEmpty(docker.Containers);
+        Assert.NotEmpty(docker.Volumes);
+    }
+
+    [Fact]
+    public async Task SetStatus_sandboxFailure_doesNotFailStatusChange()
+    {
+        await using var db = NewDb();
+        var acct = await NewService(db).CreateLocalAsync("bene", "sehr-geheim", isAdmin: false, []);
+        var svc = NewService(db, sandbox: Sandbox(new ThrowingDockerClient()));
+
+        var ok = await svc.SetStatusAsync(acct.Id, AccountStatus.Rejected); // darf NICHT werfen — best-effort
+
+        Assert.True(ok);
+        var reloaded = await db.Accounts.AsNoTracking().SingleAsync(a => a.Id == acct.Id);
+        Assert.Equal(AccountStatus.Rejected, reloaded.Status);
     }
 
     [Fact]

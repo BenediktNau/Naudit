@@ -4,6 +4,7 @@ import {
   useSaveClaudeSession,
   useDeleteClaudeSession,
   useTestClaudeSession,
+  useSessionSandbox,
 } from "@/hooks/queries";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
@@ -22,6 +23,7 @@ export function ClaudeSessionCard() {
   const save = useSaveClaudeSession();
   const remove = useDeleteClaudeSession();
   const test = useTestClaudeSession();
+  const sandbox = useSessionSandbox();
   const [token, setToken] = useState("");
   const [login, setLogin] = useState<string | null>(null);
   const [shareInPool, setShareInPool] = useState<boolean | null>(null);
@@ -45,6 +47,15 @@ export function ClaudeSessionCard() {
             </span>
           )}
         </div>
+
+        {sandbox.data && (
+          <p className="font-mono text-[11px] text-ink3">
+            Session sandbox:{" "}
+            {sandbox.data.socketReachable === false
+              ? "fallback in-process (docker.sock unreachable)"
+              : `active${sandbox.data.liveContainers != null ? ` · ${sandbox.data.liveContainers} container(s)` : ""}`}
+          </p>
+        )}
 
         <p className="text-[12.5px] leading-relaxed text-ink2">
           Store the OAuth token from <code className="font-mono text-acc">claude setup-token</code> (Claude Pro/Max)
