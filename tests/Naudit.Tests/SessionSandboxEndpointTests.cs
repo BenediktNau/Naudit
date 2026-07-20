@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Mvc.Testing.Handlers;
+using Microsoft.Extensions.DependencyInjection;
+using Naudit.Infrastructure.Ui;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -79,5 +81,26 @@ public class SessionSandboxEndpointTests : IClassFixture<WebApplicationFactory<P
         Assert.True(json.RootElement.TryGetProperty("socketReachable", out _));
         // liveContainers ist null, wenn kein Docker-Socket erreichbar ist (CI) — Feld muss existieren.
         Assert.True(json.RootElement.TryGetProperty("liveContainers", out _));
+    }
+
+    /// <summary>liveContainers zählt über ALLE Konten — das ist eine Betriebszahl, keine
+    /// Selbstauskunft. Nicht-Admins bekommen das Feld deshalb gar nicht erst.</summary>
+    [Fact]
+    public async Task DockerMode_nonAdmin_seesOwnStatus_butNotTheCrossAccountCount()
+    {
+        using var app = App(sandboxDocker: true);
+        using (var scope = app.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<AccountService>()
+                .CreateLocalAsync("entwickler", "passwort123", isAdmin: false, []);
+        using var client = app.CreateDefaultClient(new CookieContainerHandler());
+        await client.PostAsJsonAsync("/auth/login", new { username = "entwickler", password = "passwort123" });
+
+        var resp = await client.GetAsync("/api/me/session-sandbox");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        using var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal("Docker", json.RootElement.GetProperty("mode").GetString());
+        Assert.True(json.RootElement.TryGetProperty("socketReachable", out _));
+        Assert.False(json.RootElement.TryGetProperty("liveContainers", out _));
     }
 }

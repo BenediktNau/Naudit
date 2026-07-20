@@ -52,8 +52,12 @@ public class DockerSessionRunnerTests
         var exec = Assert.Single(docker.Execs);
         Assert.Equal("naudit-session-42", exec.Container);
         Assert.Equal("/tmp", exec.WorkingDir);
-        Assert.Equal(["/bin/sh", "-c", "exec \"$0\" \"$@\" < /tmp/naudit-stdin", "claude", "-p", "--output-format", "json"],
-            exec.Argv);
+        // Der Prompt-Zwischenspeicher wird nach dem Lauf gelöscht (er enthält den Diff) — der
+        // Exit-Code der CLI bleibt dabei erhalten, deshalb kein `exec`, sondern $?-Durchreichen.
+        Assert.Equal([
+            "/bin/sh", "-c",
+            "\"$0\" \"$@\" < /tmp/naudit-stdin; rc=$?; rm -f /tmp/naudit-stdin; exit $rc",
+            "claude", "-p", "--output-format", "json"], exec.Argv);
         // Env-Filter: NUR der Token wandert mit, CLAUDE_CONFIG_DIR wird verworfen (Volume-HOME gewinnt).
         var env = Assert.Single(exec.Env!);
         Assert.Equal(("CLAUDE_CODE_OAUTH_TOKEN", "tok-123"), (env.Key, env.Value));
@@ -94,6 +98,20 @@ public class DockerSessionRunnerTests
 
         Assert.Equal("fallback-out", result.StdOut);
         Assert.Single(fallback.Specs); // Original-Spec ging in-process weiter
+    }
+
+    /// <summary>Ein Lauf, der in-process ausweichen musste, darf den Container nicht als "gerade
+    /// genutzt" hinterlassen: sonst schützt ein defekter Container sich bis zu IdleTimeout selbst
+    /// vor Sweep und LRU-Stopp, während gesunde Accounts verdrängt werden.</summary>
+    [Fact]
+    public async Task Run_dockerBroken_invalidatesLastUsed_soSweepAndLruCanReclaim()
+    {
+        var (runner, docker, _, _, manager) = Create();
+        docker.FailNextExecs = 2;
+
+        await runner.RunAsync(Spec());
+
+        Assert.Null(manager.LastUsed(42));
     }
 
     [Fact]

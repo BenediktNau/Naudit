@@ -37,6 +37,9 @@ public sealed class DockerSessionRunner(
             logger.LogWarning(ex,
                 "Session-Sandbox für Konto {AccountId} nicht verfügbar — Fallback auf In-Process-Lauf.",
                 accountId);
+            // Der Container hat sich nicht als brauchbar erwiesen: LastUsed zurücknehmen, damit er
+            // Sweep/LRU nicht länger blockiert (EnsureRunningAsync hatte ihn vorab als genutzt markiert).
+            manager.Invalidate(accountId);
             // Der Fallback bekommt bewusst das VOLLE spec.Timeout erneut (Worst-Case-Wall-Clock ≈
             // Docker-Versuch + In-Process-Timeout) — kein geteiltes Budget, damit der Fallback nie
             // ausgehungert startet.
@@ -100,12 +103,15 @@ public sealed class DockerSessionRunner(
     }
 
     // Ohne stdin: argv direkt. Mit stdin: über die Shell umleiten — "$0"/"$@" trägt die
-    // Original-Argv unverändert durch (kein Quoting-Problem), exec ersetzt die Shell durch claude.
+    // Original-Argv unverändert durch (kein Quoting-Problem). Danach wird der Zwischenspeicher
+    // gelöscht (er trägt den Diff, der Container lebt tagelang weiter); kein `exec`, damit nach
+    // dem Lauf noch aufgeräumt und der Exit-Code der CLI durchgereicht werden kann.
     private static IReadOnlyList<string> BuildArgv(ProcessSpec spec)
     {
         if (spec.StdIn is null)
             return [spec.FileName, .. spec.Arguments];
-        return ["/bin/sh", "-c", $"exec \"$0\" \"$@\" < {StdInDirectory}/{StdInFileName}",
+        var path = $"{StdInDirectory}/{StdInFileName}";
+        return ["/bin/sh", "-c", $"\"$0\" \"$@\" < {path}; rc=$?; rm -f {path}; exit $rc",
             spec.FileName, .. spec.Arguments];
     }
 }

@@ -41,6 +41,7 @@ requires a restart via the "restart required" banner, same as other config chang
 | `Naudit:Ai:Sandbox:IdleTimeout` | `2.00:00:00` (2 days) | How long a running account container may sit unused before the sweeper stops it (stop, not remove). |
 | `Naudit:Ai:Sandbox:MaxLiveContainers` | `5` | Cap on simultaneously *running* session containers; the manager stops the least-recently-used one before starting one more (a floor of 1 is enforced). |
 | `Naudit:Ai:Sandbox:DockerSocketPath` | `/var/run/docker.sock` | Path to the Docker engine socket. |
+| `Naudit:Ai:Sandbox:RemoveTimeout` | `00:00:05` | How long a teardown (token deletion, pool opt-out, suspension) waits for the account lock before giving up. It runs on an HTTP request and must not block behind a running review; whatever it skips is cleaned up by the reconciliation pass (see Lifecycle). |
 | `Naudit:Ai:Sandbox:Image` | *(empty)* | Optional image override. Empty means self-inspection: Naudit resolves its own image via `docker inspect $HOSTNAME`, so the `claude` CLI baked into the Naudit image is always used and never drifts from the running version. Deployments that override the container hostname (e.g. `--hostname`, or Compose's `hostname:`) break self-inspection, since `$HOSTNAME` then no longer matches the running container's actual name — set this key explicitly in that case. |
 
 `IdleTimeout` is deliberately long: in day-to-day operation `MaxLiveContainers`
@@ -60,8 +61,11 @@ sweeper is the safety net for "this account has been quiet for a couple of days"
 - **Reviews run via `docker exec`.** Each review execs into the account's container
   instead of spawning a host subprocess. Standard input (the diff/prompt) is written
   to a file inside the container first and redirected in via a small shell wrapper
-  (`sh -c 'exec "$0" "$@" < /tmp/naudit-stdin'`), so the original argv reaches `claude`
-  unchanged with no shell-quoting risk.
+  (`sh -c '"$0" "$@" < /tmp/naudit-stdin; rc=$?; rm -f /tmp/naudit-stdin; exit $rc'`), so
+  the original argv reaches `claude` unchanged with no shell-quoting risk. The wrapper
+  deletes that scratch file again once the run finishes — the container outlives the
+  review by days, and the file holds the (redacted) diff. It lives in `/tmp`, i.e. the
+  container layer, never in the persistent session volume.
 - **Token-only exec environment.** Only `CLAUDE_CODE_OAUTH_TOKEN` is forwarded into the
   exec; the host-side `CLAUDE_CONFIG_DIR` is deliberately dropped so the container's own
   `HOME` (the volume) wins and the warm session is actually used.
@@ -81,12 +85,21 @@ sweeper is the safety net for "this account has been quiet for a couple of days"
 - **Removal on token deletion / pool opt-out / account suspension.** Deleting an
   account's stored Claude session token, turning off "share my session in the
   round-robin pool", or an admin suspending/deactivating the account (any status
-  transition away from Active), removes that account's container **and** its volume
-  (best-effort — a Docker failure there never blocks the underlying DB change). This
-  is deliberate: the volume holds live CLI credentials and must not outlive the
-  account's consent — or authorization — to use them. Reactivating the account
-  (transitioning back to Active) does not touch the sandbox; the next review simply
-  starts a fresh container cold.
+  transition away from Active), removes that account's container **and** its volume.
+  This is deliberate: the volume holds live CLI credentials and must not outlive the
+  account's consent — or authorization — to use them. The immediate attempt is
+  best-effort by design: it never blocks the underlying DB change, and it waits at
+  most `RemoveTimeout` for the account lock so the HTTP request cannot hang behind a
+  running review. Reactivating the account (transitioning back to Active) does not
+  touch the sandbox; the next review simply starts a fresh container cold.
+- **Reconciliation makes that removal durable.** Anything the immediate attempt misses —
+  a Docker error, a review still holding the lock, or a Naudit crash mid-teardown —
+  is caught by the sweeper: every tick it lists the existing `naudit-session-*`
+  containers and removes container **and** volume for any whose account is gone, is not
+  `Active`, or no longer has a stored token. So the guarantee is "immediately if
+  possible, otherwise within one sweep interval (5 minutes)" rather than best-effort
+  alone. Pool opt-out is not part of that rule: in `Author` mode a user legitimately
+  keeps a warm session without being in the round-robin pool.
 - **A running exec is never stopped out from under itself.** Both the idle sweeper and
   the LRU cap use a non-blocking lock attempt before stopping a container; if an exec
   is in flight for that account, the container is skipped that round rather than being
@@ -95,8 +108,11 @@ sweeper is the safety net for "this account has been quiet for a couple of days"
 
 ## Fail-open matrix
 
-A review must never fail *because of* the sandbox. Every Docker-facing failure mode
-falls back to the existing in-process runner:
+A review must never fail *because of* the sandbox: every **Docker plumbing** failure
+(socket, engine API, container lifecycle) falls back to the existing in-process runner.
+That promise deliberately does not extend to two things which are not sandbox failures
+at all — a review that exceeds its own timeout, and a `claude` process that exits
+non-zero; both behave exactly as they do without the sandbox:
 
 | Situation | Behaviour |
 | --- | --- |
@@ -105,6 +121,17 @@ falls back to the existing in-process runner:
 | Exec fails mid-session (e.g. container removed externally after a successful start) | One retry (re-`EnsureRunning`, stdin re-upload, exec again), then fallback to the in-process runner. |
 | Exec exceeds the review timeout | Same semantics as the in-process runner: the container is stopped (which kills the exec) and a `TimeoutException` is thrown — this is **not** swallowed as a fallback case, it is a real timeout. |
 | `claude` itself exits non-zero | Not a sandbox failure at all — it's a normal CLI error and follows the regular error path, same as an in-process run. |
+
+Two consequences of the fallback worth knowing:
+
+- **Worst-case wall clock is roughly twice the configured AI timeout.** The in-process
+  retry deliberately gets the full timeout again rather than the remainder, so it can
+  never start starved. Reviews from webhooks run on the background queue where that only
+  costs time; the synchronous `POST /review` (CI) path is the one to size job timeouts
+  for.
+- **A container that had to fall back loses its "recently used" mark**, so the idle
+  sweeper and the LRU cap can reclaim it immediately instead of it shielding itself for
+  up to `IdleTimeout` while healthy accounts get evicted.
 
 ## Operations
 
@@ -123,10 +150,12 @@ falls back to the existing in-process runner:
   account's token on the profile page (removing the token already triggers the same
   container+volume cleanup; re-adding it just lets the next review create a fresh one).
 - **Status:** `GET /api/me/session-sandbox` (mapped only when `SessionSandbox=Docker`,
-  requires sign-in) returns `{ mode, socketReachable, liveContainers }` —
-  `socketReachable` is the sweeper's last ping result and `liveContainers` is the total
-  count of currently running session containers across **all** accounts (not just the
-  caller's own); the profile page renders it as a status line.
+  requires sign-in) returns `{ mode, socketReachable }` for every signed-in user —
+  `socketReachable` is the sweeper's last ping result — plus `liveContainers` **for
+  admins only**, the count of currently running session containers across all accounts.
+  That count is an operations number rather than self-service information, so the field
+  is omitted entirely for non-admins; the profile page renders whatever it gets as a
+  status line.
 
 ## Security note
 
@@ -136,18 +165,30 @@ filesystem, and so on. Anyone who can reach Naudit's Docker socket owns the mach
 it runs on — only enable this on a host where you already trust Naudit itself with
 root-equivalent access.
 
-Within that trust boundary, be aware that:
+That is the outer boundary. Inside it, the sandbox does change the shape of the risk
+compared to in-process runs, and those changes are real rather than implied by socket
+access alone:
 
-- the subscription token is visible in the exec's environment for the duration of a
-  run (e.g. via `docker inspect`/`docker top` while it executes);
-- the CLI's authenticated credentials live in the account's named volume; and
-- that volume **intentionally survives** container stops and Naudit restarts (see
-  Lifecycle above) — it is only removed on explicit token deletion, pool opt-out, or
-  account suspension/deactivation.
+- **Credentials gain a resting place.** In-process runs authenticate into a throwaway
+  `CLAUDE_CONFIG_DIR` that dies with the process. Here the CLI's authenticated state
+  lives in the account's named volume and **intentionally survives** container stops and
+  Naudit restarts — that persistence *is* the feature. It is removed on token deletion,
+  pool opt-out, or suspension/deactivation, immediately where possible and otherwise by
+  the reconciliation pass (see Lifecycle) — but a volume that Docker refuses to delete
+  and that reconciliation never sees again (e.g. Naudit is switched back to
+  `SessionSandbox=None` with containers still around) stays on the host until someone
+  removes it by hand.
+- **The token becomes inspectable from a second angle.** It is passed in the exec's
+  environment and is therefore visible via `docker inspect`/`docker top` for the
+  duration of a run, in addition to the process environment it always had.
+- **What the sandbox does not do is add a boundary.** Per-account containers separate
+  accounts from *each other*, which in-process runs did not; they do not isolate
+  anything from an operator or attacker who can reach the Docker socket.
 
-None of this is new risk *created* by the sandbox beyond what socket access already
-implies — it is called out here so operators go in with eyes open rather than
-assuming the containers add a security boundary the socket itself already gives away.
+The honest summary: the containers buy inter-account isolation and warm sessions, and
+they cost you persistent credential storage on the host. Enable it where you already
+trust Naudit with root-equivalent access, and treat the session volumes as secret
+material when backing up or decommissioning a host.
 
 ## Deployment
 

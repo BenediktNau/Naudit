@@ -189,7 +189,8 @@ export interface ClaudeSessionTest {
 export interface SessionSandboxDto {
   mode: string;
   socketReachable: boolean | null;
-  liveContainers: number | null;
+  /** Betriebszahl über alle Konten — nur für Admins im Response enthalten. */
+  liveContainers?: number | null;
 }
 
 export type MemoryEntryDto = {

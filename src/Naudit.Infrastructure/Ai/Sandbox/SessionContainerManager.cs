@@ -77,9 +77,11 @@ public sealed class SessionContainerManager(
         return new Releaser(sem);
     }
 
-    /// <summary>Nicht-blockierender Lock-Versuch: null = Account hat gerade einen Exec in Flight
-    /// (Sweep/LRU dürfen dessen Container dann nicht stoppen — docker stop killt den Exec).</summary>
-    private async Task<IDisposable?> TryAcquireLockAsync(int accountId)
+    /// <summary>Begrenzter Lock-Versuch: null = Account hat innerhalb des Zeitfensters einen Exec in
+    /// Flight (Sweep/LRU/Remove dürfen dessen Container dann nicht stoppen — docker stop killt den
+    /// Exec). Default TimeSpan.Zero = nicht-blockierend.</summary>
+    private async Task<IDisposable?> TryAcquireLockAsync(int accountId, TimeSpan? wait = null,
+        CancellationToken ct = default)
     {
         SemaphoreSlim sem;
         lock (_gate)
@@ -87,12 +89,20 @@ public sealed class SessionContainerManager(
             if (!_locks.TryGetValue(accountId, out sem!))
                 _locks[accountId] = sem = new SemaphoreSlim(1, 1);
         }
-        return await sem.WaitAsync(0) ? new Releaser(sem) : null;
+        return await sem.WaitAsync(wait ?? TimeSpan.Zero, ct) ? new Releaser(sem) : null;
     }
 
     public void Touch(int accountId)
     {
         lock (_gate) _lastUsed[accountId] = Now();
+    }
+
+    /// <summary>Gegenstück zu Touch für den Fail-Open-Pfad: der Lauf ist in-process ausgewichen, der
+    /// Container also nicht nachweislich brauchbar. Ohne LastUsed-Eintrag zählt er als ältester und
+    /// wird von Sweep/LRU sofort wieder eingesammelt, statt sich bis IdleTimeout selbst zu schützen.</summary>
+    public void Invalidate(int accountId)
+    {
+        lock (_gate) _lastUsed.Remove(accountId);
     }
 
     public DateTimeOffset? LastUsed(int accountId)
@@ -150,16 +160,25 @@ public sealed class SessionContainerManager(
             logger.LogInformation("Session-Sandbox: {Count} bestehende Container adoptiert.", adopted);
     }
 
-    /// <summary>Pool-Austritt/Token-Löschung: Container UND Volume entfernen — das Volume
-    /// enthält die CLI-Credentials des Accounts und darf ihn nicht überleben.</summary>
-    public async Task RemoveAsync(int accountId, CancellationToken ct = default)
+    /// <summary>Pool-Austritt/Token-Löschung/Suspend: Container UND Volume entfernen — das Volume
+    /// enthält die CLI-Credentials des Accounts und darf ihn nicht überleben. Wartet höchstens
+    /// RemoveTimeout auf den Account-Lock (der Aufruf hängt am HTTP-Request); false = ein Exec war
+    /// in Flight, der Abbau bleibt der Reconciliation im Sweeper überlassen.</summary>
+    public async Task<bool> RemoveAsync(int accountId, CancellationToken ct = default)
     {
         var name = ContainerName(accountId);
-        using var _ = await AcquireLockAsync(accountId, ct); // nie parallel zu einem laufenden Exec
+        using var held = await TryAcquireLockAsync(accountId, options.RemoveTimeout, ct);
+        if (held is null)
+        {
+            logger.LogInformation(
+                "Session-Sandbox: Abbau von {Name} verschoben — Exec läuft noch; die Reconciliation räumt nach.", name);
+            return false;
+        }
         await docker.StopAsync(name, ct);
         await docker.RemoveContainerAsync(name, ct);
         await docker.RemoveVolumeAsync(name, ct);
         lock (_gate) _lastUsed.Remove(accountId);
+        return true;
     }
 
     public async Task<int> CountRunningAsync(CancellationToken ct = default)
@@ -223,7 +242,9 @@ public sealed class SessionContainerManager(
 
     private DateTimeOffset Now() => (time ?? TimeProvider.System).GetUtcNow();
 
-    private static bool TryParseAccountId(string name, out int accountId)
+    /// <summary>"naudit-session-&lt;id&gt;" ⇒ Konto-Id; false bei fremden Namen (Sweep/Reconciliation
+    /// fassen nur eigene Container an).</summary>
+    public static bool TryParseAccountId(string name, out int accountId)
     {
         accountId = 0;
         return name.StartsWith(NamePrefix, StringComparison.Ordinal)

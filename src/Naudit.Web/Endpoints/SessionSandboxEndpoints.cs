@@ -20,6 +20,12 @@ public static class SessionSandboxEndpoints
                 var acct = await CurrentAccount.GetAsync(ctx, db);
                 if (acct is null) return Results.Unauthorized();
 
+                // Der Modus- und Socket-Zustand ist für jeden Eingeloggten gedacht (Statuszeile auf
+                // der Profilseite). liveContainers zählt dagegen über ALLE Konten — eine Betriebszahl,
+                // die nur Admins bekommen; sonst fehlt das Feld ganz.
+                if (await CurrentAccount.GetAdminAsync(ctx, db) is null)
+                    return Results.Ok(new { mode = "Docker", socketReachable = state.SocketReachable });
+
                 int? live = null;
                 try
                 {

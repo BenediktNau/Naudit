@@ -155,13 +155,34 @@ public class SessionContainerManagerTests
         docker.Volumes.Add("naudit-session-4");
         var manager = Create(docker);
 
-        await manager.RemoveAsync(4);
+        Assert.True(await manager.RemoveAsync(4));
 
         Assert.Equal(["stop:naudit-session-4", "rm:naudit-session-4", "rmvol:naudit-session-4"],
             docker.Calls.Where(c => !c.StartsWith("ping")));
         Assert.Empty(docker.Containers);
         Assert.Empty(docker.Volumes);
         Assert.Null(manager.LastUsed(4));
+    }
+
+    /// <summary>Der Aufruf hängt am HTTP-Request (Token löschen/Pool-Austritt/Suspend): er darf nicht
+    /// auf einen laufenden Review-Exec warten. Nach RemoveTimeout gibt er auf — aufgeräumt wird dann
+    /// verzögert von der Reconciliation im Sweeper.</summary>
+    [Fact]
+    public async Task Remove_execInFlight_givesUpAfterTimeout_withoutTouchingContainer()
+    {
+        var docker = new FakeDockerClient { Containers = { ["naudit-session-4"] = true } };
+        docker.Volumes.Add("naudit-session-4");
+        var manager = Create(docker, options: new SessionSandboxOptions
+        {
+            RemoveTimeout = TimeSpan.FromMilliseconds(50),
+        });
+        using var execLock = await manager.AcquireLockAsync(4);
+
+        Assert.False(await manager.RemoveAsync(4));
+
+        Assert.DoesNotContain(docker.Calls, c => c.StartsWith("stop:") || c.StartsWith("rm"));
+        Assert.True(docker.Containers["naudit-session-4"]);
+        Assert.Contains("naudit-session-4", docker.Volumes);
     }
 
     [Fact]

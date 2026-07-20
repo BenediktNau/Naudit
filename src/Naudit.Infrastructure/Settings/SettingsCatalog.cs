@@ -37,6 +37,7 @@ public static class SettingsCatalog
         new("Naudit:Ai:Sandbox:IdleTimeout", false),
         new("Naudit:Ai:Sandbox:MaxLiveContainers", false),
         new("Naudit:Ai:Sandbox:DockerSocketPath", false),
+        new("Naudit:Ai:Sandbox:RemoveTimeout", false),
         new("Naudit:Ai:Sandbox:Image", false),
         new("Naudit:Review:SystemPrompt", false),
         new("Naudit:Review:Gate:MinSeverity", false),

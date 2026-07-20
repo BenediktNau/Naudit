@@ -253,10 +253,16 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   `SessionSelectionFactory.ForAccount`; `SessionContainerManager` owns lifecycle (per-account locks,
   LRU cap `MaxLiveContainers`, idle sweeper stops after `IdleTimeout`, adoption after restart);
   `IDockerClient`/`SocketDockerClient` (`src/Naudit.Infrastructure/Docker/`) is a hand-rolled
-  Engine-API client over the Unix socket (no new NuGet). Fail-open everywhere: any Docker error falls
-  back to the in-process runner — a review never fails because of the sandbox. Opt-in integration
-  test via `NAUDIT_TEST_DOCKER=1`. Status: `GET /api/me/session-sandbox` (mapped only in Docker
-  mode). See `docs/session-sandbox.md`.
+  Engine-API client over the Unix socket (no new NuGet). Fail-open on **Docker plumbing** (socket,
+  engine API, container lifecycle): those fall back to the in-process runner and drop the container's
+  "recently used" mark, so a review never fails because of the sandbox — a review timeout and a
+  non-zero `claude` exit are *not* covered, they behave exactly as they do in-process. Credential
+  teardown on token deletion / pool opt-out / suspension is bounded (`Sandbox:RemoveTimeout`, never
+  blocks the request behind a running review) and made durable by a **reconciliation pass** in
+  `SandboxSweeperService`: each tick removes container + volume for every `naudit-session-*` whose
+  account is gone, not `Active`, or token-less. Opt-in integration test via `NAUDIT_TEST_DOCKER=1`.
+  Status: `GET /api/me/session-sandbox` (mapped only in Docker mode; the cross-account
+  `liveContainers` count is admin-only). See `docs/session-sandbox.md`.
 - **Review memory:** `IReviewMemory` (Core `Abstractions`) selects per-project maintainer
   guidance for a review; the default `DbReviewMemory`
   (`src/Naudit.Infrastructure/Memory/`) deterministically picks active conventions + false
