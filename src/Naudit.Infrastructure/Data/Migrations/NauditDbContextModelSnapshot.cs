@@ -134,6 +134,9 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("LastAppliedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("ProjectId")
                         .HasColumnType("INTEGER");
 
@@ -146,6 +149,9 @@ namespace Naudit.Infrastructure.Data.Migrations
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("TimesApplied")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -292,6 +298,18 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PlatformNoteId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolutionSource")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolutionStatus")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedBy")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("ReviewId")

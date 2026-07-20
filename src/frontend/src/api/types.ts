@@ -59,6 +59,7 @@ export interface FindingDto {
   line: number | null;
   text: string;
   falsePositive: boolean;
+  resolutionStatus?: string | null;
 }
 
 export interface ReviewDetailDto {
@@ -198,6 +199,21 @@ export type MemoryEntryDto = {
   sourceFindingId: number | null;
 };
 export type ProjectMemoryDto = { entries: MemoryEntryDto[] };
+
+/** Auswertungs-DTO — Spiegel von GET /api/analytics (Totals/Raten, Severity-Breakdown, Wochentrend, Gedächtnis-Wirkung). */
+export interface AnalyticsDto {
+  totals: {
+    posted: number;
+    accepted: number;
+    rejected: number;
+    unanswered: number;
+    acceptanceRate: number;
+    fpRate: number;
+  };
+  bySeverity: { severity: string; posted: number; accepted: number; rejected: number }[];
+  weekly: { weekStart: string; posted: number; accepted: number; rejected: number }[];
+  memory: { entries: number; active: number; timesApplied: number };
+}
 
 export type ProjectGuidelinesDto = {
   markdown: string | null;

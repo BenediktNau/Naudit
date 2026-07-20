@@ -189,6 +189,31 @@ public class GitHubWebhookTests
         Assert.Equal("alice", reply.AuthorLogin);
         Assert.Equal("MEMBER", reply.AuthorAssociation);
         Assert.Null(reply.AuthorId);                   // GitHub liefert author_association, keine numerische Id
+        Assert.Equal(ReviewCommandKind.FalsePositive, reply.Command);
+    }
+
+    [Fact]
+    public void ToCommentReply_mapsOkReply_onReviewComment()
+    {
+        var payload = new GitHubReviewCommentEvent
+        {
+            Action = "created",
+            Repository = new GitHubRepository { FullName = "acme/widgets" },
+            PullRequest = new GitHubPullRequestRef { Number = 7 },
+            Comment = new GitHubReviewCommentPayload
+            {
+                Id = 999,
+                InReplyToId = 555,
+                Body = "@naudit ok",
+                User = new GitHubUser { Login = "alice" },
+                AuthorAssociation = "MEMBER",
+            },
+        };
+
+        var reply = GitHubWebhook.ToCommentReply("pull_request_review_comment", payload);
+
+        Assert.NotNull(reply);
+        Assert.Equal(ReviewCommandKind.Accept, reply!.Command);
     }
 
     [Theory]

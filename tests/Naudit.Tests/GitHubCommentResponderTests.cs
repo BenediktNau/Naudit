@@ -14,7 +14,7 @@ public class GitHubCommentResponderTests
         new ConfiguredGitTokenProvider("tok", System.Array.Empty<ProjectTokenEntry>());
 
     private static ReviewCommentReply Reply(string? association) =>
-        new("acme/widgets", 7, "555", "reason", "alice", association, AuthorId: null);
+        new("acme/widgets", 7, "555", "reason", "alice", association, AuthorId: null, Command: ReviewCommandKind.FalsePositive);
 
     [Theory]
     [InlineData("OWNER", true)]

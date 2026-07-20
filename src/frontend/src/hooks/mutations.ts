@@ -42,10 +42,13 @@ export function useMarkFalsePositive(reviewId: number) {
         method: "POST",
         body: JSON.stringify({ reason: reason ?? null }),
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["review", reviewId] });
-      void qc.invalidateQueries({ queryKey: ["memory"] }); // Prefix-Match: alle Projekt-Gedächtnisse
-    },
+    // Promise zurückgeben: isPending deckt so auch den Refetch ab — die Detail-Buttons
+    // bleiben disabled, bis der neue Server-Zustand wirklich da ist (kein Klick auf stale Status).
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["review", reviewId] }),
+        qc.invalidateQueries({ queryKey: ["memory"] }), // Prefix-Match: alle Projekt-Gedächtnisse
+      ]),
   });
 }
 
@@ -54,10 +57,11 @@ export function useUnmarkFalsePositive(reviewId: number) {
   return useMutation({
     mutationFn: (findingId: number) =>
       api<void>(`/api/findings/${findingId}/false-positive`, { method: "DELETE" }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["review", reviewId] });
-      void qc.invalidateQueries({ queryKey: ["memory"] }); // Prefix-Match: alle Projekt-Gedächtnisse
-    },
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["review", reviewId] }),
+        qc.invalidateQueries({ queryKey: ["memory"] }), // Prefix-Match: alle Projekt-Gedächtnisse
+      ]),
   });
 }
 
@@ -84,6 +88,21 @@ export function useToggleMemoryEntry(projectId: number | null) {
         body: JSON.stringify({ active: vars.active }),
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["memory", projectId] }),
+  });
+}
+
+/** Accept/Reject am Finding — invalidiert das Review-Detail (Status kommt vom Server zurück). */
+export function useSetResolution(reviewId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { findingId: number; status: "Accepted" | "Rejected" | null }) =>
+      api<{ id: number; resolutionStatus: string | null }>(`/api/findings/${vars.findingId}/resolution`, {
+        method: "PUT",
+        body: JSON.stringify({ status: vars.status }),
+      }),
+    // Promise zurückgeben (statt void): Accept/Reject bleiben über isPending disabled,
+    // bis das Review-Detail refetcht ist — sonst kurzes Fenster mit stale resolutionStatus.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["review", reviewId] }),
   });
 }
 

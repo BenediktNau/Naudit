@@ -28,8 +28,9 @@ public static class GitLabWebhook
         return new ReviewRequest(payload.Project.Id.ToString(), attrs.Iid, attrs.Title ?? "");
     }
 
-    /// <summary>Mappt ein GitLab-Note-Event auf ein FP-Kommando, oder null wenn es keine
-    /// MergeRequest-Antwort mit gültigem "@naudit fp"-Body und Discussion-Id ist.</summary>
+    /// <summary>Mappt ein GitLab-Note-Event auf ein Kommando-Reply, oder null wenn es keine
+    /// MergeRequest-Antwort mit gültigem Kommando-Body und Discussion-Id ist — erkannt werden sowohl
+    /// "@naudit fp" als auch die Annahme-Verben "@naudit ok"/"angenommen"/"accepted".</summary>
     public static ReviewCommentReply? ToCommentReply(GitLabNoteEvent payload)
     {
         if (payload.ObjectKind != "note")
@@ -56,6 +57,6 @@ public static class GitLabWebhook
             return null;
 
         return new ReviewCommentReply(project.Id.ToString(), mr.Iid, attrs.DiscussionId, cmd.Reason,
-            user.Username, AuthorAssociation: null, user.Id);
+            user.Username, AuthorAssociation: null, user.Id, Command: cmd.Kind);
     }
 }

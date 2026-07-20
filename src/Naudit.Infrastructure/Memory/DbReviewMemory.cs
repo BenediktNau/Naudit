@@ -32,12 +32,38 @@ public sealed class DbReviewMemory(NauditDbContext db, ReviewOptions options, IL
             var conventions = entries.Where(m => m.Kind == "Convention");
             var fps = entries.Where(m => m.Kind == "FalsePositive" && (m.File is null || files.Contains(m.File)));
 
-            return conventions.Concat(fps)
+            var selectedEntities = conventions.Concat(fps)
                 .Take(Math.Max(0, options.Memory.MaxEntries))
+                .ToList();
+
+            var result = selectedEntities
                 .Select(m => new MemoryEntry(
                     m.Kind == "Convention" ? MemoryKind.Convention : MemoryKind.FalsePositive,
                     m.File, m.Text, m.Reason))
                 .ToList();
+
+            // "Learnings applied"-Zähler: best-effort — ein Fehler hier darf die bereits
+            // berechnete Auswahl nicht wegwerfen, daher eigener innerer try/catch statt des
+            // äußeren fail-open-catch (der würde [] zurückgeben und das ganze Memory kippen).
+            // DB-seitiges Inkrement (ExecuteUpdate) statt Read-Modify-Write auf den getrackten
+            // Instanzen: atomar unter konkurrierenden Reviews und ohne SaveChanges-Seiteneffekt
+            // auf fremde, im selben Kontext bereits getrackte Änderungen.
+            var now = DateTime.UtcNow;
+            var selectedIds = selectedEntities.Select(e => e.Id).ToList();
+            try
+            {
+                await db.MemoryEntries
+                    .Where(m => selectedIds.Contains(m.Id))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(m => m.TimesApplied, m => m.TimesApplied + 1)
+                        .SetProperty(m => m.LastAppliedAtUtc, now), ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "TimesApplied-Zähler-Update fehlgeschlagen — Auswahl bleibt gültig.");
+            }
+
+            return result;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

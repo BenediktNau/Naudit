@@ -47,8 +47,9 @@ public static class GitHubWebhook
         return expected.Length == computed.Length && CryptographicOperations.FixedTimeEquals(computed, expected);
     }
 
-    /// <summary>Mappt ein pull_request_review_comment-Event auf ein FP-Kommando, oder null wenn es
-    /// keine Antwort auf einen bestehenden Kommentar mit gültigem "@naudit fp"-Body ist.</summary>
+    /// <summary>Mappt ein pull_request_review_comment-Event auf ein Kommando-Reply, oder null wenn es
+    /// keine Antwort auf einen bestehenden Kommentar mit gültigem Kommando-Body ist — erkannt werden
+    /// sowohl "@naudit fp" als auch die Annahme-Verben "@naudit ok"/"angenommen"/"accepted".</summary>
     public static ReviewCommentReply? ToCommentReply(string? eventType, GitHubReviewCommentEvent payload)
     {
         if (eventType != "pull_request_review_comment")
@@ -74,6 +75,6 @@ public static class GitHubWebhook
             return null;
 
         return new ReviewCommentReply(repo, pr.Number, replyTo.ToString(), cmd.Reason,
-            payload.Comment.User.Login, payload.Comment.AuthorAssociation, AuthorId: null);
+            payload.Comment.User.Login, payload.Comment.AuthorAssociation, AuthorId: null, Command: cmd.Kind);
     }
 }

@@ -72,7 +72,9 @@ Three projects with a strict, deliberate dependency direction:
 → ReviewService` which: `IGitPlatform.GetChangesAsync` → (optional SAST/SCA grounding, repo-context enrichment
 **and** the distilled architecture profile, one shared checkout — the profile joins the prompt alongside project
 memory) →
-`IPromptRedactor.RedactAsync` (mask secrets/IPs/e-mails in diff + findings + title, **before** the prompt) →
+`IReviewMemory.SelectAsync` (per-project maintainer guidance; selection increments each chosen entry's
+`TimesApplied`/`LastAppliedAtUtc`, best-effort — see `docs/review-analytics.md#timesapplied--memory-impact`) →
+`IPromptRedactor.RedactAsync` (mask secrets/IPs/e-mails in diff + findings + title + memory, **before** the prompt) →
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
 findings' severity/confidence (the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
@@ -284,6 +286,23 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   also instructs architecture-altitude (file-less findings) and a security checklist.
   `Naudit:Review:Guidelines:Enabled=false` swaps in `NullReviewGuidelines`. Fail-open like
   memory/SAST. See `docs/review-guidelines.md`.
+- **Review analytics (PR 3 — resolution tracking + dashboard):** `ReviewFindingEntity` gained
+  four nullable columns (`ResolutionStatus`: `"Accepted"`/`"Rejected"`/null=unanswered;
+  `ResolutionSource`; `ResolvedBy`; `ResolvedAtUtc`), written exclusively through
+  `ResolutionWriter.ApplyAsync` (`src/Naudit.Infrastructure/Analytics/`), which enforces one
+  precedence rule for every signal source: explicit sources (`Command`, `WebUi`, and PR 4's
+  `Checkbox`/`Emoji`) always overwrite; `Llm` (PR 4, not wired yet) only fills a blank or
+  corrects itself, never a human decision; an undo (`status: null`) clears the status only if
+  its source matches the one that set it. `ReviewCommentCommandService` extends the `@naudit
+  fp`/PR 2b reply command with **`@naudit ok`** (aliases `angenommen`/`accepted`, same parser,
+  same webhook/authorization plumbing) — `fp` writes `Rejected`/`Command` alongside its memory
+  entry, `ok` writes `Accepted`/`Command`; both gated by `Naudit:Review:Resolution:Enabled`
+  (memory-entry creation from `fp` is not). The review detail's Accept/Reject buttons call
+  `PUT /api/findings/{id}/resolution` (source `WebUi`, ungated by `Resolution:Enabled`).
+  `GET /api/analytics?projectId=&days=` (always mapped, read-only, dashboard visibility rules)
+  aggregates totals/acceptance+FP rate/severity breakdown/ISO-weekly trend/memory impact,
+  rendered by the SPA's "Auswertung" nav page (`AnalyticsPage.tsx`). See
+  `docs/review-analytics.md`.
 
 ### CI/CD & container
 

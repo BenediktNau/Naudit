@@ -20,6 +20,9 @@ export function TopBar({ page, onNavigate }: { page: AppPage; onNavigate: (p: Ap
         <button className={tab(page === "memory")} onClick={() => onNavigate("memory")}>
           Memory
         </button>
+        <button className={tab(page === "analytics")} onClick={() => onNavigate("analytics")}>
+          Auswertung
+        </button>
         {me.isAdmin && (
           <button className={tab(page === "approvals")} onClick={() => onNavigate("approvals")}>
             Approvals
