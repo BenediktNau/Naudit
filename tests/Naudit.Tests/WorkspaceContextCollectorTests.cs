@@ -26,6 +26,7 @@ public class WorkspaceContextCollectorTests
     private sealed class TestWorkspace(string root) : IReviewWorkspace
     {
         public string RootPath { get; } = root;
+        public string ProjectId => "acme/test";
         public ValueTask DisposeAsync()
         {
             try { Directory.Delete(RootPath, recursive: true); } catch { /* best effort */ }
