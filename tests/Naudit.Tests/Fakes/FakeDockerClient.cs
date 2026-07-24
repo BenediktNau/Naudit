@@ -102,7 +102,7 @@ internal class FakeDockerClient : IDockerClient
         return ExecResults.Count > 0 ? ExecResults.Dequeue() : DefaultExecResult ?? new DockerExecResult(0, "", "");
     }
 
-    public Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
+    public virtual Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<ContainerListEntry>>(Containers
             .Where(c => c.Key.StartsWith(namePrefix, StringComparison.Ordinal))
             .Select(c => new ContainerListEntry(c.Key, c.Value))
