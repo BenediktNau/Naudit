@@ -33,6 +33,18 @@ public interface IDockerClient
 
     /// <summary>Alle Container (auch gestoppte), deren Name mit dem Präfix beginnt — Adoption/Sweep/Status.</summary>
     Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default);
+
+    /// <summary>Legt ein benutzerdefiniertes Netz an — internal (kein Egress: der getestete Code
+    /// erreicht weder Internet noch Host). Container betreten das Netz beim Start
+    /// (ContainerRunSpec.Network); ein nachträgliches Connect gibt es bewusst nicht — jede
+    /// Erreichbarkeit läuft über docker exec. Existiert es schon, ist das kein Fehler.</summary>
+    Task CreateNetworkAsync(string name, CancellationToken ct = default);
+
+    /// <summary>Entfernt ein Netz; bereits weg ⇒ kein Fehler (Teardown ist best-effort).</summary>
+    Task RemoveNetworkAsync(string name, CancellationToken ct = default);
+
+    /// <summary>Namen aller Netze mit diesem Präfix — für den Orphan-Sweeper.</summary>
+    Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default);
 }
 
 public sealed record ContainerInfo(bool Running);

@@ -4,10 +4,11 @@ namespace Naudit.Tests.Fakes;
 
 /// <summary>Skriptbarer IDockerClient: Container/Volumes in-memory, zeichnet Aufrufe auf und kann
 /// gezielt DockerUnavailableException werfen (FailNextExecs) oder Execs verzögern (ExecDelay).</summary>
-internal sealed class FakeDockerClient : IDockerClient
+internal class FakeDockerClient : IDockerClient
 {
     public Dictionary<string, bool> Containers { get; } = new();   // Name -> Running
     public HashSet<string> Volumes { get; } = new();
+    public HashSet<string> Networks { get; } = new();
     public List<string> Calls { get; } = new();
     public List<(string Container, string Path, string Content)> WrittenFiles { get; } = new();
     public List<(string Container, IReadOnlyList<string> Argv, IReadOnlyDictionary<string, string?>? Env, string WorkingDir)> Execs { get; } = new();
@@ -97,4 +98,22 @@ internal sealed class FakeDockerClient : IDockerClient
             .Where(c => c.Key.StartsWith(namePrefix, StringComparison.Ordinal))
             .Select(c => new ContainerListEntry(c.Key, c.Value))
             .ToList());
+
+    public virtual Task CreateNetworkAsync(string name, CancellationToken ct = default)
+    {
+        Calls.Add($"netcreate:{name}");
+        Networks.Add(name);
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveNetworkAsync(string name, CancellationToken ct = default)
+    {
+        Calls.Add($"netrm:{name}");
+        Networks.Remove(name);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<string>>(Networks
+            .Where(n => n.StartsWith(namePrefix, StringComparison.Ordinal)).ToList());
 }

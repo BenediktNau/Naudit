@@ -47,6 +47,10 @@ public class ClaudeSessionServiceTests
             => Task.FromResult(new DockerExecResult(0, "", ""));
         public Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ContainerListEntry>>(new List<ContainerListEntry>());
+        public Task CreateNetworkAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+        public Task RemoveNetworkAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>(new List<string>());
     }
 
     [Fact]

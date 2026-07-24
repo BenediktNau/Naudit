@@ -195,6 +195,37 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
             .ToList();
     }
 
+    public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
+    {
+        // Internal = kein Egress. Kein Attachable: niemand hängt sich nachträglich hinein —
+        // Container betreten das Netz beim Start, Naudit spricht nur über docker exec hinein.
+        var body = new { Name = name, Internal = true, CheckDuplicate = true };
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post, "/networks/create")
+        { Content = JsonContent.Create(body, options: OutJsonOpts) }, ct);
+        await EnsureAsync(resp, ct, HttpStatusCode.Conflict); // 409 = gibt es schon
+    }
+
+    public async Task RemoveNetworkAsync(string name, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Delete,
+            $"/networks/{Uri.EscapeDataString(name)}"), ct);
+        await EnsureAsync(resp, ct, HttpStatusCode.NotFound);
+    }
+
+    public async Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
+    {
+        // Der name-Filter der Engine matcht Substrings — Präfix darum client-seitig nachprüfen
+        // (gleiches Muster wie ListContainersAsync).
+        var filters = Uri.EscapeDataString($"{{\"name\":[\"{namePrefix}\"]}}");
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Get, $"/networks?filters={filters}"), ct);
+        await EnsureAsync(resp, ct);
+        var entries = await ReadJsonAsync<List<NetworkListEntry>>(resp, ct);
+        return entries
+            .Select(e => e.Name ?? "")
+            .Where(n => n.StartsWith(namePrefix, StringComparison.Ordinal))
+            .ToList();
+    }
+
     public void Dispose() => _http.Dispose();
 
     // Transportfehler (Socket weg, Verbindung verweigert, …) einheitlich als DockerUnavailableException.
@@ -242,4 +273,5 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
     private sealed record ListEntry(string[]? Names, string? State);
     private sealed record ExecCreateResponse(string Id);
     private sealed record ExecInspectResponse(int ExitCode, bool Running);
+    private sealed record NetworkListEntry(string? Name);
 }
