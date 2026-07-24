@@ -1,7 +1,7 @@
 # The Docker socket (`/var/run/docker.sock`)
 
 Two optional Naudit features drive the host's Docker engine: the
-[session sandbox](session-sandbox.md) (released) and [DAST](dast.md) (in development).
+[session sandbox](session-sandbox.md) (released) and [DAST](dast.md) (app-runner shipped; probing analyzer in development).
 Both talk to the engine through the same seam — this page explains what that socket
 access means, what it is used for, and how to set it up. It is the shared reference for
 both features.
@@ -35,7 +35,7 @@ critical workloads.
 | Feature | Switch | What gets started |
 | --- | --- | --- |
 | [Session sandbox](session-sandbox.md) | `Naudit:Ai:SessionSandbox=Docker` | Long-lived per-account containers for Claude subscription sessions (your own, trusted workloads) |
-| [DAST](dast.md) *(in development)* | `Naudit:Review:Dast:Enabled=true` | Short-lived per-review containers that build and run the **PR's own app** — foreign code, with its own containment story |
+| [DAST](dast.md) (app-runner shipped; probing analyzer in development) | `Naudit:Review:Dast:Enabled=true` | Short-lived per-review containers that build and run the **PR's own app** — foreign code, with its own containment story |
 
 Both switches are independent and off by default — different risk profiles, separately
 enabled. Everything is **fail-open** on Docker plumbing: no socket (or any engine error)

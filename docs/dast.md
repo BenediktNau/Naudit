@@ -66,8 +66,8 @@ of one review all share it (`naudit-dast-img-<key>`, `naudit-dast-net-<key>`,
 ## Config
 
 All keys live under `Naudit:Review:Dast:*`. The scalars are DB-managed (Settings page,
-then restart) or settable as environment overrides; `Projects` is list-shaped and
-therefore **env/appsettings-only** (indexed syntax), like `ProjectTokens`.
+then restart) or settable as environment overrides, **except `HealthPollInterval`** which is env/appsettings-only;
+`Projects` is list-shaped and therefore **env/appsettings-only** (indexed syntax), like `ProjectTokens`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -77,7 +77,7 @@ therefore **env/appsettings-only** (indexed syntax), like `ProjectTokens`.
 | `AppPort` | `8080` | Port the app listens on inside its own container. |
 | `HealthPath` | `/` | HTTP path used for the healthcheck. |
 | `TimeBudget` | `00:05:00` | Caps build + start + healthcheck together; expiry ⇒ no dynamic grounding. |
-| `HealthPollInterval` | `00:00:01` | Delay between two healthcheck attempts while waiting for the app to come up. |
+| `HealthPollInterval` | `00:00:01` | Delay between two healthcheck attempts while waiting for the app to come up. — env/appsettings-only, not on the Settings page. |
 | `MemoryLimitMb` | `1024` | Memory limit applied to both the app and the probe container. |
 | `CpuLimit` | `1.0` | CPU limit (NanoCPUs-equivalent) applied to both containers. |
 | `PidsLimit` | `256` | PID limit applied to both containers. |
@@ -124,7 +124,7 @@ fails because of DAST:
 | Image build fails | Teardown, skipped, logged at `Information` (with the build log). |
 | App never becomes healthy within `TimeBudget` | Teardown, skipped, logged at `Information`. |
 | Docker socket/engine unreachable, or any other unexpected error | Teardown, skipped, logged at `Warning`. |
-| `TimeBudget` exceeded | Teardown, skipped — same as "never healthy". |
+| `TimeBudget` exceeded | Teardown, skipped (end state identical to "never healthy", but log line differs by phase: expiry during health poll → "unreachable" info line; expiry during build/start → generic warning catch). |
 | Caller cancellation (the review itself is being cancelled) | Teardown, then the cancellation is **rethrown** — the only path that does not swallow the failure. |
 
 ## Lifecycle & teardown
