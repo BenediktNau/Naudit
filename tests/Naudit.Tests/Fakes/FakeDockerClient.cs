@@ -19,6 +19,12 @@ internal class FakeDockerClient : IDockerClient
     public TimeSpan? ExecDelay { get; set; }
     public TimeSpan? RunDelay { get; set; }   // simuliert einen langsamen `docker run` (Concurrency-Tests)
     public ContainerRunSpec? LastRunSpec { get; private set; }
+    public List<ContainerRunSpec> RunSpecs { get; } = new();   // neben LastRunSpec: alle Specs (App- + Probe-Container)
+
+    public List<(string Tag, string Dockerfile, long ContextBytes)> Builds { get; } = new();
+    public HashSet<string> Images { get; } = new();
+    public bool NextBuildFails { get; set; }
+    public List<string> PulledImages { get; } = new();
 
     public Task<bool> PingAsync(CancellationToken ct = default)
     {
@@ -39,10 +45,12 @@ internal class FakeDockerClient : IDockerClient
     {
         Calls.Add($"run:{spec.Name}");
         LastRunSpec = spec;
+        RunSpecs.Add(spec);
         if (RunDelay is { } d)
             await Task.Delay(d, ct);
         Containers[spec.Name] = true;
-        Volumes.Add(spec.VolumeName);
+        if (spec.VolumeName is not null)
+            Volumes.Add(spec.VolumeName);
     }
 
     public Task StartAsync(string name, CancellationToken ct = default)
@@ -116,4 +124,39 @@ internal class FakeDockerClient : IDockerClient
     public Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<string>>(Networks
             .Where(n => n.StartsWith(namePrefix, StringComparison.Ordinal)).ToList());
+
+    public async Task<DockerBuildResult> BuildImageAsync(string tag, Stream tarContext, string dockerfilePath,
+        CancellationToken ct = default)
+    {
+        Calls.Add($"build:{tag}");
+        var buffer = new MemoryStream();
+        await tarContext.CopyToAsync(buffer, ct);
+        Builds.Add((tag, dockerfilePath, buffer.Length));
+        if (NextBuildFails)
+        {
+            NextBuildFails = false;
+            return new DockerBuildResult(false, "fake: build failed");
+        }
+        Images.Add(tag);
+        return new DockerBuildResult(true, "");
+    }
+
+    public Task RemoveImageAsync(string tag, CancellationToken ct = default)
+    {
+        Calls.Add($"rmimg:{tag}");
+        Images.Remove(tag);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<string>> ListImagesAsync(string tagPrefix, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<string>>(Images
+            .Where(i => i.StartsWith(tagPrefix, StringComparison.Ordinal)).ToList());
+
+    public Task PullImageAsync(string reference, CancellationToken ct = default)
+    {
+        Calls.Add($"pull:{reference}");
+        PulledImages.Add(reference);
+        Images.Add(reference);
+        return Task.CompletedTask;
+    }
 }

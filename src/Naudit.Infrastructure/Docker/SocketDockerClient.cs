@@ -78,12 +78,28 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
 
     public async Task RunDetachedAsync(ContainerRunSpec spec, CancellationToken ct = default)
     {
-        var create = new
+        var hostConfig = new Dictionary<string, object?>();
+        if (spec.VolumeName is not null && spec.VolumeTarget is not null)
+            hostConfig["Binds"] = new[] { $"{spec.VolumeName}:{spec.VolumeTarget}" };
+        if (spec.Network is not null)
+            hostConfig["NetworkMode"] = spec.Network;
+        if (spec.Limits is { } limits)
         {
-            Image = spec.Image,
-            Cmd = spec.Command,
-            HostConfig = new { Binds = new[] { $"{spec.VolumeName}:{spec.VolumeTarget}" } },
-        };
+            hostConfig["Memory"] = (long)limits.MemoryMb * 1024 * 1024;
+            hostConfig["NanoCpus"] = (long)(limits.Cpus * 1_000_000_000);
+            hostConfig["PidsLimit"] = limits.PidsLimit;
+            hostConfig["CapDrop"] = new[] { "ALL" };
+            hostConfig["SecurityOpt"] = new[] { "no-new-privileges" };
+        }
+
+        var create = new Dictionary<string, object?> { ["Image"] = spec.Image, ["HostConfig"] = hostConfig };
+        if (spec.Command.Count > 0)
+            create["Cmd"] = spec.Command;               // leer ⇒ CMD/ENTRYPOINT des Images gilt
+        if (spec.Entrypoint is { Count: > 0 })
+            create["Entrypoint"] = spec.Entrypoint;     // Probe-Container: ["sleep","infinity"]
+        if (spec.Environment is { Count: > 0 })
+            create["Env"] = spec.Environment.Select(kv => $"{kv.Key}={kv.Value}").ToArray();
+
         using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
             $"/containers/create?name={Uri.EscapeDataString(spec.Name)}")
         { Content = JsonContent.Create(create, options: OutJsonOpts) }, ct);
@@ -226,6 +242,69 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
             .ToList();
     }
 
+    public async Task<DockerBuildResult> BuildImageAsync(string tag, Stream tarContext, string dockerfilePath,
+        CancellationToken ct = default)
+    {
+        var url = $"/build?t={Uri.EscapeDataString(tag)}&dockerfile={Uri.EscapeDataString(dockerfilePath)}" +
+                  "&rm=true&forcerm=true&q=true";
+        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StreamContent(tarContext) };
+        req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-tar");
+        using var resp = await SendAsync(req, ct, HttpCompletionOption.ResponseHeadersRead);
+        await EnsureAsync(resp, ct);
+
+        // Der Body ist ein JSON-Lines-Strom; ein {"error":…}-Objekt darin bedeutet Build-Fehler,
+        // der HTTP-Status bleibt dabei 200. Deshalb bis zum Ende lesen und auswerten.
+        var log = new StringBuilder();
+        var failed = false;
+        using var reader = new StreamReader(await resp.Content.ReadAsStreamAsync(ct));
+        while (await reader.ReadLineAsync(ct) is { } line)
+        {
+            if (line.Length == 0)
+                continue;
+            log.AppendLine(line);
+            if (line.Contains("\"error\"", StringComparison.Ordinal))
+                failed = true;
+        }
+        var text = log.ToString();
+        return new DockerBuildResult(!failed, text.Length > 2000 ? text[^2000..] : text);
+    }
+
+    public async Task PullImageAsync(string reference, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
+            $"/images/create?fromImage={Uri.EscapeDataString(reference)}"), ct,
+            HttpCompletionOption.ResponseHeadersRead);
+        await EnsureAsync(resp, ct);
+
+        // Auch hier JSON-Lines mit möglichem {"error":…} bei HTTP 200 — Strom leeren und prüfen.
+        using var reader = new StreamReader(await resp.Content.ReadAsStreamAsync(ct));
+        while (await reader.ReadLineAsync(ct) is { } line)
+        {
+            if (line.Contains("\"error\"", StringComparison.Ordinal))
+                throw new DockerUnavailableException($"Image-Pull fehlgeschlagen: {reference}");
+        }
+    }
+
+    public async Task RemoveImageAsync(string tag, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Delete,
+            $"/images/{Uri.EscapeDataString(tag)}?force=true"), ct);
+        await EnsureAsync(resp, ct, HttpStatusCode.NotFound, HttpStatusCode.Conflict);
+    }
+
+    public async Task<IReadOnlyList<string>> ListImagesAsync(string tagPrefix, CancellationToken ct = default)
+    {
+        var filters = Uri.EscapeDataString($"{{\"reference\":[\"{tagPrefix}*\"]}}");
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Get, $"/images/json?filters={filters}"), ct);
+        await EnsureAsync(resp, ct);
+        var entries = await ReadJsonAsync<List<ImageListEntry>>(resp, ct);
+        return entries
+            .SelectMany(e => e.RepoTags ?? [])
+            .Where(t => t.StartsWith(tagPrefix, StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
     public void Dispose() => _http.Dispose();
 
     // Transportfehler (Socket weg, Verbindung verweigert, …) einheitlich als DockerUnavailableException.
@@ -274,4 +353,5 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
     private sealed record ExecCreateResponse(string Id);
     private sealed record ExecInspectResponse(int ExitCode, bool Running);
     private sealed record NetworkListEntry(string? Name);
+    private sealed record ImageListEntry(List<string>? RepoTags);
 }

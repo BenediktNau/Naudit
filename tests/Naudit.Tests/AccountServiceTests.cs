@@ -51,6 +51,12 @@ public class AccountServiceTests
         public Task RemoveNetworkAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<string>>(new List<string>());
+        public Task<DockerBuildResult> BuildImageAsync(string tag, Stream tarContext, string dockerfilePath, CancellationToken ct = default)
+            => Task.FromResult(new DockerBuildResult(true, ""));
+        public Task PullImageAsync(string reference, CancellationToken ct = default) => Task.CompletedTask;
+        public Task RemoveImageAsync(string tag, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> ListImagesAsync(string tagPrefix, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>(new List<string>());
     }
 
     [Fact]
