@@ -53,4 +53,17 @@ public class WorkspaceTarPackerTests
 
         Assert.Null(await WorkspaceTarPacker.PackAsync(root, maxContextMb: 1));
     }
+
+    /// <summary>Realistischer Über-Cap-Fall: die erste Datei passt noch, die zweite kippt die
+    /// Summe — muss null liefern statt zu werfen (der TarWriter schreibt beim Schließen noch
+    /// End-of-Archive-Blöcke in den Buffer).</summary>
+    [Fact]
+    public async Task Pack_overSizeCap_afterFirstEntry_returnsNull()
+    {
+        var root = NewCheckout(
+            ("a.bin", new string('x', 700 * 1024)),
+            ("b.bin", new string('y', 700 * 1024)));
+
+        Assert.Null(await WorkspaceTarPacker.PackAsync(root, maxContextMb: 1));
+    }
 }

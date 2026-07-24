@@ -12,6 +12,7 @@ public static class WorkspaceTarPacker
     {
         var limit = (long)maxContextMb * 1024 * 1024;
         var buffer = new MemoryStream();
+        var overCap = false;
         await using (var tar = new TarWriter(buffer, leaveOpen: true))
         {
             foreach (var file in Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories))
@@ -22,14 +23,21 @@ public static class WorkspaceTarPacker
                     continue;
                 if (buffer.Length + SafeLength(file) > limit)
                 {
-                    await buffer.DisposeAsync();
-                    return null;
+                    // Erst raus aus dem using, DANN verwerfen: der TarWriter schreibt beim
+                    // Schließen noch End-of-Archive-Blöcke und darf keinen toten Stream sehen.
+                    overCap = true;
+                    break;
                 }
                 // Sonderdateien (tote Symlinks, Sockets, Rechte) dürfen den Kontext nicht kippen.
                 try { await tar.WriteEntryAsync(file, relative, ct); }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
+        }
+        if (overCap)
+        {
+            await buffer.DisposeAsync();
+            return null;
         }
         buffer.Position = 0;
         return buffer;
