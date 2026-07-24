@@ -163,7 +163,8 @@ Mounting `/var/run/docker.sock` into a container is **effectively root on the ho
 anything that can reach the socket can start a privileged container, mount the host
 filesystem, and so on. Anyone who can reach Naudit's Docker socket owns the machine
 it runs on — only enable this on a host where you already trust Naudit itself with
-root-equivalent access.
+root-equivalent access. ([The Docker socket](docker-socket.md) covers this boundary,
+who else uses the socket, and the bare-metal setup.)
 
 That is the outer boundary. Inside it, the sandbox does change the shape of the risk
 compared to in-process runs, and those changes are real rather than implied by socket
