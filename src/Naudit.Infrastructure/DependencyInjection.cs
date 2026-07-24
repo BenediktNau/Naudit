@@ -10,6 +10,7 @@ using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.ClaudeCode;
 using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Context;
+using Naudit.Infrastructure.Dast;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Docker;
 using Naudit.Infrastructure.Git;
@@ -93,6 +94,11 @@ public static class DependencyInjection
         services.AddSingleton<SessionHealthRegistry>();
         services.AddSingleton<RoundRobinCursor>();
 
+        // DAST (dynamische Prüfung an der laufenden App): eigener Kill-Switch, bewusst unabhängig
+        // von der Session-Sandbox — andere Risikoklasse (fremder PR-Code statt eigener Abo-Container).
+        var dastOptions = configuration.GetSection("Naudit:Review:Dast").Get<DastOptions>() ?? new DastOptions();
+        services.AddSingleton(dastOptions);
+
         // Session-Sandbox (containerisierte Author/RoundRobin-Sessions): Default None = heutiger
         // In-Process-Runner. Docker ⇒ account-gebundene Runner über den Host-Docker-Socket; jeder
         // Fehlerpfad fällt auf den In-Process-Runner zurück (ein Review scheitert nie an der Sandbox).
@@ -100,9 +106,19 @@ public static class DependencyInjection
             ?? new SessionSandboxOptions();
         services.AddSingleton(sandboxOptions);
         services.AddSingleton<SessionSandboxState>();
+
+        // Ein Docker-Client für beide Nutzer (Session-Sandbox und DAST); ist die Sandbox aktiv,
+        // gewinnt ihr Socket-Pfad.
+        if (aiOptions.SessionSandbox == SessionSandbox.Docker || dastOptions.Enabled)
+        {
+            var socketPath = aiOptions.SessionSandbox == SessionSandbox.Docker
+                ? sandboxOptions.DockerSocketPath
+                : dastOptions.DockerSocketPath;
+            services.AddSingleton<IDockerClient>(_ => new SocketDockerClient(socketPath));
+        }
+
         if (aiOptions.SessionSandbox == SessionSandbox.Docker)
         {
-            services.AddSingleton<IDockerClient>(_ => new SocketDockerClient(sandboxOptions.DockerSocketPath));
             services.AddSingleton(sp => new SessionContainerManager(
                 sp.GetRequiredService<IDockerClient>(), sandboxOptions,
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<SessionContainerManager>()));
@@ -113,6 +129,17 @@ public static class DependencyInjection
         {
             services.AddSingleton<ISessionRunnerFactory>(sp =>
                 new InProcessSessionRunnerFactory(sp.GetRequiredService<IProcessRunner>()));
+        }
+
+        if (dastOptions.Enabled)
+        {
+            // Kein HttpClient: der Healthcheck läuft als docker exec im Probe-Container —
+            // Naudit spricht nie selbst HTTP mit der getesteten App.
+            services.AddSingleton<IAppRunner>(sp => new DockerAppRunner(
+                sp.GetRequiredService<IDockerClient>(),
+                dastOptions,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<DockerAppRunner>()));
+            services.AddHostedService<DastOrphanSweeper>();
         }
 
         services.AddSingleton<SessionSelectionFactory>();

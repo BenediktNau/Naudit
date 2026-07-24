@@ -191,7 +191,8 @@ isolated per account. It is off by default (`None`) and purely opt-in; see
 [Session sandbox](session-sandbox.md) for the full picture (config keys, lifecycle,
 fail-open behaviour, and a security note on what mounting the Docker socket implies).
 
-Mount the socket and give the non-root Naudit process the host's `docker` group:
+Mount the socket and give the non-root Naudit process the host's `docker` group
+(background and bare-metal setup: [the Docker socket](docker-socket.md)):
 
 ```yaml
 services:
@@ -209,6 +210,11 @@ Read the GID with `stat -c '%g' /var/run/docker.sock` **on the host** — it var
 distro and must match exactly, or the non-root container user cannot use the mounted
 socket. Getting it wrong is not fatal: Naudit logs a warning and falls back to
 in-process session runs, same as if the socket were missing entirely.
+
+[DAST](dast.md) uses this **same socket mount and the same `group_add` GID**, but is a
+separate feature switched on independently via `Naudit:Review:Dast:Enabled` and the
+`Naudit:Review:Dast:Projects` allowlist — mounting the socket for the session sandbox
+does not turn DAST on, and vice versa.
 
 ## Automatic deploy on each release
 
