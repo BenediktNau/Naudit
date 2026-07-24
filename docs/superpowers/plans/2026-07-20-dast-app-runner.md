@@ -46,7 +46,7 @@
 | `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs` | The scalar `Naudit:Review:Dast:*` keys. |
 | `tests/Naudit.Tests/Fakes/FakeDockerClient.cs` | Records networks/images/builds, scriptable build failure. |
 | `tests/Naudit.Tests/*AnalyzerTests.cs`, `WorkspaceContextCollectorTests.cs`, `Fakes/FakeWorkspaceProvider.cs` | Their `IReviewWorkspace` test doubles get the new member. |
-| `docs/dast.md` (new), `docs/deployment.md`, `CLAUDE.md` | Documentation. |
+| `docs/dast.md` (rewrite — ops guide already on main), `docs/deployment.md`, `CLAUDE.md` | Documentation. |
 
 ---
 
@@ -1472,12 +1472,12 @@ git commit -m "feat(dast): Orphan-Sweeper + DI-Verdrahtung (geteilter IDockerCli
 ### Task 7: Documentation
 
 **Files:**
-- Create: `docs/dast.md`
+- Modify: `docs/dast.md` (an ops-oriented version already exists on main — status banner, Coolify part-A/part-B guide — from the `docs/docker-socket-dast` branch; merge main first)
 - Modify: `docs/deployment.md`, `CLAUDE.md`
 
-- [ ] **Step 1: Write `docs/dast.md`**
+- [ ] **Step 1: Rewrite `docs/dast.md` into the feature reference**
 
-Create the file with these sections (English, like the other docs):
+Drop the "not yet released" banner, keep the ops guide (part A stays, part B updated to the final keys incl. `ProbeImage`), keep linking `docs/docker-socket.md` for everything socket-related, and make sure these sections exist (English, like the other docs):
 
 1. **What it is** — Naudit builds the PR's own `Dockerfile`, runs it, and (from PR 2 on) probes it; PR 1 ships the runner only, nothing calls it yet.
 2. **Two switches** — `Naudit:Review:Dast:Enabled` **and** `Naudit:Review:Dast:Projects` (empty = no project). State plainly: this builds and executes code from a pull request, so it belongs on repositories you trust; do not enable it with `AccessGate:Mode=Open`.
