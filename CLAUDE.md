@@ -267,6 +267,21 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   account is gone, not `Active`, or token-less. Opt-in integration test via `NAUDIT_TEST_DOCKER=1`.
   Status: `GET /api/me/session-sandbox` (mapped only in Docker mode; the cross-account
   `liveContainers` count is admin-only). See `docs/session-sandbox.md`.
+- **DAST app-runner (PR 1 of the dynamic-testing slice):** `IAppRunner`/`DockerAppRunner`
+  (`src/Naudit.Infrastructure/Dast/`) builds the PR's own `Dockerfile` (checkout tar'd into the
+  engine via `WorkspaceTarPacker` — the daemon cannot see Naudit's filesystem), starts it as a
+  sibling container on a per-review `internal` network (no egress, no published ports, memory/CPU/PID
+  limits, `cap-drop ALL`, no volume, no environment) next to a passive **probe container**
+  (`ProbeImage`, pulled on demand, `sleep`-entrypoint). All reachability runs through the Docker
+  socket: the healthcheck is a `docker exec` in the probe container (PR 2 speaks MCP over exec-stdio
+  through the same container), Naudit never joins the network, and the runner works identically from
+  a containerized or bare-metal Naudit. Returns a `RunningApp` whose `DisposeAsync` tears both
+  containers, network and built image down. Gated twice:
+  `Naudit:Review:Dast:Enabled` **and** the `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no
+  project) — it executes foreign PR code. Fail-open everywhere (`null`, never a throw), plus a
+  `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace` gained
+  `ProjectId` for that allowlist. Nothing calls the runner yet — the `DastAnalyzer : ISastAnalyzer`
+  and the Playwright probing arrive in PR 2. See `docs/dast.md`.
 - **Review memory:** `IReviewMemory` (Core `Abstractions`) selects per-project maintainer
   guidance for a review; the default `DbReviewMemory`
   (`src/Naudit.Infrastructure/Memory/`) deterministically picks active conventions + false

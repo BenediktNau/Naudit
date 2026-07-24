@@ -211,6 +211,11 @@ distro and must match exactly, or the non-root container user cannot use the mou
 socket. Getting it wrong is not fatal: Naudit logs a warning and falls back to
 in-process session runs, same as if the socket were missing entirely.
 
+[DAST](dast.md) uses this **same socket mount and the same `group_add` GID**, but is a
+separate feature switched on independently via `Naudit:Review:Dast:Enabled` and the
+`Naudit:Review:Dast:Projects` allowlist — mounting the socket for the session sandbox
+does not turn DAST on, and vice versa.
+
 ## Automatic deploy on each release
 
 The CI does **not** deploy — Coolify owns deployment. The recommended pattern is push-based:
