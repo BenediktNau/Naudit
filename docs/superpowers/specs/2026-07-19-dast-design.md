@@ -59,50 +59,76 @@ der Browser, die Vuln-Beurteilung das LLM.
 - **Fail-open über alles:** DAST an, aber Socket/Build/Healthcheck/Probing scheitert ⇒
   Warnung + leere Findings, Review läuft normal weiter (`ISastAnalyzer`-Vertrag).
 
+Nachträge (Brainstorming 2026-07-24):
+
+- **Erreichbarkeit ausschließlich über die Socket-Naht.** Naudit hängt sich nicht selbst
+  ins Review-Netz und veröffentlicht keinen Port — auch nicht auf localhost. Der
+  Healthcheck läuft als `docker exec` im Probe-Container (PR 1), das MCP-Gespräch mit
+  Playwright als stdio über `docker exec` (PR 2; Exec-Streaming-Muster
+  `DockerStreamDemux` der Session-Sandbox). Folge: identisches Verhalten, ob Naudit im
+  Container oder als nackter Prozess läuft (Linux vorausgesetzt — der Client spricht
+  nur Unix-Sockets), und das Review-Netz bleibt hermetisch.
+- **Gemeinsames Container-Fundament, getrennte Policy-Besitzer.** Die Mechanik teilt
+  sich DAST mit der Session-Sandbox: ein `IDockerClient`, die gehärtete
+  `ContainerRunSpec`-Erweiterung (Limits/`cap-drop`/`no-new-privileges`), die
+  Exec-Primitive (`ExecAsync`) und das Präfix-Sweep-Muster. Die Lebenszyklus-Besitzer
+  bleiben bewusst getrennt (`SessionContainerManager` je Account, `IAppRunner` je
+  Review): langlebig + Credential-Volume vs. kurzlebig + garantierter Teardown sind
+  gegensätzliche Policies, und die Trennung stellt strukturell sicher, dass ein
+  DAST-Container nie ein Volume, Env oder Secret bekommt.
+
 ## Phasing
 
 Ein Spec, zwei PRs (das riskante Stück zuerst isoliert absichern):
 
 - **PR 1 — App-Runner (ohne LLM verifizierbar):** `IDockerClient` um `BuildImageAsync`,
-  Netz-Anlegen und Port-Inspektion erweitern; `IAppRunner` (build → run → healthcheck →
-  URL → garantierter Teardown). End-to-end testbar ohne jedes LLM — das RCE-Risiko
-  (fremden Code ausführen + Sandbox-Härtung) steht isoliert und abgesichert.
-- **PR 2 — Probing-Analyzer:** Playwright-MCP-Server als weiterer MCP-Server im
-  Tool-Loop; `DastAnalyzer : ISastAnalyzer` orchestriert Runner + agentischen Lauf +
-  Mapping auf `ScanFinding`; Registrierung als Analyzer (Config-only, bestehendes
-  Erweiterungsmuster in `DependencyInjection.cs`).
+  Netz-Anlegen und Image-Pull erweitern; `IAppRunner` (build → run App + Probe-Container →
+  Exec-Healthcheck → URL → garantierter Teardown). End-to-end testbar ohne jedes LLM —
+  das RCE-Risiko (fremden Code ausführen + Sandbox-Härtung) steht isoliert und
+  abgesichert.
+- **PR 2 — Probing-Analyzer:** der Probe-Container aus PR 1 wird zum
+  Playwright-MCP-Server im Tool-Loop (Transport: stdio über `docker exec` — der
+  MCP-Connector aus #54 bekommt dafür einen Exec-Transport); `DastAnalyzer :
+  ISastAnalyzer` orchestriert Runner + agentischen Lauf + Mapping auf `ScanFinding`;
+  Registrierung als Analyzer (Config-only, bestehendes Erweiterungsmuster in
+  `DependencyInjection.cs`).
 
 ## Architektur
 
 ### Container-Topologie (isoliert je Review-Id)
 
 ```
-Docker-Netz  naudit-dast-<reviewId>   (internal: true → KEIN Internet-Egress)
- ├─ App-Container   naudit-dast-app-<reviewId>    (aus dem PR-Dockerfile gebaut)
- └─ Playwright-MCP  naudit-dast-pw-<reviewId>     (offizielles Image, headless Chromium)
-        │  erreicht die App über das interne Netz: http://naudit-dast-app-<reviewId>:<port>
-Naudit (Host)  ── MCP-Transport ──▶ Playwright-MCP (veröffentlichter Port, nur localhost)
+Docker-Netz  naudit-dast-net-<key>   (internal: true → KEIN Egress, KEINE veröffentlichten Ports)
+ ├─ App-Container    naudit-dast-app-<key>   (aus dem PR-Dockerfile gebaut)
+ └─ Probe/Playwright naudit-dast-pw-<key>    (ProbeImage; PR 1: Healthcheck-Arm, PR 2: MCP-Server)
+        │  erreicht die App über das interne Netz: http://naudit-dast-app-<key>:<port>
+
+Naudit ── docker exec über /var/run/docker.sock ──▶ Probe-Container
+          (PR 1: Healthcheck-Kommando · PR 2: MCP über stdio)
 ```
 
-Der App-Container hat **keinen** Egress; nur der Playwright-Container teilt das interne
-Netz mit ihm. Naudit redet mit dem Playwright-MCP-Server über den vorhandenen
-MCP-Connector (#54) — die getestete App ist für Naudit selbst unerreichbar, nur das
-Browser-Tool sieht sie.
+Der App-Container hat **keinen** Egress; nur der Probe-/Playwright-Container teilt das
+interne Netz mit ihm. Naudit selbst betritt das Netz **nie** — jede Interaktion läuft
+als `docker exec` über die Socket-Naht (Entscheidung 2026-07-24). Die getestete App ist
+für Naudit, den Host und das Internet unerreichbar; nur das Browser-Tool sieht sie.
+Dadurch ist es auch egal, ob Naudit selbst als Container oder als nackter Prozess läuft.
 
 ### `IAppRunner` (Naudit.Infrastructure/Dast/)
 
 ```
 RunAsync(IReviewWorkspace workspace, CancellationToken ct)
-    -> RunningApp { InternalUrl, NetworkName }  |  null
+    -> RunningApp { InternalUrl, NetworkName, ContainerName, ProbeContainerName }  |  null
 ```
 
 Nutzt `IDockerClient`:
 1. Image aus `DockerfilePath` bauen (`BuildImageAsync`, neu).
-2. Netz `naudit-dast-<reviewId>` `internal: true` anlegen (neu).
+2. Netz `naudit-dast-net-<key>` `internal: true` anlegen (neu).
 3. App-Container an das Netz gehängt starten (Ressourcen-Limits, ohne Naudit-Secrets).
-4. Healthcheck-Polling: HTTP-200 auf `HealthPath:AppPort` bis Timeout.
-5. Playwright-MCP-Container ans selbe Netz hängen, MCP-Endpoint auf localhost mappen.
-6. `RunningApp` liefern — oder `null`, wenn Healthcheck nie grün wird (App serviert
+4. Probe-Container (`ProbeImage`, bei Bedarf gepullt) im selben Netz starten — PR 1s
+   Healthcheck-Arm und PR 2s MCP-Server.
+5. Healthcheck als `docker exec` im Probe-Container: HTTP-Probe auf
+   `http://<app>:<AppPort><HealthPath>` bis Exit 0 oder Timeout.
+6. `RunningApp` liefern — oder `null`, wenn der Healthcheck nie grün wird (App serviert
    kein Web ⇒ DAST no-op).
 
 `IAsyncDisposable`: Teardown (beide Container, Netz, gebautes Image) **garantiert im
@@ -159,6 +185,9 @@ Wir bauen und starten fremden PR-Code — RCE by design. Eindämmung:
   Env-Liste vorgibt — nie `docker.sock`, nie Naudit-Tokens, nie die DB-Connection.
 - **Kein Socket im App-Container:** `/var/run/docker.sock` ist nur an Naudit selbst
   gemountet, wird nie in getestete Container weitergereicht.
+- **Keine veröffentlichten Ports:** weder App- noch Probe-Container mappen einen Port
+  (auch nicht auf localhost) — Healthcheck und späteres MCP laufen als `docker exec`
+  über die Socket-Naht.
 - **Härtung best-effort:** `--security-opt no-new-privileges`, `--cap-drop ALL`,
   read-only wo möglich (minimal nachgeben, wenn ein Image Ports <1024 o. ä. braucht).
 - **Harte Lebensdauer:** Zeitbudget killt hängende Container; Teardown im `finally`;
@@ -170,8 +199,9 @@ Wir bauen und starten fremden PR-Code — RCE by design. Eindämmung:
 
 - **`Naudit:Review:Dast:TimeBudget`** (Default `00:05:00`) deckelt **build + run +
   probe** zusammen. Überschritten ⇒ Abbruch, Teardown, leere Findings, Review weiter.
-- **Jeder Fehler fail-open:** Build scheitert / kein Dockerfile / Healthcheck-Timeout /
-  Socket weg / Playwright-MCP startet nicht / LLM-Lauf wirft ⇒ geloggte Warnung + leere
+- **Jeder Fehler fail-open:** Build scheitert / kein Dockerfile / Probe-Image nicht
+  pullbar / Healthcheck-Timeout / Socket weg / Playwright-MCP startet nicht /
+  LLM-Lauf wirft ⇒ geloggte Warnung + leere
   Liste. Nie ein Review-Abbruch.
 - **Teardown garantiert** auch bei Exception/Cancel (`IAsyncDisposable` + `finally`).
 - **Non-JSON aus dem Probing-Lauf** ⇒ „keine Funde" (Probing ist ein Grounding-Schritt,
@@ -190,6 +220,8 @@ Naudit:Review:Dast:TimeBudget       = 00:05:00
 Naudit:Review:Dast:MemoryLimitMb    = 1024
 Naudit:Review:Dast:MaxProbeSteps    = <n>               # Deckel für den agentischen Loop
 Naudit:Review:Dast:DockerSocketPath = /var/run/docker.sock
+Naudit:Review:Dast:ProbeImage       = mcr.microsoft.com/playwright/mcp:latest
+                                                        # Probe-/MCP-Container; wird bei Bedarf gepullt
 ```
 
 `"dast"` muss zusätzlich in `Naudit:Sast:Analyzers` stehen (Analyzer-Auswahl). `AppPort`/

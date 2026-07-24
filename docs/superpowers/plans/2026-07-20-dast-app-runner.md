@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Naudit can build the PR's own `Dockerfile`, start the resulting app as a sibling container in an egress-less review network, wait until it serves HTTP, hand back a reachable URL, and tear everything down again — with no LLM involved and no way for the app container to reach the internet, the host, or another review.
+**Goal:** Naudit can build the PR's own `Dockerfile`, start the resulting app as a sibling container in an egress-less review network, wait until it serves HTTP, hand back a reachable URL, and tear everything down again — with no LLM involved and no way for the app container to reach the internet, the host, or another review. Every interaction with the review network runs through the Docker socket, so the runner behaves identically whether Naudit itself runs as a container or as a bare process (decision 2026-07-24 in the spec).
 
-**Architecture:** A new `IAppRunner` seam in `src/Naudit.Infrastructure/Dast/` drives the existing `IDockerClient` (from the session sandbox, now on main), which grows the operations it lacks: build an image from a tar'd build context, create/remove a user-defined `internal` network, connect/disconnect a container, remove images, and list both for orphan cleanup. Naudit attaches **its own** container to the review network for the duration of the run, so the app is reachable by container name and **no port is published anywhere**. Everything is opt-in (`Naudit:Review:Dast:Enabled`) *and* per-project (`Naudit:Review:Dast:Projects` allowlist — empty means no project), fail-open (any failure ⇒ `null`, never an exception at the caller), and teardown is guaranteed in a `finally`/`IAsyncDisposable`.
+**Architecture:** A new `IAppRunner` seam in `src/Naudit.Infrastructure/Dast/` drives the existing `IDockerClient` (from the session sandbox, now on main), which grows the operations it lacks: build an image from a tar'd build context, pull the probe image, create/remove a user-defined `internal` network, remove images, and list networks/images for orphan cleanup. Reachability is exclusively socket-based: a **probe container** (the Playwright-MCP image that PR 2 needs anyway) is started inside the review network, and the healthcheck runs as `docker exec` in it — `ExecAsync`, the same primitive the session sandbox uses for CLI runs. Naudit itself never joins the network and **no port is published anywhere**. Everything is opt-in (`Naudit:Review:Dast:Enabled`) *and* per-project (`Naudit:Review:Dast:Projects` allowlist — empty means no project), fail-open (any failure ⇒ `null`, never an exception at the caller), and teardown is guaranteed in a `finally`/`IAsyncDisposable`.
 
 **Tech Stack:** .NET 10, `System.Formats.Tar`, hand-rolled Docker Engine API over the Unix socket (no new NuGet), xUnit with a `FakeDockerClient` (no real Docker in CI).
 
@@ -18,7 +18,7 @@
 - **No real Docker in CI.** All runner/sweeper tests go through `FakeDockerClient`; engine-API round-trips are opt-in integration tests gated on `NAUDIT_TEST_DOCKER=1` (pattern: `SocketDockerClientTests`).
 - **Fail-open everywhere:** every failure path (not applicable, no Dockerfile, context too large, build failed, healthcheck timeout, socket gone, budget exceeded) returns `null` after a full teardown. The only exception that leaves `RunAsync` is a **caller** cancellation (`ct`), never the internal time budget.
 - **No Naudit secrets in the app container**: no environment beyond what the caller passes explicitly, no volume, no Docker socket, no host mounts. Ever.
-- Naming: every DAST resource is prefixed `naudit-dast-` (`naudit-dast-img-<key>`, `naudit-dast-net-<key>`, `naudit-dast-app-<key>`) so the orphan sweeper can find leftovers by prefix.
+- Naming: every DAST resource is prefixed `naudit-dast-` (`naudit-dast-img-<key>`, `naudit-dast-net-<key>`, `naudit-dast-app-<key>`, `naudit-dast-pw-<key>`) so the orphan sweeper can find leftovers by prefix. The pulled `ProbeImage` is deliberately **not** prefixed — it stays cached across reviews and is never swept.
 - Code comments in German, docs in English. TDD: red → green → one commit per task.
 - Config keys: scalars join `SettingsCatalog` (non-secret, DB-manageable); the list-shaped `Projects` stays env/appsettings-only, following the `ProjectTokens`/`Ui:Admins` precedent.
 
@@ -30,7 +30,7 @@
 | --- | --- |
 | `DastOptions.cs` | Bound from `Naudit:Review:Dast`; owns the `AppliesTo(projectId)` allowlist decision. |
 | `IAppRunner.cs` | The seam: `IAppRunner` + `RunningApp` (an `IAsyncDisposable` handle carrying URL/network/container). |
-| `DockerAppRunner.cs` | The only implementation: build → network → run → self-connect → health-poll → handle; teardown closure. |
+| `DockerAppRunner.cs` | The only implementation: build → network → run app + probe container → exec health-poll → handle; teardown closure. |
 | `WorkspaceTarPacker.cs` | Turns a checkout directory into a tar stream for the build context (skips `.git`, enforces a size cap). |
 | `DastOrphanSweeper.cs` | `IHostedService`: removes `naudit-dast-*` containers/networks/images left behind by a crash. |
 
@@ -60,7 +60,7 @@
 - Test: `tests/Naudit.Tests/DastOptionsTests.cs` (new)
 
 **Interfaces:**
-- Produces: `IReviewWorkspace.ProjectId` (string, non-null); `DastOptions` with `Enabled`, `Projects`, `DockerfilePath`, `AppPort`, `HealthPath`, `TimeBudget`, `HealthPollInterval`, `MemoryLimitMb`, `CpuLimit`, `PidsLimit`, `MaxContextMb`, `DockerSocketPath` and `bool AppliesTo(string? projectId)`.
+- Produces: `IReviewWorkspace.ProjectId` (string, non-null); `DastOptions` with `Enabled`, `Projects`, `DockerfilePath`, `AppPort`, `HealthPath`, `TimeBudget`, `HealthPollInterval`, `MemoryLimitMb`, `CpuLimit`, `PidsLimit`, `MaxContextMb`, `DockerSocketPath`, `ProbeImage` and `bool AppliesTo(string? projectId)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -160,6 +160,11 @@ public sealed class DastOptions
 
     public string DockerSocketPath { get; set; } = "/var/run/docker.sock";
 
+    /// <summary>Image des Probe-Containers im Review-Netz (PR 1: Healthcheck per exec, PR 2:
+    /// Playwright-MCP-Server). Wird bei Bedarf gepullt; bewusst nicht naudit-dast-präfixiert,
+    /// damit es als Cache über Reviews hinweg stehen bleibt.</summary>
+    public string ProbeImage { get; set; } = "mcr.microsoft.com/playwright/mcp:latest";
+
     /// <summary>Darf für dieses Projekt gebaut/gestartet werden? Beide Schalter müssen zustimmen.</summary>
     public bool AppliesTo(string? projectId)
         => Enabled
@@ -240,36 +245,31 @@ git commit -m "feat(dast): DastOptions mit Projekt-Allowlist + ProjectId am Revi
 
 **Interfaces:**
 - Consumes: `IDockerClient` as it stands on main (`SendAsync`/`EnsureAsync`/`ReadJsonAsync` helpers inside `SocketDockerClient`).
-- Produces: `CreateNetworkAsync(name)`, `RemoveNetworkAsync(name)`, `ConnectNetworkAsync(network, container)`, `DisconnectNetworkAsync(network, container)`, `ListNetworksAsync(namePrefix) -> IReadOnlyList<string>`. `FakeDockerClient.Networks` (`Dictionary<string, HashSet<string>>`: network → connected containers).
+- Produces: `CreateNetworkAsync(name)`, `RemoveNetworkAsync(name)`, `ListNetworksAsync(namePrefix) -> IReadOnlyList<string>`. `FakeDockerClient.Networks` (`HashSet<string>`). Connect/disconnect operations are deliberately absent: containers join the network at start (`ContainerRunSpec.Network`, Task 3) and Naudit itself never joins — all reachability runs over `docker exec` (decision 2026-07-24).
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/Naudit.Tests/SocketDockerClientTests.cs` (inside the class):
 
 ```csharp
-    /// <summary>Netz-Lebenszyklus gegen echtes Docker: internes Netz anlegen, Container hineinhängen,
-    /// wieder trennen, Netz entfernen — die Naht, auf der der DAST-App-Runner aufsetzt.</summary>
+    /// <summary>Netz-Lebenszyklus gegen echtes Docker: internes Netz anlegen, listen, entfernen —
+    /// die Naht, auf der der DAST-App-Runner aufsetzt. Container betreten das Netz beim Start
+    /// (ContainerRunSpec.Network, Task 3); ein nachträgliches Connect gibt es bewusst nicht.</summary>
     [Fact]
-    public async Task NetworkLifecycle_create_connect_disconnect_remove()
+    public async Task NetworkLifecycle_create_list_remove()
     {
         if (!Enabled) return; // ohne Docker-Env: übersprungen
 
         using var docker = new SocketDockerClient(SocketPath);
         var network = $"naudit-dast-net-{Guid.NewGuid():N}";
-        var container = $"naudit-dast-app-{Guid.NewGuid():N}";
         try
         {
             await docker.CreateNetworkAsync(network);
+            await docker.CreateNetworkAsync(network); // idempotent: gibt es schon
             Assert.Contains(network, await docker.ListNetworksAsync("naudit-dast-"));
-
-            await docker.RunDetachedAsync(new ContainerRunSpec(container, Image, null, null, ["sleep", "60"]));
-            await docker.ConnectNetworkAsync(network, container);
-            await docker.ConnectNetworkAsync(network, container); // idempotent: hängt schon dran
-            await docker.DisconnectNetworkAsync(network, container);
         }
         finally
         {
-            await docker.RemoveContainerAsync(container);
             await docker.RemoveNetworkAsync(network);
             await docker.RemoveNetworkAsync(network); // idempotent: schon weg
         }
@@ -289,18 +289,13 @@ In `src/Naudit.Infrastructure/Docker/IDockerClient.cs`, add to the interface (be
 
 ```csharp
     /// <summary>Legt ein benutzerdefiniertes Netz an — internal (kein Egress: der getestete Code
-    /// erreicht weder Internet noch Host) und attachable (Naudit hängt sich zur Laufzeit selbst
-    /// hinein, statt Ports zu veröffentlichen). Existiert es schon, ist das kein Fehler.</summary>
+    /// erreicht weder Internet noch Host). Container betreten das Netz beim Start
+    /// (ContainerRunSpec.Network); ein nachträgliches Connect gibt es bewusst nicht — jede
+    /// Erreichbarkeit läuft über docker exec. Existiert es schon, ist das kein Fehler.</summary>
     Task CreateNetworkAsync(string name, CancellationToken ct = default);
 
     /// <summary>Entfernt ein Netz; bereits weg ⇒ kein Fehler (Teardown ist best-effort).</summary>
     Task RemoveNetworkAsync(string name, CancellationToken ct = default);
-
-    /// <summary>Hängt einen Container (Name oder Id) ins Netz; hängt er schon drin ⇒ kein Fehler.</summary>
-    Task ConnectNetworkAsync(string network, string container, CancellationToken ct = default);
-
-    /// <summary>Trennt einen Container wieder vom Netz; nicht verbunden/weg ⇒ kein Fehler.</summary>
-    Task DisconnectNetworkAsync(string network, string container, CancellationToken ct = default);
 
     /// <summary>Namen aller Netze mit diesem Präfix — für den Orphan-Sweeper.</summary>
     Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default);
@@ -313,8 +308,9 @@ Add to `src/Naudit.Infrastructure/Docker/SocketDockerClient.cs` (above `Dispose`
 ```csharp
     public async Task CreateNetworkAsync(string name, CancellationToken ct = default)
     {
-        // Internal = kein Egress; Attachable = Naudit darf sich selbst zur Laufzeit hineinhängen.
-        var body = new { Name = name, Internal = true, Attachable = true, CheckDuplicate = true };
+        // Internal = kein Egress. Kein Attachable: niemand hängt sich nachträglich hinein —
+        // Container betreten das Netz beim Start, Naudit spricht nur über docker exec hinein.
+        var body = new { Name = name, Internal = true, CheckDuplicate = true };
         using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post, "/networks/create")
         { Content = JsonContent.Create(body, options: OutJsonOpts) }, ct);
         await EnsureAsync(resp, ct, HttpStatusCode.Conflict); // 409 = gibt es schon
@@ -325,23 +321,6 @@ Add to `src/Naudit.Infrastructure/Docker/SocketDockerClient.cs` (above `Dispose`
         using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Delete,
             $"/networks/{Uri.EscapeDataString(name)}"), ct);
         await EnsureAsync(resp, ct, HttpStatusCode.NotFound);
-    }
-
-    public async Task ConnectNetworkAsync(string network, string container, CancellationToken ct = default)
-    {
-        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
-            $"/networks/{Uri.EscapeDataString(network)}/connect")
-        { Content = JsonContent.Create(new { Container = container }, options: OutJsonOpts) }, ct);
-        // 403 = "endpoint already exists in network" (idempotenter Aufruf), 404 = Netz/Container weg.
-        await EnsureAsync(resp, ct, HttpStatusCode.Forbidden, HttpStatusCode.NotFound);
-    }
-
-    public async Task DisconnectNetworkAsync(string network, string container, CancellationToken ct = default)
-    {
-        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
-            $"/networks/{Uri.EscapeDataString(network)}/disconnect")
-        { Content = JsonContent.Create(new { Container = container, Force = true }, options: OutJsonOpts) }, ct);
-        await EnsureAsync(resp, ct, HttpStatusCode.Forbidden, HttpStatusCode.NotFound);
     }
 
     public async Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
@@ -367,15 +346,15 @@ and next to the other private response records at the bottom of the file:
 
 - [ ] **Step 5: Extend `FakeDockerClient`**
 
-In `tests/Naudit.Tests/Fakes/FakeDockerClient.cs`, add the state and the five methods:
+In `tests/Naudit.Tests/Fakes/FakeDockerClient.cs`, add the state and the three methods:
 
 ```csharp
-    public Dictionary<string, HashSet<string>> Networks { get; } = new();   // Netz -> verbundene Container
+    public HashSet<string> Networks { get; } = new();
 
-    public Task CreateNetworkAsync(string name, CancellationToken ct = default)
+    public virtual Task CreateNetworkAsync(string name, CancellationToken ct = default)
     {
         Calls.Add($"netcreate:{name}");
-        Networks.TryAdd(name, new HashSet<string>());
+        Networks.Add(name);
         return Task.CompletedTask;
     }
 
@@ -386,24 +365,12 @@ In `tests/Naudit.Tests/Fakes/FakeDockerClient.cs`, add the state and the five me
         return Task.CompletedTask;
     }
 
-    public Task ConnectNetworkAsync(string network, string container, CancellationToken ct = default)
-    {
-        Calls.Add($"netconnect:{network}:{container}");
-        if (Networks.TryGetValue(network, out var members)) members.Add(container);
-        return Task.CompletedTask;
-    }
-
-    public Task DisconnectNetworkAsync(string network, string container, CancellationToken ct = default)
-    {
-        Calls.Add($"netdisconnect:{network}:{container}");
-        if (Networks.TryGetValue(network, out var members)) members.Remove(container);
-        return Task.CompletedTask;
-    }
-
     public Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<string>>(Networks.Keys
+        => Task.FromResult<IReadOnlyList<string>>(Networks
             .Where(n => n.StartsWith(namePrefix, StringComparison.Ordinal)).ToList());
 ```
+
+(`CreateNetworkAsync` is `virtual` from the start — Task 5 subclasses it; that also requires changing the class declaration from `internal sealed class FakeDockerClient` to `internal class FakeDockerClient` now.)
 
 - [ ] **Step 6: Build and run the suite**
 
@@ -432,7 +399,7 @@ git commit -m "feat(dast): IDockerClient um egress-loses Review-Netz erweitert (
 - Test: `tests/Naudit.Tests/WorkspaceTarPackerTests.cs` (new)
 
 **Interfaces:**
-- Produces: `WorkspaceTarPacker.PackAsync(string rootPath, int maxContextMb, CancellationToken) -> Task<Stream?>` (null = over the cap); `IDockerClient.BuildImageAsync(string tag, Stream tarContext, string dockerfilePath, CancellationToken) -> Task<DockerBuildResult>`; `RemoveImageAsync(string tag)`; `ListImagesAsync(string tagPrefix) -> IReadOnlyList<string>`; `DockerBuildResult(bool Success, string Log)`; `ContainerRunSpec` extended with `Network`/`Environment`/`Limits` and nullable volume fields; `ContainerLimits(int MemoryMb, double Cpus, int PidsLimit)`.
+- Produces: `WorkspaceTarPacker.PackAsync(string rootPath, int maxContextMb, CancellationToken) -> Task<Stream?>` (null = over the cap); `IDockerClient.BuildImageAsync(string tag, Stream tarContext, string dockerfilePath, CancellationToken) -> Task<DockerBuildResult>`; `PullImageAsync(string reference)`; `RemoveImageAsync(string tag)`; `ListImagesAsync(string tagPrefix) -> IReadOnlyList<string>`; `DockerBuildResult(bool Success, string Log)`; `ContainerRunSpec` extended with `Network`/`Environment`/`Limits`/`Entrypoint` and nullable volume fields; `ContainerLimits(int MemoryMb, double Cpus, int PidsLimit)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -568,6 +535,11 @@ In `src/Naudit.Infrastructure/Docker/IDockerClient.cs`, add to the interface:
     Task<DockerBuildResult> BuildImageAsync(string tag, Stream tarContext, string dockerfilePath,
         CancellationToken ct = default);
 
+    /// <summary>docker pull: holt ein Referenz-Image (Probe-Container). Schon vorhanden ⇒ schneller
+    /// No-op der Engine. Nicht pullbar (Registry weg, Tippfehler) ⇒ DockerUnavailableException —
+    /// der Runner behandelt das fail-open.</summary>
+    Task PullImageAsync(string reference, CancellationToken ct = default);
+
     /// <summary>Entfernt ein Image; schon weg/noch in Benutzung ⇒ kein Fehler (best-effort-Teardown).</summary>
     Task RemoveImageAsync(string tag, CancellationToken ct = default);
 
@@ -592,6 +564,10 @@ public sealed record ContainerRunSpec(string Name, string Image, string? VolumeN
 
     /// <summary>Eindämmung für fremden Code; null = keine Grenzen (Session-Sandbox unverändert).</summary>
     public ContainerLimits? Limits { get; init; }
+
+    /// <summary>Überschreibt den ENTRYPOINT des Images (Probe-Container: ["sleep","infinity"] —
+    /// er lebt passiv und wird nur per docker exec benutzt). null = ENTRYPOINT des Images gilt.</summary>
+    public IReadOnlyList<string>? Entrypoint { get; init; }
 }
 
 /// <summary>Grenzen für Container mit fremdem Code: Speicher/CPU/PID-Deckel gegen Fork-Bomb und OOM,
@@ -633,6 +609,22 @@ Add to `src/Naudit.Infrastructure/Docker/SocketDockerClient.cs`:
         }
         var text = log.ToString();
         return new DockerBuildResult(!failed, text.Length > 2000 ? text[^2000..] : text);
+    }
+
+    public async Task PullImageAsync(string reference, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
+            $"/images/create?fromImage={Uri.EscapeDataString(reference)}"), ct,
+            HttpCompletionOption.ResponseHeadersRead);
+        await EnsureAsync(resp, ct);
+
+        // Auch hier JSON-Lines mit möglichem {"error":…} bei HTTP 200 — Strom leeren und prüfen.
+        using var reader = new StreamReader(await resp.Content.ReadAsStreamAsync(ct));
+        while (await reader.ReadLineAsync(ct) is { } line)
+        {
+            if (line.Contains("\"error\"", StringComparison.Ordinal))
+                throw new DockerUnavailableException($"Image-Pull fehlgeschlagen: {reference}");
+        }
     }
 
     public async Task RemoveImageAsync(string tag, CancellationToken ct = default)
@@ -684,6 +676,8 @@ and replace `RunDetachedAsync` so the optional spec parts are honoured:
         var create = new Dictionary<string, object?> { ["Image"] = spec.Image, ["HostConfig"] = hostConfig };
         if (spec.Command.Count > 0)
             create["Cmd"] = spec.Command;               // leer ⇒ CMD/ENTRYPOINT des Images gilt
+        if (spec.Entrypoint is { Count: > 0 })
+            create["Entrypoint"] = spec.Entrypoint;     // Probe-Container: ["sleep","infinity"]
         if (spec.Environment is { Count: > 0 })
             create["Env"] = spec.Environment.Select(kv => $"{kv.Key}={kv.Value}").ToArray();
 
@@ -731,6 +725,22 @@ In `tests/Naudit.Tests/Fakes/FakeDockerClient.cs` add:
     public Task<IReadOnlyList<string>> ListImagesAsync(string tagPrefix, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<string>>(Images
             .Where(i => i.StartsWith(tagPrefix, StringComparison.Ordinal)).ToList());
+
+    public List<string> PulledImages { get; } = new();
+
+    public Task PullImageAsync(string reference, CancellationToken ct = default)
+    {
+        Calls.Add($"pull:{reference}");
+        PulledImages.Add(reference);
+        Images.Add(reference);
+        return Task.CompletedTask;
+    }
+```
+
+Two adjustments to the existing `RunDetachedAsync` in the fake, forced by the spec change: `Volumes.Add(spec.VolumeName)` needs a null guard (`if (spec.VolumeName is not null) …`), and Task 4 must inspect **both** run specs (app + probe), so record every spec:
+
+```csharp
+    public List<ContainerRunSpec> RunSpecs { get; } = new();   // neben LastRunSpec: RunSpecs.Add(spec);
 ```
 
 - [ ] **Step 8: Build and run the suite**
@@ -755,18 +765,18 @@ git commit -m "feat(dast): Image-Build aus getartem Checkout + Container-Limits/
 - Test: `tests/Naudit.Tests/DockerAppRunnerTests.cs` (new)
 
 **Interfaces:**
-- Consumes: `IDockerClient` (Tasks 2+3), `DastOptions` (Task 1), `IReviewWorkspace.ProjectId` (Task 1), `Fakes/StubHttpMessageHandler`.
-- Produces: `IAppRunner.RunAsync(IReviewWorkspace workspace, CancellationToken ct = default) -> Task<RunningApp?>`; `RunningApp` with `InternalUrl`, `NetworkName`, `ContainerName` and an idempotent `DisposeAsync`; constant `DockerAppRunner.NamePrefix = "naudit-dast-"`.
+- Consumes: `IDockerClient` (Tasks 2+3, incl. `ExecAsync` from the session sandbox), `DastOptions` (Task 1), `IReviewWorkspace.ProjectId` (Task 1).
+- Produces: `IAppRunner.RunAsync(IReviewWorkspace workspace, CancellationToken ct = default) -> Task<RunningApp?>`; `RunningApp` with `InternalUrl`, `NetworkName`, `ContainerName`, `ProbeContainerName` and an idempotent `DisposeAsync`; constants `DockerAppRunner.NamePrefix = "naudit-dast-"` and `DockerAppRunner.HealthProbeArgv(url)` (the exec-based health probe).
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/Naudit.Tests/DockerAppRunnerTests.cs`:
 
 ```csharp
-using System.Net;
 using Microsoft.Extensions.Logging.Abstractions;
 using Naudit.Core.Abstractions;
 using Naudit.Infrastructure.Dast;
+using Naudit.Infrastructure.Docker;
 using Naudit.Tests.Fakes;
 using Xunit;
 
@@ -802,18 +812,15 @@ public class DockerAppRunnerTests
     };
 
     private static (DockerAppRunner Runner, FakeDockerClient Docker) Create(
-        DastOptions? options = null, FakeDockerClient? docker = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? responder = null)
+        DastOptions? options = null, FakeDockerClient? docker = null)
     {
         docker ??= new FakeDockerClient();
-        var http = new HttpClient(new StubHttpMessageHandler(
-            responder ?? (_ => new HttpResponseMessage(HttpStatusCode.OK))));
-        return (new DockerAppRunner(docker, options ?? Options(), http,
+        return (new DockerAppRunner(docker, options ?? Options(),
             NullLogger<DockerAppRunner>.Instance), docker);
     }
 
     [Fact]
-    public async Task Run_buildsRunsAndReturnsInternalUrl_withoutPublishingPorts()
+    public async Task Run_buildsRunsAndReturnsInternalUrl_reachedOnlyViaExec()
     {
         var (runner, docker) = Create();
 
@@ -822,13 +829,19 @@ public class DockerAppRunnerTests
         Assert.NotNull(app);
         Assert.StartsWith("naudit-dast-net-", app!.NetworkName);
         Assert.StartsWith("naudit-dast-app-", app.ContainerName);
+        Assert.StartsWith("naudit-dast-pw-", app.ProbeContainerName);
         Assert.Equal($"http://{app.ContainerName}:8080/", app.InternalUrl);
 
-        // Reihenfolge: erst bauen, dann Netz, dann Container, dann Naudit selbst hineinhängen.
+        // Reihenfolge: bauen, Netz anlegen, Probe-Image pullen, App- und Probe-Container starten.
         var relevant = docker.Calls.Where(c =>
-            c.StartsWith("build:") || c.StartsWith("netcreate:") || c.StartsWith("run:") || c.StartsWith("netconnect:"))
+            c.StartsWith("build:") || c.StartsWith("netcreate:") || c.StartsWith("pull:") || c.StartsWith("run:"))
             .Select(c => c.Split(':')[0]).ToList();
-        Assert.Equal(["build", "netcreate", "run", "netconnect"], relevant);
+        Assert.Equal(["build", "netcreate", "pull", "run", "run"], relevant);
+
+        // Healthcheck als exec im Probe-Container gegen die interne URL — Naudit betritt das Netz nie.
+        var exec = Assert.Single(docker.Execs);
+        Assert.Equal(app.ProbeContainerName, exec.Container);
+        Assert.Contains(app.InternalUrl, exec.Argv);
 
         var build = Assert.Single(docker.Builds);
         Assert.Equal("Dockerfile", build.Dockerfile);
@@ -836,19 +849,24 @@ public class DockerAppRunnerTests
     }
 
     [Fact]
-    public async Task Run_startsAppContainer_withLimits_andWithoutVolumeOrEnvironment()
+    public async Task Run_startsBothContainers_withLimits_andWithoutVolumeOrEnvironment()
     {
         var (runner, docker) = Create();
 
         await using var app = await runner.RunAsync(Checkout());
 
-        var spec = docker.LastRunSpec!;
-        Assert.Equal(app!.NetworkName, spec.Network);
-        Assert.Null(spec.VolumeName);       // kein Volume: der Container darf nichts überdauern
-        Assert.Null(spec.Environment);      // niemals Naudit-Secrets im getesteten Container
-        Assert.Empty(spec.Command);         // CMD/ENTRYPOINT des gebauten Images gilt
-        Assert.Equal(1024, spec.Limits!.MemoryMb);
-        Assert.Equal(256, spec.Limits.PidsLimit);
+        var appSpec = docker.RunSpecs.Single(s => s.Name.StartsWith("naudit-dast-app-", StringComparison.Ordinal));
+        Assert.Equal(app!.NetworkName, appSpec.Network);
+        Assert.Null(appSpec.VolumeName);       // kein Volume: der Container darf nichts überdauern
+        Assert.Null(appSpec.Environment);      // niemals Naudit-Secrets im getesteten Container
+        Assert.Empty(appSpec.Command);         // CMD/ENTRYPOINT des gebauten Images gilt
+        Assert.Equal(1024, appSpec.Limits!.MemoryMb);
+        Assert.Equal(256, appSpec.Limits.PidsLimit);
+
+        var probeSpec = docker.RunSpecs.Single(s => s.Name.StartsWith("naudit-dast-pw-", StringComparison.Ordinal));
+        Assert.Equal(app.NetworkName, probeSpec.Network);
+        Assert.Equal(["sleep", "infinity"], probeSpec.Entrypoint);   // lebt passiv, wird nur per exec benutzt
+        Assert.NotNull(probeSpec.Limits);      // auch der Browser-Container bleibt gedeckelt
     }
 
     [Fact]
@@ -887,17 +905,21 @@ public interface IAppRunner
     Task<RunningApp?> RunAsync(IReviewWorkspace workspace, CancellationToken ct = default);
 }
 
-/// <summary>Handle auf die laufende Test-App. DisposeAsync räumt Container, Netz und Image ab —
-/// idempotent, damit ein doppeltes Dispose (finally + using) nicht doppelt abräumt.</summary>
+/// <summary>Handle auf die laufende Test-App. DisposeAsync räumt App- und Probe-Container, Netz und
+/// Image ab — idempotent, damit ein doppeltes Dispose (finally + using) nicht doppelt abräumt.</summary>
 public sealed class RunningApp(string internalUrl, string networkName, string containerName,
-    Func<ValueTask> teardown) : IAsyncDisposable
+    string probeContainerName, Func<ValueTask> teardown) : IAsyncDisposable
 {
-    /// <summary>URL im Review-Netz (Container-Name als Host) — nur von Naudit und dem späteren
-    /// Playwright-Container erreichbar, nie vom Host oder Internet.</summary>
+    /// <summary>URL im Review-Netz (Container-Name als Host) — nur vom Probe-/Playwright-Container
+    /// erreichbar; Naudit, Host und Internet sehen sie nie.</summary>
     public string InternalUrl { get; } = internalUrl;
 
     public string NetworkName { get; } = networkName;
     public string ContainerName { get; } = containerName;
+
+    /// <summary>Probe-Container im selben Netz — PR 1 nutzt ihn für den Healthcheck (exec),
+    /// PR 2 spricht über ihn MCP (stdio via exec).</summary>
+    public string ProbeContainerName { get; } = probeContainerName;
 
     private int _disposed;
 
@@ -921,14 +943,15 @@ using Naudit.Infrastructure.Docker;
 namespace Naudit.Infrastructure.Dast;
 
 /// <summary>Führt fremden PR-Code aus — deshalb: eigenes internes Netz je Review (kein Egress,
-/// keine veröffentlichten Ports), Ressourcen- und Rechte-Grenzen am Container, kein Volume, keine
-/// Naudit-Secrets, hartes Zeitbudget und garantierter Abbau. Naudit hängt sich selbst befristet ins
-/// Review-Netz, statt Ports zu veröffentlichen — dadurch ist die getestete App vom Host aus nicht
-/// erreichbar. Jeder Fehlerpfad endet in Teardown + null (fail-open).</summary>
+/// keine veröffentlichten Ports, nirgends), Ressourcen- und Rechte-Grenzen an beiden Containern,
+/// kein Volume, keine Naudit-Secrets, hartes Zeitbudget und garantierter Abbau. Naudit betritt das
+/// Netz nie selbst: der Healthcheck läuft als docker exec im Probe-Container (dieselbe Primitive
+/// wie die CLI-Läufe der Session-Sandbox) — dadurch verhält sich der Runner identisch, ob Naudit
+/// im Container oder als nackter Prozess läuft. Jeder Fehlerpfad endet in Teardown + null
+/// (fail-open).</summary>
 public sealed class DockerAppRunner(
     IDockerClient docker,
     DastOptions options,
-    HttpClient http,
     ILogger<DockerAppRunner> logger,
     TimeProvider? time = null) : IAppRunner
 {
@@ -949,6 +972,7 @@ public sealed class DockerAppRunner(
         var image = $"{NamePrefix}img-{key}";
         var network = $"{NamePrefix}net-{key}";
         var container = $"{NamePrefix}app-{key}";
+        var probe = $"{NamePrefix}pw-{key}";
 
         // Ein Budget über Build + Start + Healthcheck; Teardown läuft danach OHNE Token weiter.
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -956,10 +980,11 @@ public sealed class DockerAppRunner(
 
         async ValueTask TearDownAsync()
         {
-            await SafeAsync(() => docker.DisconnectNetworkAsync(network, SelfContainer, CancellationToken.None));
+            await SafeAsync(() => docker.RemoveContainerAsync(probe, CancellationToken.None));
             await SafeAsync(() => docker.RemoveContainerAsync(container, CancellationToken.None));
             await SafeAsync(() => docker.RemoveNetworkAsync(network, CancellationToken.None));
             await SafeAsync(() => docker.RemoveImageAsync(image, CancellationToken.None));
+            // Das ProbeImage bleibt absichtlich stehen — Cache über Reviews hinweg.
         }
 
         try
@@ -981,20 +1006,20 @@ public sealed class DockerAppRunner(
             }
 
             await docker.CreateNetworkAsync(network, budget.Token);
+            await docker.PullImageAsync(options.ProbeImage, budget.Token); // schneller No-op, wenn schon da
+
+            var limits = new ContainerLimits(options.MemoryLimitMb, options.CpuLimit, options.PidsLimit);
             await docker.RunDetachedAsync(
                 new ContainerRunSpec(container, image, VolumeName: null, VolumeTarget: null, Command: [])
-                {
-                    Network = network,
-                    Limits = new ContainerLimits(options.MemoryLimitMb, options.CpuLimit, options.PidsLimit),
-                }, budget.Token);
-
-            // Naudit selbst ins Netz hängen: nur so ist der Healthcheck (und später der
-            // Playwright-Container) ohne veröffentlichten Port erreichbar. Läuft Naudit nicht in
-            // Docker, scheitert das — dann gibt es kein DAST (dokumentiert).
-            await docker.ConnectNetworkAsync(network, SelfContainer, budget.Token);
+                { Network = network, Limits = limits }, budget.Token);
+            // Probe-Container: lebt passiv (sleep) im selben Netz und wird nur per exec benutzt —
+            // PR 1 für den Healthcheck, PR 2 als Playwright-MCP-Server (stdio via exec).
+            await docker.RunDetachedAsync(
+                new ContainerRunSpec(probe, options.ProbeImage, VolumeName: null, VolumeTarget: null, Command: [])
+                { Network = network, Limits = limits, Entrypoint = ["sleep", "infinity"] }, budget.Token);
 
             var url = $"http://{container}:{options.AppPort}{options.HealthPath}";
-            if (!await WaitForHealthyAsync(url, budget.Token))
+            if (!await WaitForHealthyAsync(probe, url, budget.Token))
             {
                 logger.LogInformation("DAST: App wurde nicht erreichbar ({Url}) — übersprungen.", url);
                 await TearDownAsync();
@@ -1002,7 +1027,7 @@ public sealed class DockerAppRunner(
             }
 
             logger.LogInformation("DAST: App läuft unter {Url}.", url);
-            return new RunningApp(url, network, container, TearDownAsync);
+            return new RunningApp(url, network, container, probe, TearDownAsync);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1017,23 +1042,24 @@ public sealed class DockerAppRunner(
         }
     }
 
-    /// <summary>Eigener Container: im Container ist $HOSTNAME die Container-Id (Muster der
-    /// Session-Sandbox).</summary>
-    private static string SelfContainer => Environment.MachineName;
+    /// <summary>HTTP-Probe als exec-Kommando im Probe-Container: Exit 0 = Webserver antwortet.
+    /// Auch eine 404 zählt (beweist einen laufenden Server); 5xx kann eine noch startende App
+    /// sein — weiter pollen. Node steckt im Playwright-Image.</summary>
+    internal static IReadOnlyList<string> HealthProbeArgv(string url) =>
+    [
+        "node", "-e",
+        "fetch(process.argv[1]).then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))",
+        url,
+    ];
 
-    private async Task<bool> WaitForHealthyAsync(string url, CancellationToken ct)
+    private async Task<bool> WaitForHealthyAsync(string probe, string url, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            try
-            {
-                using var resp = await http.GetAsync(url, ct);
-                // < 500 zählt als "da": auch eine 404 auf "/" beweist einen laufenden Webserver.
-                // 5xx kann eine noch startende App sein — weiter pollen.
-                if ((int)resp.StatusCode < 500)
-                    return true;
-            }
-            catch (HttpRequestException) { /* noch nicht erreichbar */ }
+            var result = await docker.ExecAsync(probe, HealthProbeArgv(url),
+                environment: null, workingDirectory: "/", ct);
+            if (result.ExitCode == 0)
+                return true;
 
             try { await Task.Delay(options.HealthPollInterval, time ?? TimeProvider.System, ct); }
             catch (OperationCanceledException) { return false; }
@@ -1099,22 +1125,21 @@ Append to `tests/Naudit.Tests/DockerAppRunnerTests.cs`:
         Assert.Empty(docker.Containers);
     }
 
-    /// <summary>App kommt nie hoch (Healthcheck bleibt 500): Zeitbudget greift, danach ist die
-    /// gesamte Review-Topologie wieder weg.</summary>
+    /// <summary>App kommt nie hoch (Exec-Probe liefert dauerhaft Exit 1): Zeitbudget greift, danach
+    /// ist die gesamte Review-Topologie wieder weg — nur das gecachte ProbeImage bleibt.</summary>
     [Fact]
     public async Task Run_appNeverBecomesHealthy_returnsNull_andTearsDownEverything()
     {
         var options = Options();
         options.TimeBudget = TimeSpan.FromMilliseconds(150);
-        var (runner, docker) = Create(options,
-            responder: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var docker = new FakeDockerClient { DefaultExecResult = new DockerExecResult(1, "", "") };
+        var (runner, _) = Create(options, docker);
 
         Assert.Null(await runner.RunAsync(Checkout()));
 
         Assert.Empty(docker.Containers);
         Assert.Empty(docker.Networks);
-        Assert.Empty(docker.Images);
-        Assert.Contains(docker.Calls, c => c.StartsWith("netdisconnect:"));
+        Assert.Equal([options.ProbeImage], docker.Images);   // Cache bleibt, naudit-dast-img-* ist weg
     }
 
     [Fact]
@@ -1139,11 +1164,11 @@ Append to `tests/Naudit.Tests/DockerAppRunnerTests.cs`:
         var afterFirst = docker.Calls.Count(c => c.StartsWith("rm:"));
         await app.DisposeAsync();
 
-        Assert.Equal(1, afterFirst);
+        Assert.Equal(2, afterFirst);   // App- UND Probe-Container, je genau einmal
         Assert.Equal(afterFirst, docker.Calls.Count(c => c.StartsWith("rm:")));
         Assert.Empty(docker.Containers);
         Assert.Empty(docker.Networks);
-        Assert.Empty(docker.Images);
+        Assert.DoesNotContain(docker.Images, i => i.StartsWith("naudit-dast-", StringComparison.Ordinal));
     }
 
     /// <summary>FakeDockerClient, der beim Netz-Anlegen wie eine tote Engine reagiert.</summary>
@@ -1154,7 +1179,13 @@ Append to `tests/Naudit.Tests/DockerAppRunnerTests.cs`:
     }
 ```
 
-Because the last test subclasses the fake, `FakeDockerClient` must stop being `sealed` and its `CreateNetworkAsync` must be `virtual` — change the class declaration in `tests/Naudit.Tests/Fakes/FakeDockerClient.cs` from `internal sealed class FakeDockerClient` to `internal class FakeDockerClient` and mark `CreateNetworkAsync` `public virtual`.
+The fake is already unsealed and `CreateNetworkAsync` already `virtual` (Task 2). Two small additions to `tests/Naudit.Tests/Fakes/FakeDockerClient.cs` for these tests: a persistent exec default (the queue only covers finite sequences),
+
+```csharp
+    public DockerExecResult? DefaultExecResult { get; set; }   // greift, wenn ExecResults leer ist
+```
+
+used as the fallback in `ExecAsync` (`ExecResults.Count > 0 ? ExecResults.Dequeue() : DefaultExecResult ?? new DockerExecResult(0, "", "")`).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1220,19 +1251,23 @@ public class DastOrphanSweeperTests
     {
         var docker = new FakeDockerClient
         {
-            Containers = { ["naudit-dast-app-abc123"] = true, ["naudit-session-7"] = true, ["postgres"] = true },
+            Containers =
+            {
+                ["naudit-dast-app-abc123"] = true, ["naudit-dast-pw-abc123"] = true,
+                ["naudit-session-7"] = true, ["postgres"] = true,
+            },
         };
         await docker.CreateNetworkAsync("naudit-dast-net-abc123");
         await docker.CreateNetworkAsync("bridge");
         docker.Images.Add("naudit-dast-img-abc123");
-        docker.Images.Add("ghcr.io/benediktnau/naudit:latest");
+        docker.Images.Add("mcr.microsoft.com/playwright/mcp:latest");   // ProbeImage-Cache: bleibt
         var sweeper = new DastOrphanSweeper(docker, NullLogger<DastOrphanSweeper>.Instance);
 
         await sweeper.StartAsync(CancellationToken.None);
 
         Assert.Equal(["naudit-session-7", "postgres"], docker.Containers.Keys.Order());
-        Assert.Equal(["bridge"], docker.Networks.Keys);
-        Assert.Equal(["ghcr.io/benediktnau/naudit:latest"], docker.Images);
+        Assert.Equal(["bridge"], docker.Networks.ToList());
+        Assert.Equal(["mcr.microsoft.com/playwright/mcp:latest"], docker.Images);
     }
 
     [Fact]
@@ -1383,21 +1418,14 @@ Then, after the sandbox block:
 ```csharp
         if (dastOptions.Enabled)
         {
-            services.AddHttpClient(DastHttpClientName)
-                .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(5)); // Healthcheck-Probe
+            // Kein HttpClient: der Healthcheck läuft als docker exec im Probe-Container —
+            // Naudit spricht nie selbst HTTP mit der getesteten App.
             services.AddSingleton<IAppRunner>(sp => new DockerAppRunner(
                 sp.GetRequiredService<IDockerClient>(),
                 dastOptions,
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient(DastHttpClientName),
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<DockerAppRunner>()));
             services.AddHostedService<DastOrphanSweeper>();
         }
-```
-
-with a constant next to the other private members of the class:
-
-```csharp
-    private const string DastHttpClientName = "naudit-dast";
 ```
 
 Add `using Naudit.Infrastructure.Dast;` to the file's usings.
@@ -1417,6 +1445,7 @@ In `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs`, after the `Naudit:Re
         new("Naudit:Review:Dast:PidsLimit", false),
         new("Naudit:Review:Dast:MaxContextMb", false),
         new("Naudit:Review:Dast:DockerSocketPath", false),
+        new("Naudit:Review:Dast:ProbeImage", false),
 ```
 
 (`Projects` is deliberately absent — list-shaped keys stay env-only, like `ProjectTokens`.)
@@ -1452,20 +1481,21 @@ Create the file with these sections (English, like the other docs):
 
 1. **What it is** — Naudit builds the PR's own `Dockerfile`, runs it, and (from PR 2 on) probes it; PR 1 ships the runner only, nothing calls it yet.
 2. **Two switches** — `Naudit:Review:Dast:Enabled` **and** `Naudit:Review:Dast:Projects` (empty = no project). State plainly: this builds and executes code from a pull request, so it belongs on repositories you trust; do not enable it with `AccessGate:Mode=Open`.
-3. **Topology** — the diagram from the spec, adjusted to the decision that Naudit attaches itself to the review network:
+3. **Topology** — the diagram from the spec (all reachability runs through the Docker socket):
 
 ```text
 Docker network  naudit-dast-net-<key>   (internal: true → no egress)
- ├─ app container   naudit-dast-app-<key>   (built from the PR's Dockerfile)
- └─ naudit itself   (temporarily attached for the healthcheck; PR 2 adds the Playwright container here)
-No published ports anywhere — the app is unreachable from the host and the internet.
+ ├─ app container    naudit-dast-app-<key>   (built from the PR's Dockerfile)
+ └─ probe container  naudit-dast-pw-<key>    (ProbeImage; healthcheck via docker exec — PR 2 turns it into the Playwright-MCP server)
+No published ports anywhere and Naudit never joins the network — every interaction is a
+`docker exec` through the socket, so the app is unreachable from the host and the internet.
 ```
 
 4. **Config table** — every key from `DastOptions` with defaults and meaning.
 5. **Isolation** — internal network (no egress), memory/CPU/PID limits, `--cap-drop ALL`, `no-new-privileges`, no volume, no environment, no Docker socket in the app container.
 6. **Fail-open table** — not allow-listed / no Dockerfile / context over `MaxContextMb` / build failed / never healthy / socket gone / budget exceeded ⇒ each logs and yields "no dynamic grounding", never a failed review.
 7. **Lifecycle & teardown** — guaranteed teardown via `IAsyncDisposable`, plus the orphan sweeper at startup.
-8. **Requirement** — Naudit must itself run **in a container** on the same Docker host (it attaches its own container to the review network); running Naudit on bare metal means DAST stays off. Same `docker.sock` trust note as `docs/session-sandbox.md` (link it rather than repeating it).
+8. **Requirement** — a reachable Docker engine socket on the same host (Linux only: the client speaks Unix sockets, the `win-x64` binary is out). It does **not** matter whether Naudit itself runs containerized (socket mounted + `group_add`) or as a bare process (user in the `docker` group) — all interaction with the review network runs through the socket, so both deployments behave identically. Same `docker.sock` trust note as `docs/session-sandbox.md` (link it rather than repeating it).
 
 - [ ] **Step 2: Extend `docs/deployment.md`**
 
@@ -1480,9 +1510,12 @@ Add a bullet to "Extension points" after the session-sandbox bullet:
   (`src/Naudit.Infrastructure/Dast/`) builds the PR's own `Dockerfile` (checkout tar'd into the
   engine via `WorkspaceTarPacker` — the daemon cannot see Naudit's filesystem), starts it as a
   sibling container on a per-review `internal` network (no egress, no published ports, memory/CPU/PID
-  limits, `cap-drop ALL`, no volume, no environment), attaches **Naudit's own container** to that
-  network so the healthcheck (and later the Playwright container) can reach the app by name, and
-  returns a `RunningApp` whose `DisposeAsync` tears container, network and image down. Gated twice:
+  limits, `cap-drop ALL`, no volume, no environment) next to a passive **probe container**
+  (`ProbeImage`, pulled on demand, `sleep`-entrypoint). All reachability runs through the Docker
+  socket: the healthcheck is a `docker exec` in the probe container (PR 2 speaks MCP over exec-stdio
+  through the same container), Naudit never joins the network, and the runner works identically from
+  a containerized or bare-metal Naudit. Returns a `RunningApp` whose `DisposeAsync` tears both
+  containers, network and built image down. Gated twice:
   `Naudit:Review:Dast:Enabled` **and** the `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no
   project) — it executes foreign PR code. Fail-open everywhere (`null`, never a throw), plus a
   `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace` gained
@@ -1506,12 +1539,12 @@ git commit -m "docs(dast): App-Runner dokumentiert (Topologie, doppelte Freigabe
 
 ## Manual verification gate (before PR 2 is worth starting)
 
-CI never touches real Docker, so run this once by hand on a machine with a Docker socket, with Naudit itself running **in a container** that has `/var/run/docker.sock` mounted:
+CI never touches real Docker, so run this once by hand on a machine with a Docker socket. Because all reachability runs through the socket, the run works from a containerized Naudit (socket mounted + `group_add`) **and** from a bare `dotnet run` (user in the `docker` group) — if bare-metal operation matters to you, repeat step 2 once in each mode; behaviour must be identical:
 
 1. `NAUDIT_TEST_DOCKER=1 dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter SocketDockerClientTests` — engine round-trip incl. the new network lifecycle.
-2. Point `Naudit:Review:Dast:Projects` at a small web repo with a `Dockerfile`, call `IAppRunner.RunAsync` from a scratch endpoint or a debug harness, and confirm: image built, container on `naudit-dast-net-*`, healthcheck green, `docker inspect` shows the limits and `CapDrop: [ALL]`, `curl` from the **host** to the app fails (no published port), `docker exec` into the app container has no internet, and after `DisposeAsync` no `naudit-dast-*` container/network/image remains.
-3. Kill Naudit mid-run (`docker kill`) and restart it — the orphan sweeper must clear the leftovers.
+2. Point `Naudit:Review:Dast:Projects` at a small web repo with a `Dockerfile`, call `IAppRunner.RunAsync` from a scratch endpoint or a debug harness, and confirm: image built, app **and** probe container on `naudit-dast-net-*`, healthcheck green (exec probe in the pw container), `docker inspect` shows the limits and `CapDrop: [ALL]` on both, `curl` from the **host** to the app fails (no published port anywhere), `docker exec` into the app container has no internet, and after `DisposeAsync` no `naudit-dast-*` container/network/image remains (the pulled `ProbeImage` stays — it is cache).
+3. Kill Naudit mid-run (`docker kill` / `kill -9`) and restart it — the orphan sweeper must clear the leftovers, including the probe container.
 
 ## Out of scope (PR 2)
 
-`DastAnalyzer : ISastAnalyzer`, `FindingCategory.Dast`, the Playwright-MCP container in the same network, the probing prompt/tool-loop, `MaxProbeSteps`, and the mapping of raw probe results to `ScanFinding`. The probing LLM call will use the **global** `IChatClient` (never the author-session router), matching `DistillingReviewGuidelines`.
+`DastAnalyzer : ISastAnalyzer`, `FindingCategory.Dast`, turning the probe container into the Playwright-MCP server (its real entrypoint spoken to over **stdio via `docker exec`** — the MCP connector from #54 needs an exec transport for this, reusing the session sandbox's `DockerStreamDemux` pattern; no published MCP port), the probing prompt/tool-loop, `MaxProbeSteps`, and the mapping of raw probe results to `ScanFinding`. The probing LLM call will use the **global** `IChatClient` (never the author-session router), matching `DistillingReviewGuidelines`.
