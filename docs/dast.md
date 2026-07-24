@@ -111,6 +111,22 @@ Naudit itself never joins the review network; every interaction (healthcheck tod
 MCP-over-exec in PR 2) is a `docker exec` into the probe container from the host side of
 the socket.
 
+The spec's "read-only root filesystem where possible" hardening is deliberately **not**
+implemented in PR 1 (many app images need a writable filesystem at startup); revisit in PR 2.
+
+## Residual risk: the build phase
+
+The isolation story above — internal network, resource limits, `--cap-drop ALL` — applies
+to the **running** app and probe containers. `docker build` runs **before** any of that:
+`RUN` steps execute with the builder's default network (egress is available to whatever the
+Dockerfile does) and without memory/CPU/PID caps, bounded only by the overall `TimeBudget`.
+Image layers are written to the daemon's storage uncapped, and a build aborted by the
+`TimeBudget` can leave dangling intermediate layers behind that the `naudit-dast-*` prefix
+sweeper cannot match (they carry no such name). Run periodic `docker builder prune` /
+`docker image prune` on DAST hosts to reclaim that. This is exactly why the `Projects`
+allowlist is trusted-repos-only — DAST executes a PR's own build instructions with none of
+the runtime isolation guarantees above.
+
 ## Fail-open behaviour
 
 Every failure path ends in teardown and `null` (no dynamic grounding) — a review never

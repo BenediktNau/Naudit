@@ -15,7 +15,16 @@ public static class WorkspaceTarPacker
         var overCap = false;
         await using (var tar = new TarWriter(buffer, leaveOpen: true))
         {
-            foreach (var file in Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories))
+            // Symlinks weder verfolgen noch packen: ein Checkout könnte per Symlink aus sich
+            // herauszeigen (linkdir -> /) und Host-Dateien in den Build-Kontext ziehen.
+            // AttributesToSkip explizit NUR ReparsePoint — der Default (Hidden|System) würde
+            // auf Unix Dotfiles wie .dockerignore aus dem Kontext werfen.
+            var enumeration = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            };
+            foreach (var file in Directory.EnumerateFiles(rootPath, "*", enumeration))
             {
                 ct.ThrowIfCancellationRequested();
                 var relative = Path.GetRelativePath(rootPath, file).Replace('\\', '/');

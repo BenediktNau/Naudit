@@ -66,4 +66,29 @@ public class WorkspaceTarPackerTests
 
         Assert.Null(await WorkspaceTarPacker.PackAsync(root, maxContextMb: 1));
     }
+
+    /// <summary>Symlinks dürfen weder verfolgt noch gepackt werden: ein Checkout, der per
+    /// Directory-Symlink aus sich herauszeigt, würde sonst Host-Dateien in den Build-Kontext
+    /// ziehen (Exfiltrationspfad). Dotfiles bleiben dabei ausdrücklich im Kontext.</summary>
+    [Fact]
+    public async Task Pack_skipsSymlinks_keepsDotfiles()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"naudit-tar-outside-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "secret.txt"), "HOST-SECRET");
+        var root = NewCheckout(
+            ("Dockerfile", "FROM scratch"),
+            (".dockerignore", "bin/"));
+        Directory.CreateSymbolicLink(Path.Combine(root, "linkdir"), outside);
+        File.CreateSymbolicLink(Path.Combine(root, "linkfile"), Path.Combine(outside, "secret.txt"));
+
+        var tar = await WorkspaceTarPacker.PackAsync(root, maxContextMb: 10);
+
+        Assert.NotNull(tar);
+        var names = await EntryNamesAsync(tar!);
+        Assert.Contains("Dockerfile", names);
+        Assert.Contains(".dockerignore", names);
+        Assert.DoesNotContain(names, n => n.Contains("linkdir", StringComparison.Ordinal));
+        Assert.DoesNotContain(names, n => n.Contains("linkfile", StringComparison.Ordinal));
+    }
 }

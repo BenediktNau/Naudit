@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Naudit.Infrastructure;
 using Naudit.Infrastructure.Dast;
+using Naudit.Infrastructure.Docker;
 using Xunit;
 
 namespace Naudit.Tests;
@@ -43,5 +44,23 @@ public class DastWiringTests
 
         Assert.NotNull(provider.GetService<IAppRunner>());
         Assert.Contains(provider.GetServices<IHostedService>(), s => s is DastOrphanSweeper);
+    }
+
+    /// <summary>Sind Session-Sandbox UND DAST gleichzeitig aktiv, teilen sie sich einen
+    /// IDockerClient — der Sandbox-Socket-Pfad muss gewinnen (andere Risikoklasse, siehe
+    /// docs/dast.md#docker-socket-sharing). Ein invertierter Vorrang würde diesen Test kippen.</summary>
+    [Fact]
+    public void Dast_andSessionSandbox_bothEnabled_sandboxSocketPathWins()
+    {
+        var settings = BaseSettings();
+        settings["Naudit:Ai:SessionSandbox"] = "Docker";
+        settings["Naudit:Ai:Sandbox:DockerSocketPath"] = "/tmp/sandbox-test.sock";
+        settings["Naudit:Review:Dast:Enabled"] = "true";
+        settings["Naudit:Review:Dast:DockerSocketPath"] = "/tmp/dast-test.sock";
+        using var provider = Build(settings);
+
+        var client = provider.GetRequiredService<IDockerClient>();
+
+        Assert.Equal("/tmp/sandbox-test.sock", Assert.IsType<SocketDockerClient>(client).SocketPath);
     }
 }

@@ -13,6 +13,9 @@ namespace Naudit.Infrastructure.Docker;
 /// werden einheitlich als DockerUnavailableException gemeldet (Fail-Open-Naht des Runners).</summary>
 public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisposable
 {
+    // für Wiring-Tests sichtbar: welcher Socket-Pfad gewann
+    public string SocketPath { get; } = socketPath;
+
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     // Docker-Engine-API erwartet PascalCase-Feldnamen (Image, Cmd, HostConfig, Binds, AttachStdin, …);
@@ -317,7 +320,7 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or SocketException)
         {
-            throw new DockerUnavailableException($"Docker-Socket '{socketPath}' nicht nutzbar: {ex.Message}", ex);
+            throw new DockerUnavailableException($"Docker-Socket '{SocketPath}' nicht nutzbar: {ex.Message}", ex);
         }
     }
 
