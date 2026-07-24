@@ -105,4 +105,25 @@ public class DockerAppRunnerTests
         Assert.Null(await runner.RunAsync(Checkout()));
         Assert.Empty(docker.Calls);
     }
+
+    /// <summary>Bricht der AUFRUFER während des Health-Poll-Delays ab, muss die Cancellation
+    /// propagieren (nicht als "App nicht erreichbar" ⇒ null enden) — und der Teardown gelaufen sein.</summary>
+    [Fact]
+    public async Task Run_callerCancelledDuringHealthPoll_throws_andTearsDown()
+    {
+        var options = Options();
+        options.HealthPollInterval = TimeSpan.FromSeconds(5);   // Cancel landet sicher im Delay
+        options.TimeBudget = TimeSpan.FromSeconds(30);
+        var docker = new FakeDockerClient();
+        docker.ExecResults.Enqueue(new DockerExecResult(1, "", ""));  // erster Probe-Versuch: noch nicht healthy
+        var (runner, _) = Create(options, docker);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => runner.RunAsync(Checkout(), cts.Token));
+
+        Assert.Empty(docker.Containers);
+        Assert.Empty(docker.Networks);
+        Assert.DoesNotContain(docker.Images, i => i.StartsWith("naudit-dast-", StringComparison.Ordinal));
+    }
 }

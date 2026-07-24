@@ -81,7 +81,7 @@ public sealed class DockerAppRunner(
                 { Network = network, Limits = limits, Entrypoint = ["sleep", "infinity"] }, budget.Token);
 
             var url = $"http://{container}:{options.AppPort}{options.HealthPath}";
-            if (!await WaitForHealthyAsync(probe, url, budget.Token))
+            if (!await WaitForHealthyAsync(probe, url, ct, budget.Token))
             {
                 logger.LogInformation("DAST: App wurde nicht erreichbar ({Url}) — übersprungen.", url);
                 await TearDownAsync();
@@ -114,17 +114,20 @@ public sealed class DockerAppRunner(
         url,
     ];
 
-    private async Task<bool> WaitForHealthyAsync(string probe, string url, CancellationToken ct)
+    private async Task<bool> WaitForHealthyAsync(string probe, string url, CancellationToken callerCt, CancellationToken budgetCt)
     {
-        while (!ct.IsCancellationRequested)
+        while (!budgetCt.IsCancellationRequested)
         {
             var result = await docker.ExecAsync(probe, HealthProbeArgv(url),
-                environment: null, workingDirectory: "/", ct);
+                environment: null, workingDirectory: "/", budgetCt);
             if (result.ExitCode == 0)
                 return true;
 
-            try { await Task.Delay(options.HealthPollInterval, time ?? TimeProvider.System, ct); }
-            catch (OperationCanceledException) { return false; }
+            try { await Task.Delay(options.HealthPollInterval, time ?? TimeProvider.System, budgetCt); }
+            catch (OperationCanceledException) when (!callerCt.IsCancellationRequested)
+            {
+                return false; // nur das interne Budget ist abgelaufen — App kam nie hoch
+            }
         }
         return false;
     }
