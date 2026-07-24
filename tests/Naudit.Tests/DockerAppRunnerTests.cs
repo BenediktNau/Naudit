@@ -126,4 +126,79 @@ public class DockerAppRunnerTests
         Assert.Empty(docker.Networks);
         Assert.DoesNotContain(docker.Images, i => i.StartsWith("naudit-dast-", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task Run_withoutDockerfile_returnsNull_withoutTouchingDocker()
+    {
+        var (runner, docker) = Create();
+
+        Assert.Null(await runner.RunAsync(Checkout(withDockerfile: false)));
+        Assert.Empty(docker.Calls);
+    }
+
+    [Fact]
+    public async Task Run_buildFails_returnsNull_andLeavesNothingBehind()
+    {
+        var docker = new FakeDockerClient { NextBuildFails = true };
+        var (runner, _) = Create(docker: docker);
+
+        Assert.Null(await runner.RunAsync(Checkout()));
+
+        Assert.Empty(docker.Images);
+        Assert.Empty(docker.Networks);
+        Assert.Empty(docker.Containers);
+    }
+
+    /// <summary>App kommt nie hoch (Exec-Probe liefert dauerhaft Exit 1): Zeitbudget greift, danach
+    /// ist die gesamte Review-Topologie wieder weg — nur das gecachte ProbeImage bleibt.</summary>
+    [Fact]
+    public async Task Run_appNeverBecomesHealthy_returnsNull_andTearsDownEverything()
+    {
+        var options = Options();
+        options.TimeBudget = TimeSpan.FromMilliseconds(150);
+        var docker = new FakeDockerClient { DefaultExecResult = new DockerExecResult(1, "", "") };
+        var (runner, _) = Create(options, docker);
+
+        Assert.Null(await runner.RunAsync(Checkout()));
+
+        Assert.Empty(docker.Containers);
+        Assert.Empty(docker.Networks);
+        Assert.Equal([options.ProbeImage], docker.Images);   // Cache bleibt, naudit-dast-img-* ist weg
+    }
+
+    [Fact]
+    public async Task Run_dockerUnavailableMidway_returnsNull_andTriesTeardownAnyway()
+    {
+        var docker = new ThrowOnNetworkCreate();
+        var (runner, _) = Create(docker: docker);
+
+        Assert.Null(await runner.RunAsync(Checkout()));
+
+        Assert.Contains(docker.Calls, c => c.StartsWith("rmimg:"));
+    }
+
+    /// <summary>Erfolgsfall: Dispose räumt ab — und ein zweites Dispose räumt nicht erneut ab.</summary>
+    [Fact]
+    public async Task Dispose_tearsDownOnce_andIsIdempotent()
+    {
+        var (runner, docker) = Create();
+        var app = await runner.RunAsync(Checkout());
+
+        await app!.DisposeAsync();
+        var afterFirst = docker.Calls.Count(c => c.StartsWith("rm:"));
+        await app.DisposeAsync();
+
+        Assert.Equal(2, afterFirst);   // App- UND Probe-Container, je genau einmal
+        Assert.Equal(afterFirst, docker.Calls.Count(c => c.StartsWith("rm:")));
+        Assert.Empty(docker.Containers);
+        Assert.Empty(docker.Networks);
+        Assert.DoesNotContain(docker.Images, i => i.StartsWith("naudit-dast-", StringComparison.Ordinal));
+    }
+
+    /// <summary>FakeDockerClient, der beim Netz-Anlegen wie eine tote Engine reagiert.</summary>
+    private sealed class ThrowOnNetworkCreate : FakeDockerClient
+    {
+        public override Task CreateNetworkAsync(string name, CancellationToken ct = default)
+            => throw new Naudit.Infrastructure.Docker.DockerUnavailableException("fake: engine down");
+    }
 }

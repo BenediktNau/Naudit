@@ -13,6 +13,7 @@ internal class FakeDockerClient : IDockerClient
     public List<(string Container, string Path, string Content)> WrittenFiles { get; } = new();
     public List<(string Container, IReadOnlyList<string> Argv, IReadOnlyDictionary<string, string?>? Env, string WorkingDir)> Execs { get; } = new();
     public Queue<DockerExecResult> ExecResults { get; } = new();   // leer ⇒ Exit 0, ""/""
+    public DockerExecResult? DefaultExecResult { get; set; }   // greift, wenn ExecResults leer ist
     public bool PingResult { get; set; } = true;
     public string? SelfImage { get; set; } = "sha256:self-image";
     public int FailNextExecs { get; set; }
@@ -98,7 +99,7 @@ internal class FakeDockerClient : IDockerClient
         }
         if (ExecDelay is { } delay)
             await Task.Delay(delay, ct);
-        return ExecResults.Count > 0 ? ExecResults.Dequeue() : new DockerExecResult(0, "", "");
+        return ExecResults.Count > 0 ? ExecResults.Dequeue() : DefaultExecResult ?? new DockerExecResult(0, "", "");
     }
 
     public Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
