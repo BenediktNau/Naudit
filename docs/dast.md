@@ -188,6 +188,21 @@ sweeper cannot match (they carry no such name). Run periodic `docker builder pru
 allowlist is trusted-repos-only — DAST executes a PR's own build instructions with none of
 the runtime isolation guarantees above.
 
+## Residual risk: the probing phase
+
+The probing loop hands the probe LLM page content from the running app — content the PR
+author fully controls via the browser (page text, DOM, console/network output the MCP tools
+surface). Its JSON summary flows into `PromptBuilder` as grounding for the *main* review
+prompt, and from there can end up verbatim in a public PR comment: a bounded prompt-injection
+channel from attacker-controllable page content through the probe LLM into the review output.
+Mitigations: DAST findings never gate the merge (the verdict stays LLM-derived via the
+severity/confidence gate, `docs/review-gate.md`); DAST findings pass through the same
+redaction as SAST/SCA findings before the prompt; the probe container has no egress (see
+Isolation above); and the DAST grounding section of the prompt now explicitly marks its
+entries as unverified, content-derived observations to corroborate against the diff, not
+established fact. This — together with the build-phase risk above — is why DAST stays
+allowlist-gated (`Naudit:Review:Dast:Projects`) to repositories Naudit's operators trust.
+
 ## Fail-open behaviour
 
 Every failure path ends in teardown and no dynamic grounding — a review never fails
