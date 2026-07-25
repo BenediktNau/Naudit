@@ -53,4 +53,53 @@ public class DastAnalyzerTests
         Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
         Assert.False(app.RunCalled);
     }
+
+    [Fact]
+    public async Task Analyze_appNeverStarts_returnsEmpty()   // runner liefert null
+    {
+        var app = new FakeAppRunner { ReturnNull = true };
+        var analyzer = new DastAnalyzer(app, Options(), new FakeChatClient("{\"findings\":[]}"),
+            new FakeDockerClient(), NullLoggerFactory.Instance, probeToolsOverride: []);
+
+        Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+        Assert.True(app.RunCalled);
+    }
+
+    [Fact]
+    public async Task Analyze_nonJsonModelOutput_returnsEmpty_andTearsDown()
+    {
+        var app = new FakeAppRunner();
+        var analyzer = new DastAnalyzer(app, Options(), new FakeChatClient("I could not access the app."),
+            new FakeDockerClient(), NullLoggerFactory.Instance, probeToolsOverride: []);
+
+        Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+        Assert.True(app.Disposed);
+    }
+
+    [Fact]
+    public async Task Analyze_probeSessionThrows_returnsEmpty_andTearsDownApp()
+    {
+        var app = new FakeAppRunner();
+        // probeToolsOverride null ⇒ echter DastProbeSession.StartAsync gegen den leeren FakeDockerClient ⇒ wirft
+        // (kurzer HandshakeTimeout, damit der Test schnell bleibt statt die Default-10s abzuwarten)
+        var opts = Options(); opts.HandshakeTimeout = TimeSpan.FromMilliseconds(200);
+        var analyzer = new DastAnalyzer(app, opts, new FakeChatClient("{\"findings\":[]}"),
+            new FakeDockerClient(), NullLoggerFactory.Instance, probeToolsOverride: null);
+
+        Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+        Assert.True(app.Disposed);   // App-Teardown trotz Probe-Fehler garantiert
+    }
+
+    [Fact]
+    public async Task Analyze_callerCancelled_propagates()
+    {
+        var app = new FakeAppRunner();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var analyzer = new DastAnalyzer(app, Options(), new FakeChatClient("{\"findings\":[]}"),
+            new FakeDockerClient(), NullLoggerFactory.Instance, probeToolsOverride: []);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => analyzer.AnalyzeAsync(new Ws("/tmp/x"), [], cts.Token));
+    }
 }

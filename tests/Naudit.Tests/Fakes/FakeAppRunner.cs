@@ -14,6 +14,7 @@ internal sealed class FakeAppRunner : IAppRunner
 
     public Task<RunningApp?> RunAsync(IReviewWorkspace workspace, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();   // echte Aufrufer-Abbruch-Propagation für den Cancel-Test
         RunCalled = true;
         if (ReturnNull) return Task.FromResult<RunningApp?>(null);
 
