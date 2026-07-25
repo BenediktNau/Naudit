@@ -13,13 +13,6 @@ namespace Naudit.Infrastructure.Dast;
 /// prozesslebenslange McpReviewToolProvider (Review-Tool-Loop) gehört diese Sitzung genau einem Lauf.</summary>
 public sealed class DastProbeSession : IAsyncDisposable
 {
-    // Backstop gegen einen hängenden MCP-Handshake: McpClient.CreateAsync liest den stdio-Server-Output
-    // per Pipe und behandelt ein sofortiges EOF (Server antwortet nie/Prozess kam nie hoch) NICHT als
-    // Fehler, sondern wartet unbegrenzt weiter — ohne diesen Deckel würde ein toter/unerreichbarer
-    // Probe-Container die Review für immer blockieren, statt in den Fail-open-Pfad des Analyzers
-    // (Task 5/6) zu laufen. Der Probe-Container läuft bereits (sleep infinity, Image bereits gepullt) —
-    // es bleibt nur node-Start + Headless-Chromium-Launch, üblicherweise deutlich unter 10s.
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
 
     private readonly McpClient _client;
     private readonly DockerExecStream _exec;
@@ -39,7 +32,13 @@ public sealed class DastProbeSession : IAsyncDisposable
         McpClient? client = null;
         try
         {
-            using var timeoutCts = new CancellationTokenSource(HandshakeTimeout);
+            // Backstop gegen einen hängenden MCP-Handshake: McpClient.CreateAsync liest den stdio-Server-Output
+            // per Pipe und behandelt ein sofortiges EOF (Server antwortet nie/Prozess kam nie hoch) NICHT als
+            // Fehler, sondern wartet unbegrenzt weiter — ohne diesen Deckel würde ein toter/unerreichbarer
+            // Probe-Container die Review für immer blockieren, statt in den Fail-open-Pfad des Analyzers
+            // (Task 5/6) zu laufen. Der Probe-Container läuft bereits (sleep infinity, Image bereits gepullt) —
+            // es bleibt nur node-Start + Headless-Chromium-Launch, üblicherweise deutlich unter 10s.
+            using var timeoutCts = new CancellationTokenSource(options.HandshakeTimeout);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
             var linkedCt = linkedCts.Token;
 

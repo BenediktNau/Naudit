@@ -51,6 +51,11 @@ public sealed class DastOptions
     public List<string> ProbeMcpArgv { get; set; } =
         new() { "node", "/app/cli.js", "--headless", "--browser", "chromium", "--no-sandbox" };
 
+    /// <summary>Wie lange auf den MCP-Handshake im Probe-Container gewartet wird, bevor der
+    /// Sitzungsstart als fehlgeschlagen gilt (der SDK-Client blockiert bei ausbleibender Antwort
+    /// statt schnell zu scheitern). Konfigurierbar, damit Tests kurz laufen und Prod tunbar bleibt.</summary>
+    public TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Darf für dieses Projekt gebaut/gestartet werden? Beide Schalter müssen zustimmen.
     /// Config-Binding kann null-Einträge in Projects binden — die werden übersprungen statt eine
     /// NRE zu werfen (AppliesTo läuft in DockerAppRunner.RunAsync vor dem try-Block, ein Fehler

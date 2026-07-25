@@ -12,7 +12,7 @@ public class DastProbeSessionTests
     public async Task Start_execsProbeArgv_inProbeContainer()
     {
         var docker = new ThrowAfterExecDocker();   // lässt ExecStream zu, MCP-Handshake schlägt dann fehl
-        var options = new DastOptions();
+        var options = new DastOptions { HandshakeTimeout = TimeSpan.FromMilliseconds(200) };
 
         await Assert.ThrowsAnyAsync<Exception>(() => DastProbeSession.StartAsync(
             docker, options, "naudit-dast-pw-xyz", NullLoggerFactory.Instance, CancellationToken.None));
