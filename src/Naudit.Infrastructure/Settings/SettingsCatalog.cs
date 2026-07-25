@@ -55,6 +55,7 @@ public static class SettingsCatalog
         new("Naudit:Review:Dast:MaxContextMb", false),
         new("Naudit:Review:Dast:DockerSocketPath", false),
         new("Naudit:Review:Dast:ProbeImage", false),
+        new("Naudit:Review:Dast:MaxProbeSteps", false),
         new("Naudit:Review:MaxRoundtrips", false),
         new("Naudit:Review:Memory:Enabled", false),
         new("Naudit:Review:Memory:MaxEntries", false),

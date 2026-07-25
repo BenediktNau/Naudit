@@ -140,6 +140,16 @@ public static class DependencyInjection
                 dastOptions,
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<DockerAppRunner>()));
             services.AddHostedService<DastOrphanSweeper>();
+
+            // DAST-Probing als weiterer ISastAnalyzer (läuft, sobald _analyzers nicht leer ist —
+            // unabhängig von sastOptions.Enabled). Nutzt den GLOBALEN IChatClient (nie den
+            // Author-Session-Router), wie DistillingReviewGuidelines.
+            services.AddScoped<ISastAnalyzer>(sp => new DastAnalyzer(
+                sp.GetRequiredService<IAppRunner>(),
+                dastOptions,
+                sp.GetRequiredService<IChatClient>(),
+                sp.GetRequiredService<IDockerClient>(),
+                sp.GetRequiredService<ILoggerFactory>()));
         }
 
         services.AddSingleton<SessionSelectionFactory>();
