@@ -26,22 +26,27 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
     // Kein Client-Timeout: lange Execs (claude-Review) laufen bis zum CancellationToken des Aufrufers.
     private readonly HttpClient _http = new(new SocketsHttpHandler
     {
-        ConnectCallback = async (_, ct) =>
-        {
-            var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            try
-            {
-                await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), ct);
-                return new NetworkStream(socket, ownsSocket: true);
-            }
-            catch
-            {
-                socket.Dispose();
-                throw;
-            }
-        },
+        ConnectCallback = async (_, ct) => await ConnectRawAsync(socketPath, ct),
     })
     { BaseAddress = new Uri("http://docker"), Timeout = Timeout.InfiniteTimeSpan };
+
+    // Derselbe Unix-Socket-Connect wie im ConnectCallback oben — hier direkt aufgerufen, weil
+    // ExecStreamAsync den rohen Socket für die duplexe Attach-Verbindung braucht (HttpClient kann
+    // die Schreibseite einer Verbindung nicht zurückgeben).
+    private static async ValueTask<Stream> ConnectRawAsync(string path, CancellationToken ct)
+    {
+        var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        try
+        {
+            await socket.ConnectAsync(new UnixDomainSocketEndPoint(path), ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
 
     public async Task<bool> PingAsync(CancellationToken ct = default)
     {
@@ -205,6 +210,68 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
         return new DockerExecResult(inspect.ExitCode, stdout, stderr);
     }
 
+    public async Task<DockerExecStream> ExecStreamAsync(string name, IReadOnlyList<string> argv,
+        IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default)
+    {
+        // 1) exec create über den normalen HTTP-Weg (buffered) — liefert die Exec-Id.
+        var envArr = environment?.Select(kv => $"{kv.Key}={kv.Value}").ToArray();
+        var createBody = new Dictionary<string, object?>
+        {
+            ["AttachStdin"] = true, ["AttachStdout"] = true, ["AttachStderr"] = true, ["Tty"] = false,
+            ["Cmd"] = argv, ["WorkingDir"] = workingDirectory,
+        };
+        if (envArr is { Length: > 0 }) createBody["Env"] = envArr;
+        using var createResp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
+            $"/containers/{Uri.EscapeDataString(name)}/exec")
+        { Content = JsonContent.Create(createBody, options: OutJsonOpts) }, ct);
+        await EnsureAsync(createResp, ct);
+        var execId = (await ReadJsonAsync<ExecCreateResponse>(createResp, ct)).Id
+            ?? throw new DockerUnavailableException("exec create ohne Id");
+
+        // 2) exec start als roher, duplexer HTTP/1.1-Request direkt auf dem Socket — HttpClient kann
+        //    die Schreibseite nicht zurückgeben, daher hand-geschriebene Request-Zeile + Header.
+        Stream raw;
+        try
+        {
+            raw = await ConnectRawAsync(SocketPath, ct);
+        }
+        catch (Exception ex) when (ex is SocketException or IOException)
+        {
+            throw new DockerUnavailableException($"Docker-Socket '{SocketPath}' nicht nutzbar: {ex.Message}", ex);
+        }
+        try
+        {
+            var startJson = "{\"Detach\":false,\"Tty\":false}";
+            var body = Encoding.UTF8.GetBytes(startJson);
+            var request =
+                $"POST /exec/{execId}/start HTTP/1.1\r\n" +
+                "Host: docker\r\n" +
+                "Content-Type: application/json\r\n" +
+                "Upgrade: tcp\r\nConnection: Upgrade\r\n" +
+                $"Content-Length: {body.Length}\r\n\r\n";
+            await raw.WriteAsync(Encoding.ASCII.GetBytes(request), ct);
+            await raw.WriteAsync(body, ct);
+            await raw.FlushAsync(ct);
+
+            // Antwort-Header bis zur Leerzeile konsumieren; danach ist `raw` der duplexe Attach-Stream.
+            await ConsumeHttpHeadersAsync(raw, ct);
+
+            var stdout = new DockerStdoutStream(raw);          // liest nur stdout-Frames heraus
+            var underlying = new RawStreamDisposable(raw);
+            return new DockerExecStream(stdin: raw, stdout: stdout, underlying);
+        }
+        catch (Exception ex) when (ex is SocketException or IOException)
+        {
+            await raw.DisposeAsync();
+            throw new DockerUnavailableException($"Docker-Exec-Stream (start) abgerissen: {ex.Message}", ex);
+        }
+        catch
+        {
+            await raw.DisposeAsync();
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default)
     {
         // Docker-name-Filter matcht Substrings — Präfix wird darum unten client-seitig nachgeprüft.
@@ -360,8 +427,60 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
     private sealed record InspectResponse(string? Image, InspectState? State);
     private sealed record InspectState(bool Running);
     private sealed record ListEntry(string[]? Names, string? State);
-    private sealed record ExecCreateResponse(string Id);
+    private sealed record ExecCreateResponse(string? Id);
     private sealed record ExecInspectResponse(int ExitCode, bool Running);
     private sealed record NetworkListEntry(string? Name);
     private sealed record ImageListEntry(List<string>? RepoTags);
+
+    /// <summary>Obergrenze für den HTTP-Header-Block beim exec start — ein Daemon, der nie eine Leerzeile
+    /// schickt, soll hier nicht unbegrenzt puffern.</summary>
+    private const int MaxExecStartHeaderBytes = 16 * 1024;
+
+    /// <summary>Liest Statuszeile + Header bis zur \r\n\r\n-Grenze, prüft den HTTP-Status und verwirft die
+    /// Header; danach folgt der rohe/gemultiplexte Attach-Body. Docker antwortet je nach Engine-Version mit
+    /// 101 UPGRADED oder 2xx — beide werden akzeptiert. Alles andere (z.B. 409/500 mit Fehler-JSON, das der
+    /// Demuxer sonst als Docker-Frame fehldeuten würde) wirft DockerUnavailableException, BEVOR der Duplexer
+    /// exponiert wird. Bewusst byte-weise gelesen: ein gepufferter Read würde über die \r\n\r\n-Grenze hinaus
+    /// in die ersten Attach-Frames überlesen und den Demuxer korrumpieren.</summary>
+    private static async Task ConsumeHttpHeadersAsync(Stream s, CancellationToken ct)
+    {
+        var header = new List<byte>(256);
+        var one = new byte[1];
+        while (true)
+        {
+            if (await s.ReadAsync(one.AsMemory(0, 1), ct) == 0)
+                throw new DockerUnavailableException("exec start: Verbindung vor den Headern geschlossen");
+            header.Add(one[0]);
+            var n = header.Count;
+            if (n >= 4 && header[n - 4] == (byte)'\r' && header[n - 3] == (byte)'\n' &&
+                header[n - 2] == (byte)'\r' && header[n - 1] == (byte)'\n')
+                break;
+            if (n > MaxExecStartHeaderBytes)
+                throw new DockerUnavailableException("exec start: HTTP-Header ohne Leerzeile über dem Limit");
+        }
+        ValidateExecStartStatus(header);
+    }
+
+    /// <summary>Parst die HTTP-Statuszeile aus dem konsumierten Header-Block und akzeptiert nur 101 oder 2xx;
+    /// jeder andere Status ist ein Fehler-Body (kein Attach-Stream) und wird als DockerUnavailableException
+    /// gemeldet, damit der Fail-Open-Pfad greift statt den Fehler-Body als Frames zu demuxen.</summary>
+    private static void ValidateExecStartStatus(List<byte> header)
+    {
+        var lineEnd = header.FindIndex(b => b == (byte)'\n');
+        int lineLen;
+        if (lineEnd < 0) lineLen = header.Count;
+        else if (lineEnd > 0 && header[lineEnd - 1] == (byte)'\r') lineLen = lineEnd - 1;
+        else lineLen = lineEnd;
+        var statusLine = Encoding.ASCII.GetString(header.ToArray(), 0, lineLen);
+        var parts = statusLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var code))
+            throw new DockerUnavailableException($"exec start: unlesbare HTTP-Statuszeile '{statusLine}'");
+        if (code != 101 && (code < 200 || code >= 300))
+            throw new DockerUnavailableException($"exec start: HTTP {code} — kein Attach-Stream ('{statusLine}')");
+    }
+
+    private sealed class RawStreamDisposable(Stream raw) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync() => await raw.DisposeAsync();
+    }
 }

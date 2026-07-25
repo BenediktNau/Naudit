@@ -249,7 +249,7 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   undecryptable-token accounts, empty pool ⇒ global — sequential, not parallel; it is deliberate
   account-sharing under Anthropic's consumer terms, gated behind per-user consent. See
   `docs/author-sessions.md`.
-- **Session sandbox (containerised subscription sessions):** `Naudit:Ai:SessionSandbox = None | Docker`
+- **Session sandbox (containerized subscription sessions):** `Naudit:Ai:SessionSandbox = None | Docker`
   (default `None` = in-process CLI runs, today's behaviour). `Docker` moves Author/RoundRobin session
   runs into long-lived sibling containers per account (host Docker socket, same Naudit image,
   `sleep infinity` + `docker exec`; named volume `naudit-session-<accountId>` at `/home/app` keeps
@@ -267,22 +267,28 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   account is gone, not `Active`, or token-less. Opt-in integration test via `NAUDIT_TEST_DOCKER=1`.
   Status: `GET /api/me/session-sandbox` (mapped only in Docker mode; the cross-account
   `liveContainers` count is admin-only). See `docs/session-sandbox.md`.
-- **DAST app-runner (PR 1 of the dynamic-testing slice):** `IAppRunner`/`DockerAppRunner`
+- **DAST app-runner + probing analyzer (dynamic-testing slice, PR 1+2):** `IAppRunner`/`DockerAppRunner`
   (`src/Naudit.Infrastructure/Dast/`) builds the PR's own `Dockerfile` (checkout tar'd into the
   engine via `WorkspaceTarPacker` — the daemon cannot see Naudit's filesystem), starts it as a
   sibling container on a per-review `internal` network (no egress, no published ports, memory/CPU/PID
   limits, `cap-drop ALL`, no volume, no environment) next to a passive **probe container**
-  (`ProbeImage`, pulled on demand, `sleep`-entrypoint). All reachability runs through the Docker
-  socket: the healthcheck is a `docker exec` in the probe container (PR 2 speaks MCP over exec-stdio
-  through the same container), Naudit never joins the network, and the runner works identically from
-  a containerized or bare-metal Naudit. Returns a `RunningApp` whose `DisposeAsync` tears both
-  containers, network and built image down. Gated twice:
-  `Naudit:Review:Dast:Enabled` **and** the `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no
-  project) — it executes foreign PR code. Fail-open everywhere (`null` — only a caller
-  cancellation rethrows after teardown), plus a
-  `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace` gained
-  `ProjectId` for that allowlist. Nothing calls the runner yet — the `DastAnalyzer : ISastAnalyzer`
-  and the Playwright probing arrive in PR 2. See `docs/dast.md`.
+  (`ProbeImage`, pulled on demand, `sleep`-entrypoint). Returns a `RunningApp` whose `DisposeAsync`
+  tears both containers, network and built image down. `DastAnalyzer : ISastAnalyzer` is now the
+  caller: it runs the app via the runner, then `DastProbeSession` starts the Playwright-MCP server
+  as a **stdio** process in the probe container over a raw bidirectional `docker exec` (Engine-API
+  duplex stream, no `docker` CLI in the image, no new NuGet) wired to the MCP SDK's
+  `StreamClientTransport`, and drives a `MaxProbeSteps`-bounded (default 12) agentic tool-loop on
+  the **global** `IChatClient` (never the author-session router), parsing
+  `{"findings":[...]}` JSON into `ScanFinding(Category = FindingCategory.Dast)` grounding — the
+  verdict stays LLM-driven, DAST never gates. All reachability runs through the Docker socket
+  (healthcheck and MCP both via `docker exec`), Naudit never joins the network, and both phases
+  work identically from a containerized or bare-metal Naudit. `DastAnalyzer` self-registers as an
+  `ISastAnalyzer` whenever `Naudit:Review:Dast:Enabled=true` — it is **not** an entry in
+  `Naudit:Sast:Analyzers`. Gated twice: `Naudit:Review:Dast:Enabled` **and** the
+  `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no project) — it executes foreign PR code.
+  Fail-open everywhere (`null`/empty findings — only a caller cancellation rethrows after teardown),
+  plus a `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace`
+  gained `ProjectId` for that allowlist. See `docs/dast.md`.
 - **Review memory:** `IReviewMemory` (Core `Abstractions`) selects per-project maintainer
   guidance for a review; the default `DbReviewMemory`
   (`src/Naudit.Infrastructure/Memory/`) deterministically picks active conventions + false

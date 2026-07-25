@@ -1,7 +1,7 @@
 namespace Naudit.Core.Models;
 
-/// <summary>Art des Funds: statische Code-Analyse, Dependency-/SCA-Scan oder Secrets-Detection.</summary>
-public enum FindingCategory { Sast, Sca, Secrets }
+/// <summary>Art des Funds: statische Code-Analyse, Dependency-/SCA-Scan, Secrets-Detection oder dynamischer Scan (DAST).</summary>
+public enum FindingCategory { Sast, Sca, Secrets, Dast }
 
 /// <summary>Normalisierter Schweregrad über alle Tools hinweg (Reihenfolge = Rang für Sortierung).</summary>
 public enum FindingSeverity { Info, Low, Medium, High, Critical }

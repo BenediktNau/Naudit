@@ -160,4 +160,39 @@ internal class FakeDockerClient : IDockerClient
         Images.Add(reference);
         return Task.CompletedTask;
     }
+
+    public List<(string Container, IReadOnlyList<string> Argv)> ExecStreamCalls { get; } = new();
+    public byte[]? NextExecStdout { get; set; }
+    public byte[]? LastExecStdin { get; private set; }
+
+    public Task<DockerExecStream> ExecStreamAsync(string name, IReadOnlyList<string> argv,
+        IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default)
+    {
+        ExecStreamCalls.Add((name, argv));
+        var stdinCapture = new CapturingStream(b => LastExecStdin = b);
+        var stdout = new MemoryStream(NextExecStdout ?? []);
+        return Task.FromResult(new DockerExecStream(stdinCapture, stdout, new NoopAsyncDisposable()));
+    }
+
+    private sealed class CapturingStream(Action<byte[]> onWrite) : Stream
+    {
+        private readonly MemoryStream _buf = new();
+        public override void Write(byte[] b, int o, int c) { _buf.Write(b, o, c); onWrite(_buf.ToArray()); }
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> b, CancellationToken ct = default)
+        { _buf.Write(b.Span); onWrite(_buf.ToArray()); return ValueTask.CompletedTask; }
+        public override bool CanWrite => true;
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override long Length => _buf.Length;
+        public override long Position { get => _buf.Position; set => _buf.Position = value; }
+        public override void Flush() { }
+        public override int Read(byte[] b, int o, int c) => throw new NotSupportedException();
+        public override long Seek(long o, SeekOrigin r) => throw new NotSupportedException();
+        public override void SetLength(long v) => throw new NotSupportedException();
+    }
+
+    private sealed class NoopAsyncDisposable : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 }

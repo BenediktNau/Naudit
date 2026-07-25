@@ -63,4 +63,24 @@ public class DastWiringTests
 
         Assert.Equal("/tmp/sandbox-test.sock", Assert.IsType<SocketDockerClient>(client).SocketPath);
     }
+
+    [Fact]
+    public void Dast_enabled_registersDastAnalyzer_amongSastAnalyzers()
+    {
+        var settings = BaseSettings();
+        settings["Naudit:Review:Dast:Enabled"] = "true";
+        using var provider = Build(settings);
+
+        Assert.Contains(provider.GetServices<Naudit.Core.Abstractions.ISastAnalyzer>(),
+            a => a.Name == "dast");
+    }
+
+    [Fact]
+    public void Dast_disabled_registersNoDastAnalyzer()
+    {
+        using var provider = Build(BaseSettings());
+
+        Assert.DoesNotContain(provider.GetServices<Naudit.Core.Abstractions.ISastAnalyzer>(),
+            a => a.Name == "dast");
+    }
 }

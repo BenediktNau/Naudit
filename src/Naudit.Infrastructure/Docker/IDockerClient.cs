@@ -31,6 +31,12 @@ public interface IDockerClient
     Task<DockerExecResult> ExecAsync(string name, IReadOnlyList<string> argv,
         IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default);
 
+    /// <summary>Wie ExecAsync, aber attached und bidirektional: AttachStdin=true, non-TTY (gemultiplext).
+    /// Liefert einen Duplex-Kanal (Stdin roh, Stdout demuxt) für den stdio-MCP-Transport. Transport-/
+    /// API-Fehler werfen DockerUnavailableException; der Aufrufer behandelt das fail-open.</summary>
+    Task<DockerExecStream> ExecStreamAsync(string name, IReadOnlyList<string> argv,
+        IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default);
+
     /// <summary>Alle Container (auch gestoppte), deren Name mit dem Präfix beginnt — Adoption/Sweep/Status.</summary>
     Task<IReadOnlyList<ContainerListEntry>> ListContainersAsync(string namePrefix, CancellationToken ct = default);
 

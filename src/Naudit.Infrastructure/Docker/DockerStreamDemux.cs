@@ -44,4 +44,31 @@ public static class DockerStreamDemux
         }
         return offset;
     }
+
+    /// <summary>Liest genau EINEN Frame (8-Byte-Header: [0]=Stream-Typ 1=stdout/2=stderr,
+    /// [4..7]=Big-Endian-Länge, dann Payload). Null bei EOF. Für den inkrementellen (Streaming-)
+    /// Lesepfad, im Gegensatz zum bestehenden ReadAsync, das bis zum Ende puffert.</summary>
+    public static async Task<(byte StreamType, byte[] Payload)?> ReadFrameAsync(Stream source, CancellationToken ct)
+    {
+        var header = new byte[8];
+        if (!await ReadExactlyOrEofAsync(source, header, ct))
+            return null;
+        var length = (header[4] << 24) | (header[5] << 16) | (header[6] << 8) | header[7];
+        var payload = new byte[length];
+        if (length > 0 && !await ReadExactlyOrEofAsync(source, payload, ct))
+            return null;
+        return (header[0], payload);
+    }
+
+    private static async Task<bool> ReadExactlyOrEofAsync(Stream source, byte[] buffer, CancellationToken ct)
+    {
+        var read = 0;
+        while (read < buffer.Length)
+        {
+            var n = await source.ReadAsync(buffer.AsMemory(read), ct);
+            if (n == 0) return false;
+            read += n;
+        }
+        return true;
+    }
 }
