@@ -42,6 +42,15 @@ public sealed class DastOptions
     /// damit es als Cache über Reviews hinweg stehen bleibt.</summary>
     public string ProbeImage { get; set; } = "mcr.microsoft.com/playwright/mcp:latest";
 
+    /// <summary>Deckel für den agentischen Probing-Loop (Tool-Aufrufe + Modell-Turns zusammen).
+    /// Token-frugal: die dynamische Prüfung ist Grounding, kein erschöpfender Scan.</summary>
+    public int MaxProbeSteps { get; set; } = 12;
+
+    /// <summary>Kommando, das den Playwright-MCP-Server als stdio-Prozess im Probe-Container startet
+    /// (docker exec). Kein --port ⇒ stdio. Als Liste, damit es env-/appsettings-überschreibbar ist.</summary>
+    public List<string> ProbeMcpArgv { get; set; } =
+        new() { "node", "/app/cli.js", "--headless", "--browser", "chromium", "--no-sandbox" };
+
     /// <summary>Darf für dieses Projekt gebaut/gestartet werden? Beide Schalter müssen zustimmen.
     /// Config-Binding kann null-Einträge in Projects binden — die werden übersprungen statt eine
     /// NRE zu werfen (AppliesTo läuft in DockerAppRunner.RunAsync vor dem try-Block, ein Fehler

@@ -57,4 +57,15 @@ public class DastOptionsTests
 
         Assert.False(options.AppliesTo("acme/shop"));
     }
+
+    [Fact]
+    public void Defaults_probingKnobs()
+    {
+        var options = new DastOptions();
+
+        Assert.Equal(12, options.MaxProbeSteps);
+        Assert.Equal(
+            new[] { "node", "/app/cli.js", "--headless", "--browser", "chromium", "--no-sandbox" },
+            options.ProbeMcpArgv);
+    }
 }
