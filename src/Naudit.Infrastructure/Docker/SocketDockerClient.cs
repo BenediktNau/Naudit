@@ -99,7 +99,14 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
         if (spec.Command.Count > 0)
             create["Cmd"] = spec.Command;               // leer ⇒ CMD/ENTRYPOINT des Images gilt
         if (spec.Entrypoint is { Count: > 0 })
+        {
             create["Entrypoint"] = spec.Entrypoint;     // Probe-Container: ["sleep","infinity"]
+            // Ältere Engines (vor ~25) hängen bei überschriebenem Entrypoint ohne explizites Cmd
+            // das image-eigene CMD als Argumente an — das würde "sleep infinity" verfälschen.
+            // Explizites (ggf. leeres) Cmd macht das versionsunabhängig; moderne Engines (empirisch
+            // geprüft auf 29.5.3) leeren Cmd bei Entrypoint-Override ohnehin schon selbst.
+            create["Cmd"] = spec.Command;
+        }
         if (spec.Environment is { Count: > 0 })
             create["Env"] = spec.Environment.Select(kv => $"{kv.Key}={kv.Value}").ToArray();
 

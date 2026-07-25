@@ -42,9 +42,13 @@ public sealed class DastOptions
     /// damit es als Cache über Reviews hinweg stehen bleibt.</summary>
     public string ProbeImage { get; set; } = "mcr.microsoft.com/playwright/mcp:latest";
 
-    /// <summary>Darf für dieses Projekt gebaut/gestartet werden? Beide Schalter müssen zustimmen.</summary>
+    /// <summary>Darf für dieses Projekt gebaut/gestartet werden? Beide Schalter müssen zustimmen.
+    /// Config-Binding kann null-Einträge in Projects binden — die werden übersprungen statt eine
+    /// NRE zu werfen (AppliesTo läuft in DockerAppRunner.RunAsync vor dem try-Block, ein Fehler
+    /// hier würde sonst ungefangen durchschlagen).</summary>
     public bool AppliesTo(string? projectId)
         => Enabled
            && !string.IsNullOrWhiteSpace(projectId)
-           && Projects.Any(p => string.Equals(p.Trim(), projectId.Trim(), StringComparison.OrdinalIgnoreCase));
+           && Projects.Any(p => !string.IsNullOrWhiteSpace(p)
+                                 && string.Equals(p.Trim(), projectId.Trim(), StringComparison.OrdinalIgnoreCase));
 }

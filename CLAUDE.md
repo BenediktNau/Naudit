@@ -278,7 +278,8 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   a containerized or bare-metal Naudit. Returns a `RunningApp` whose `DisposeAsync` tears both
   containers, network and built image down. Gated twice:
   `Naudit:Review:Dast:Enabled` **and** the `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no
-  project) — it executes foreign PR code. Fail-open everywhere (`null`, never a throw), plus a
+  project) — it executes foreign PR code. Fail-open everywhere (`null` — only a caller
+  cancellation rethrows after teardown), plus a
   `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace` gained
   `ProjectId` for that allowlist. Nothing calls the runner yet — the `DastAnalyzer : ISastAnalyzer`
   and the Playwright probing arrive in PR 2. See `docs/dast.md`.

@@ -1,17 +1,20 @@
 # DAST — dynamic testing of the PR's running app
 
-Naudit builds the pull request's **own `Dockerfile`**, starts it as an isolated sibling
-container, and — from PR 2 on — probes the running app with an LLM driving a headless
-browser (Playwright, via MCP). Findings feed the review prompt as grounding, exactly
-like Semgrep/Trivy; they never decide the merge gate, which stays LLM-driven
-([review gate](review-gate.md)).
+Once fully wired, Naudit builds the pull request's **own `Dockerfile`**, starts it as an
+isolated sibling container, and — from PR 2 on — probes the running app with an LLM
+driving a headless browser (Playwright, via MCP). Findings feed the review prompt as
+grounding, exactly like Semgrep/Trivy; they never decide the merge gate, which stays
+LLM-driven ([review gate](review-gate.md)).
 
-**PR 1 (this doc's current state) ships the app runner only: it builds the image, starts
-the app plus a passive probe container, and health-checks it — nothing calls it yet, and
-no findings are produced.** The `Naudit:Sast:Analyzers` list does **not** have a `"dast"`
-entry yet — that, `DastAnalyzer`, and the actual browser probing arrive in PR 2. The
-config keys below already work; enabling them today spins up and tears down an isolated
-container per review with no visible effect on findings.
+**PR 1 (this doc's current state) ships only the app runner and orphan sweeper
+*building blocks* — `IAppRunner`/`DockerAppRunner` and `DastOrphanSweeper` are registered
+in DI, but nothing in the review pipeline calls the runner yet, so enabling the switches
+below builds and starts nothing during a review.** The `Naudit:Sast:Analyzers` list does
+**not** have a `"dast"` entry yet — that, `DastAnalyzer`, and the actual browser probing
+arrive in PR 2, which is also when enabling the switches starts spinning up and tearing
+down an isolated container per review. The config keys below already work end-to-end
+against the Docker engine (see [Part A](#part-a--prepare-the-host-today)) and are safe to
+set up in advance.
 
 All reachability runs through the Docker socket: a passive probe container inside the
 review network executes the healthcheck (and, in PR 2, speaks MCP) via `docker exec` — no
@@ -130,7 +133,9 @@ the runtime isolation guarantees above.
 ## Fail-open behaviour
 
 Every failure path ends in teardown and `null` (no dynamic grounding) — a review never
-fails because of DAST:
+fails because of DAST, with one exception: a caller cancellation (see the last row) also
+tears down but then **rethrows**, so the review itself does stop, exactly as it would
+without DAST in the picture:
 
 | Condition | Result |
 | --- | --- |

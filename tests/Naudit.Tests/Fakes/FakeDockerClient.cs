@@ -68,7 +68,7 @@ internal class FakeDockerClient : IDockerClient
         return Task.CompletedTask;
     }
 
-    public Task RemoveContainerAsync(string name, CancellationToken ct = default)
+    public virtual Task RemoveContainerAsync(string name, CancellationToken ct = default)
     {
         Calls.Add($"rm:{name}");
         Containers.Remove(name);

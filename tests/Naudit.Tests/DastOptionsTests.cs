@@ -39,4 +39,22 @@ public class DastOptionsTests
         Assert.False(options.AppliesTo("acme/other"));
         Assert.False(options.AppliesTo(null));
     }
+
+    /// <summary>Config-Binding kann null-Einträge in eine Liste binden — ein null/leerer Eintrag
+    /// darf AppliesTo nicht mit einer NRE zum Absturz bringen, ein gültiger Eintrag muss trotzdem matchen.</summary>
+    [Fact]
+    public void AppliesTo_allowlistWithNullAndBlankEntries_stillMatchesValidEntry()
+    {
+        var options = new DastOptions { Enabled = true, Projects = { null!, "  ", "acme/shop" } };
+
+        Assert.True(options.AppliesTo("acme/shop"));
+    }
+
+    [Fact]
+    public void AppliesTo_allowlistWithOnlyNullAndBlankEntries_isFalse_noThrow()
+    {
+        var options = new DastOptions { Enabled = true, Projects = { null!, "  ", "" } };
+
+        Assert.False(options.AppliesTo("acme/shop"));
+    }
 }

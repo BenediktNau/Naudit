@@ -11,23 +11,39 @@ public sealed class DastOrphanSweeper(IDockerClient docker, ILogger<DastOrphanSw
 {
     public async Task StartAsync(CancellationToken ct)
     {
-        try
+        // Jeder Listing-/Entfernen-Schritt einzeln fail-quiet (SafeAsync-Muster wie
+        // DockerAppRunner.TearDownAsync): eine fehlgeschlagene Container-Entfernung darf das
+        // Aufräumen von Netzen und Images nicht verhindern. OperationCanceledException bricht
+        // trotzdem den ganzen Sweep ab — ein echter Shutdown soll nicht weiterlaufen.
+        foreach (var container in await SafeListAsync(() => docker.ListContainersAsync(DockerAppRunner.NamePrefix, ct)))
         {
-            foreach (var container in await docker.ListContainersAsync(DockerAppRunner.NamePrefix, ct))
-            {
-                logger.LogInformation("DAST: entferne verwaisten Container {Name}.", container.Name);
-                await docker.RemoveContainerAsync(container.Name, ct);
-            }
-            foreach (var network in await docker.ListNetworksAsync(DockerAppRunner.NamePrefix, ct))
-                await docker.RemoveNetworkAsync(network, ct);
-            foreach (var image in await docker.ListImagesAsync(DockerAppRunner.NamePrefix, ct))
-                await docker.RemoveImageAsync(image, ct);
+            logger.LogInformation("DAST: entferne verwaisten Container {Name}.", container.Name);
+            await SafeAsync(() => docker.RemoveContainerAsync(container.Name, ct));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "DAST: Aufräumen verwaister Ressourcen fehlgeschlagen.");
-        }
+        foreach (var network in await SafeListAsync(() => docker.ListNetworksAsync(DockerAppRunner.NamePrefix, ct)))
+            await SafeAsync(() => docker.RemoveNetworkAsync(network, ct));
+        foreach (var image in await SafeListAsync(() => docker.ListImagesAsync(DockerAppRunner.NamePrefix, ct)))
+            await SafeAsync(() => docker.RemoveImageAsync(image, ct));
     }
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
+
+    private async Task SafeAsync(Func<Task> operation)
+    {
+        try { await operation(); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "DAST: Aufräum-Teilschritt fehlgeschlagen (best-effort).");
+        }
+    }
+
+    private async Task<IReadOnlyList<T>> SafeListAsync<T>(Func<Task<IReadOnlyList<T>>> operation)
+    {
+        try { return await operation(); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "DAST: Auflisten verwaister Ressourcen fehlgeschlagen.");
+            return [];
+        }
+    }
 }

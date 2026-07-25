@@ -12,7 +12,7 @@ Semgrep/Trivy als Grounding in den Review-Prompt.
 
 Das ist Slice B (App-Runner) + Slice C (dynamische Security) der DAST-Vision aus dem
 Brainstorming 2026-07-11 — Slice A (MCP-Client + Tool-Loop) ist mit #54 bereits gebaut.
-Leitsatz bleibt: **„Playwright ist die Hand, nicht das Hirn"** — die Navigation liefert
+Leitsatz bleibt: **„Playwright ist die Hand, nicht das Hirn“** — die Navigation liefert
 der Browser, die Vuln-Beurteilung das LLM.
 
 ## Abgrenzung & Nicht-Ziele
@@ -194,6 +194,12 @@ Wir bauen und starten fremden PR-Code — RCE by design. Eindämmung:
   **orphan-Sweeper** beim Naudit-Start entfernt `naudit-dast-*`-Container/Netze eines
   abgestürzten Vorlaufs (Muster wie Session-Sandbox-Adoption).
 - **Doku ehrlich:** `docker.sock` ≈ Root auf dem Host; DAST nur für vertraute Projekte.
+- **Residualrisiko Build-Phase:** die Isolation oben gilt für den *laufenden* App- und
+  Probe-Container — `docker build` läuft davor: Builder-Default-Egress für `RUN`-Schritte,
+  keine Memory-/CPU-/PID-Caps zur Build-Zeit, gedeckelt nur vom `TimeBudget` insgesamt.
+  Genau deshalb bleibt die `Projects`-Allowlist trusted-repos-only — DAST führt die
+  Build-Anweisungen eines PRs ohne die Laufzeit-Isolationsgarantien oben aus. Details in
+  `docs/dast.md#residual-risk-the-build-phase`.
 
 ## Fehlerbehandlung & Zeitbudget
 
@@ -204,7 +210,7 @@ Wir bauen und starten fremden PR-Code — RCE by design. Eindämmung:
   LLM-Lauf wirft ⇒ geloggte Warnung + leere
   Liste. Nie ein Review-Abbruch.
 - **Teardown garantiert** auch bei Exception/Cancel (`IAsyncDisposable` + `finally`).
-- **Non-JSON aus dem Probing-Lauf** ⇒ „keine Funde" (Probing ist ein Grounding-Schritt,
+- **Non-JSON aus dem Probing-Lauf** ⇒ „keine Funde“ (Probing ist ein Grounding-Schritt,
   nicht der fail-closed Review-Final-Turn — anders als das MCP-Review-Gate).
 
 ## Konfiguration
