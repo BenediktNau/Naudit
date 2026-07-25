@@ -142,12 +142,20 @@ public static class DependencyInjection
             services.AddHostedService<DastOrphanSweeper>();
 
             // DAST-Probing als weiterer ISastAnalyzer (läuft, sobald _analyzers nicht leer ist —
-            // unabhängig von sastOptions.Enabled). Nutzt den GLOBALEN IChatClient (nie den
-            // Author-Session-Router), wie DistillingReviewGuidelines.
+            // unabhängig von sastOptions.Enabled). Nutzt bewusst NICHT den Author-Session-Router
+            // (wie DistillingReviewGuidelines), aber auch NICHT den globalen IChatClient-Singleton:
+            // der ist bei aktivem MCP bereits mit UseFunctionInvocation (Cap=MaxIterations) umhüllt,
+            // ein zweiter Wrap in RunProbeLoopAsync würde MaxProbeSteps von der inneren MCP-Grenze
+            // verdrängen. Ein frischer, un-umhüllter Basis-Client (einmal erzeugt, prozessweit geteilt
+            // wie das Singleton) bekommt in RunProbeLoopAsync genau einen Wrap mit MaxProbeSteps.
+            // Lazy erzeugt — wie der globale Client (Factory-Lambda) und NICHT eager zur Registrierzeit,
+            // damit die Recovery-Mode-Startup-Probe (AddNauditInfrastructure gegen eine Wegwerf-Collection)
+            // nicht schon hier an einem fehlenden Key scheitert.
+            var dastBaseClient = new Lazy<IChatClient>(() => AiClientFactory.Create(aiOptions, mcpOptions));
             services.AddScoped<ISastAnalyzer>(sp => new DastAnalyzer(
                 sp.GetRequiredService<IAppRunner>(),
                 dastOptions,
-                sp.GetRequiredService<IChatClient>(),
+                dastBaseClient.Value,
                 sp.GetRequiredService<IDockerClient>(),
                 sp.GetRequiredService<ILoggerFactory>()));
         }

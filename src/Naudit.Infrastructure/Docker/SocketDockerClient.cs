@@ -432,29 +432,51 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
     private sealed record NetworkListEntry(string? Name);
     private sealed record ImageListEntry(List<string>? RepoTags);
 
-    /// <summary>Liest bis zur \r\n\r\n-Grenze der HTTP-Antwort (Statuszeile + Header) und verwirft sie;
-    /// danach folgt der rohe/gemultiplexte Attach-Body. Docker antwortet je nach Engine-Version mit
-    /// 101 UPGRADED oder 200 OK — beides wird hier absichtlich nicht unterschieden, nur bis zur ersten
-    /// Leerzeile gescannt.</summary>
+    /// <summary>Obergrenze für den HTTP-Header-Block beim exec start — ein Daemon, der nie eine Leerzeile
+    /// schickt, soll hier nicht unbegrenzt puffern.</summary>
+    private const int MaxExecStartHeaderBytes = 16 * 1024;
+
+    /// <summary>Liest Statuszeile + Header bis zur \r\n\r\n-Grenze, prüft den HTTP-Status und verwirft die
+    /// Header; danach folgt der rohe/gemultiplexte Attach-Body. Docker antwortet je nach Engine-Version mit
+    /// 101 UPGRADED oder 2xx — beide werden akzeptiert. Alles andere (z.B. 409/500 mit Fehler-JSON, das der
+    /// Demuxer sonst als Docker-Frame fehldeuten würde) wirft DockerUnavailableException, BEVOR der Duplexer
+    /// exponiert wird. Bewusst byte-weise gelesen: ein gepufferter Read würde über die \r\n\r\n-Grenze hinaus
+    /// in die ersten Attach-Frames überlesen und den Demuxer korrumpieren.</summary>
     private static async Task ConsumeHttpHeadersAsync(Stream s, CancellationToken ct)
     {
-        var window = new byte[4];
+        var header = new List<byte>(256);
         var one = new byte[1];
-        var filled = 0;
         while (true)
         {
             if (await s.ReadAsync(one.AsMemory(0, 1), ct) == 0)
                 throw new DockerUnavailableException("exec start: Verbindung vor den Headern geschlossen");
-            window[filled % 4] = one[0];
-            filled++;
-            if (filled >= 4)
-            {
-                var i = filled % 4;
-                if (window[(i + 0) % 4] == (byte)'\r' && window[(i + 1) % 4] == (byte)'\n' &&
-                    window[(i + 2) % 4] == (byte)'\r' && window[(i + 3) % 4] == (byte)'\n')
-                    return;
-            }
+            header.Add(one[0]);
+            var n = header.Count;
+            if (n >= 4 && header[n - 4] == (byte)'\r' && header[n - 3] == (byte)'\n' &&
+                header[n - 2] == (byte)'\r' && header[n - 1] == (byte)'\n')
+                break;
+            if (n > MaxExecStartHeaderBytes)
+                throw new DockerUnavailableException("exec start: HTTP-Header ohne Leerzeile über dem Limit");
         }
+        ValidateExecStartStatus(header);
+    }
+
+    /// <summary>Parst die HTTP-Statuszeile aus dem konsumierten Header-Block und akzeptiert nur 101 oder 2xx;
+    /// jeder andere Status ist ein Fehler-Body (kein Attach-Stream) und wird als DockerUnavailableException
+    /// gemeldet, damit der Fail-Open-Pfad greift statt den Fehler-Body als Frames zu demuxen.</summary>
+    private static void ValidateExecStartStatus(List<byte> header)
+    {
+        var lineEnd = header.FindIndex(b => b == (byte)'\n');
+        int lineLen;
+        if (lineEnd < 0) lineLen = header.Count;
+        else if (lineEnd > 0 && header[lineEnd - 1] == (byte)'\r') lineLen = lineEnd - 1;
+        else lineLen = lineEnd;
+        var statusLine = Encoding.ASCII.GetString(header.ToArray(), 0, lineLen);
+        var parts = statusLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var code))
+            throw new DockerUnavailableException($"exec start: unlesbare HTTP-Statuszeile '{statusLine}'");
+        if (code != 101 && (code < 200 || code >= 300))
+            throw new DockerUnavailableException($"exec start: HTTP {code} — kein Attach-Stream ('{statusLine}')");
     }
 
     private sealed class RawStreamDisposable(Stream raw) : IAsyncDisposable

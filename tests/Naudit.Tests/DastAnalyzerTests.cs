@@ -91,6 +91,36 @@ public class DastAnalyzerTests
     }
 
     [Fact]
+    public async Task Analyze_incompleteFindings_areRejected()
+    {
+        var app = new FakeAppRunner();
+        // Leerer Eintrag + Eintrag ohne Summary werden verworfen; nur der vollständige überlebt
+        // (kein " ()"-Durchrutscher).
+        var chat = new FakeChatClient(
+            "{\"findings\":[{},{\"severity\":\"low\",\"endpoint\":\"/x\"}," +
+            "{\"severity\":\"medium\",\"endpoint\":\"/y\",\"summary\":\"Real\"}]}");
+        var analyzer = new DastAnalyzer(app, Options(), chat, new FakeDockerClient(),
+            NullLoggerFactory.Instance, probeToolsOverride: []);
+
+        var f = Assert.Single(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+        Assert.Equal(FindingSeverity.Medium, f.Severity);
+        Assert.Contains("Real", f.Message);
+    }
+
+    [Fact]
+    public async Task Analyze_criticalSeverity_mapsToHigh()
+    {
+        var app = new FakeAppRunner();
+        var chat = new FakeChatClient(
+            "{\"findings\":[{\"severity\":\"critical\",\"endpoint\":\"/admin\",\"summary\":\"Auth bypass\"}]}");
+        var analyzer = new DastAnalyzer(app, Options(), chat, new FakeDockerClient(),
+            NullLoggerFactory.Instance, probeToolsOverride: []);
+
+        var f = Assert.Single(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+        Assert.Equal(FindingSeverity.High, f.Severity);   // nicht still auf Low herabgestuft
+    }
+
+    [Fact]
     public async Task Analyze_callerCancelled_propagates()
     {
         var app = new FakeAppRunner();

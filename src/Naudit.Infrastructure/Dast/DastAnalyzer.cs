@@ -84,7 +84,14 @@ public sealed class DastAnalyzer(
         return response.Text;
     }
 
-    /// <summary>Non-JSON / Schema-Fehler ⇒ leere Liste (Grounding-Schritt, nicht fail-closed).</summary>
+    // Deckel gegen aufgeblähtes/manipuliertes Grounding: die Findings stammen letztlich aus
+    // PR-Autor-kontrollierbarem Seiteninhalt (dokumentiertes Prompt-Injection-Restrisiko), darum
+    // Anzahl UND Länge begrenzen, bevor sie als ScanFinding.Message in den Haupt-Prompt fließen.
+    private const int MaxFindings = 50;
+    private const int MaxMessageLength = 500;
+
+    /// <summary>Non-JSON / Schema-Fehler ⇒ leere Liste (Grounding-Schritt, nicht fail-closed).
+    /// Unvollständige Einträge (leere Summary/Endpoint) werden verworfen, statt als " ()" durchzurutschen.</summary>
     private IReadOnlyList<ScanFinding> ParseFindings(string text)
     {
         try
@@ -92,9 +99,12 @@ public sealed class DastAnalyzer(
             var doc = JsonSerializer.Deserialize<ProbeResult>(text, JsonOpts);
             if (doc?.Findings is not { Count: > 0 }) return [];
             return doc.Findings
-                .Where(f => f is not null)
+                .Where(f => f is not null
+                            && !string.IsNullOrWhiteSpace(f.Summary)
+                            && !string.IsNullOrWhiteSpace(f.Endpoint))
+                .Take(MaxFindings)
                 .Select(f => new ScanFinding("dast", FindingCategory.Dast, MapSeverity(f!.Severity),
-                    $"{f.Summary} ({f.Endpoint})"))
+                    Truncate($"{f.Summary!.Trim()} ({f.Endpoint!.Trim()})", MaxMessageLength)))
                 .ToList();
         }
         catch (JsonException)
@@ -104,9 +114,12 @@ public sealed class DastAnalyzer(
         }
     }
 
-    private static FindingSeverity MapSeverity(string? s) => s?.ToLowerInvariant() switch
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
+
+    private static FindingSeverity MapSeverity(string? s) => s?.Trim().ToLowerInvariant() switch
     {
-        "high" => FindingSeverity.High,
+        // "critical" nicht still auf Low herabstufen — eine als kritisch gemeldete Beobachtung ist High.
+        "critical" or "high" => FindingSeverity.High,
         "medium" => FindingSeverity.Medium,
         _ => FindingSeverity.Low,
     };
