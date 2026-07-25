@@ -191,7 +191,8 @@ isolated per account. It is off by default (`None`) and purely opt-in; see
 [Session sandbox](session-sandbox.md) for the full picture (config keys, lifecycle,
 fail-open behaviour, and a security note on what mounting the Docker socket implies).
 
-Mount the socket and give the non-root Naudit process the host's `docker` group:
+Mount the socket and give the non-root Naudit process the host's `docker` group
+(background and bare-metal setup: [the Docker socket](docker-socket.md)):
 
 ```yaml
 services:
