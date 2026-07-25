@@ -92,4 +92,40 @@ public class SocketDockerClientTests
 
         Assert.DoesNotContain(network, await docker.ListNetworksAsync("naudit-dast-"));
     }
+
+    /// <summary>Bidirektionaler exec gegen echtes Docker: in einem laufenden Container `cat` starten,
+    /// über stdin schreiben, demuxten stdout zurücklesen — die Naht, auf der die DAST-MCP-Brücke sitzt.</summary>
+    [Fact]
+    public async Task ExecStream_roundtripsStdinToStdout()
+    {
+        if (!Enabled) return; // ohne NAUDIT_TEST_DOCKER: übersprungen
+
+        using var docker = new SocketDockerClient(SocketPath);
+        var name = $"naudit-dast-pw-{Guid.NewGuid():N}";
+        try
+        {
+            await docker.RunDetachedAsync(new ContainerRunSpec(name, Image, VolumeName: null, VolumeTarget: null,
+                Command: []) { Entrypoint = ["sleep", "infinity"] });
+
+            await using var exec = await docker.ExecStreamAsync(name, ["cat"], environment: null, workingDirectory: "/");
+            var payload = System.Text.Encoding.UTF8.GetBytes("naudit-dast-probe\n");
+            await exec.Stdin.WriteAsync(payload);
+            await exec.Stdin.FlushAsync();
+
+            var buf = new byte[payload.Length];
+            var read = 0;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (read < buf.Length)
+            {
+                var n = await exec.Stdout.ReadAsync(buf.AsMemory(read), cts.Token);
+                if (n == 0) break;
+                read += n;
+            }
+            Assert.Equal("naudit-dast-probe\n", System.Text.Encoding.UTF8.GetString(buf, 0, read));
+        }
+        finally
+        {
+            await docker.RemoveContainerAsync(name);
+        }
+    }
 }
