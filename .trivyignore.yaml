@@ -31,5 +31,24 @@ vulnerabilities:
       Go-stdlib os.Root-Traversal im trivy-Binary v0.72.0 (Go 1.26.4). Entfernen sobald Trivy mit
       Go >= 1.26.5 gebaut ist.
 
+  # GHSA-hrxh-6v49-42gf — google.golang.org/grpc v1.81.0 (xDS-RBAC- und HTTP/2-Schwachstellen, HIGH),
+  # gefixt in grpc-go 1.82.1. Transitive Dependency des `trivy`-Binaries v0.72.0.
+  # Nicht patchbar: v0.72.0 ist das neueste Trivy-Release und buendelt weiterhin grpc 1.81.0.
+  # Nicht ausnutzbar in Naudit: der verwundbare Code sitzt im gRPC-SERVER-Pfad (`trivy server`/
+  # `trivy client`) und in der xDS-/RBAC-Integration. Naudit ruft ausschliesslich das CLI
+  # `trivy fs --scanners vuln --format json --quiet .` (TrivyAnalyzer.cs) — es startet nie einen
+  # gRPC-Server, verbindet sich nie als gRPC-Client und nutzt kein xDS. Der verwundbare Pfad liegt
+  # damit ausserhalb des Ausfuehrungspfades (VEX: vulnerable_code_not_in_execute_path).
+  # ENTFERNEN, sobald ein Trivy-Release grpc >= 1.82.1 buendelt; expired_at erzwingt spaetestens
+  # dann eine Re-Bewertung (Gate meldet die CVE danach wieder).
+  - id: GHSA-hrxh-6v49-42gf
+    paths:
+      - "usr/local/bin/trivy"
+    expired_at: 2026-10-31
+    statement: >-
+      grpc-go xDS/RBAC- und HTTP/2-Server-Pfad ausserhalb des Ausfuehrungspfades; Naudit nutzt nur
+      `trivy fs` (CLI, kein server/client, kein xDS). Entfernen sobald ein Trivy-Release
+      grpc >= 1.82.1 buendelt.
+
 # Hinweis: Die frueheren containerd-CRI-CVEs (CVE-2026-53488/53489/53492) sind entfallen —
 # trivy v0.72.0 buendelt containerd v2.3.2 (den Fix), das Gate meldet sie nicht mehr.
