@@ -97,6 +97,23 @@ public class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_rendersDastFindings_underDynamicHeading()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
+        var findings = new[]
+        {
+            new ScanFinding("dast", FindingCategory.Dast, FindingSeverity.High,
+                "Reflected XSS at /search?q= — payload echoed unescaped"),
+        };
+
+        var text = PromptBuilder.Build("SYS", request, changes, findings)[1].Text!;
+
+        Assert.Contains("DAST (dynamic)", text);
+        Assert.Contains("Reflected XSS at /search", text);
+    }
+
+    [Fact]
     public void Build_withoutFindings_saysNoToolFindings()
     {
         var request = new ReviewRequest("1", 42, "T");

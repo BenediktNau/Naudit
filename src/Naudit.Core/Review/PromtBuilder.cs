@@ -182,6 +182,7 @@ public static class PromptBuilder
         AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
+        AppendCategory(sb, "DAST (dynamic)", findings.Where(f => f.Category == FindingCategory.Dast));
     }
 
     // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
