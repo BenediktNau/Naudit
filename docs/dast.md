@@ -1,23 +1,23 @@
 # DAST — dynamic testing of the PR's running app
 
-> **Status: not yet released.** DAST is in development on `feat/dast-app-runner`
-> (design: `docs/superpowers/specs/2026-07-19-dast-design.md`); it ships in two PRs
-> (PR 1 app-runner, PR 2 probing analyzer). The `Naudit:Review:Dast:*` keys below do
-> not exist in any current release and may still change — **part B of this guide only
-> works once both PRs are merged.** Part A can (and should) be prepared today; it is
-> the same prerequisite the released [session sandbox](session-sandbox.md) uses. This
-> page will become the feature reference when PR 1 lands.
-
-## What it does
-
-During a review, Naudit builds the **PR's own `Dockerfile`**, starts the app as a
-sibling container in an internet-less review network, and lets the LLM probe it through
-a Playwright browser (via MCP). The findings feed the review prompt as grounding —
-exactly like Semgrep/Trivy. They never decide the merge gate; the verdict stays
+Once fully wired, Naudit builds the pull request's **own `Dockerfile`**, starts it as an
+isolated sibling container, and — from PR 2 on — probes the running app with an LLM
+driving a headless browser (Playwright, via MCP). Findings feed the review prompt as
+grounding, exactly like Semgrep/Trivy; they never decide the merge gate, which stays
 LLM-driven ([review gate](review-gate.md)).
 
+**PR 1 (this doc's current state) ships only the app runner and orphan sweeper
+*building blocks* — `IAppRunner`/`DockerAppRunner` and `DastOrphanSweeper` are registered
+in DI, but nothing in the review pipeline calls the runner yet, so enabling the switches
+below builds and starts nothing during a review.** The `Naudit:Sast:Analyzers` list does
+**not** have a `"dast"` entry yet — that, `DastAnalyzer`, and the actual browser probing
+arrive in PR 2, which is also when enabling the switches starts spinning up and tearing
+down an isolated container per review. The config keys below already work end-to-end
+against the Docker engine (see [Part A](#part-a--prepare-the-host-today)) and are safe to
+set up in advance.
+
 All reachability runs through the Docker socket: a passive probe container inside the
-review network executes the healthcheck (and later speaks MCP) via `docker exec` — no
+review network executes the healthcheck (and, in PR 2, speaks MCP) via `docker exec` — no
 port is published anywhere, and Naudit never joins the network itself. Read
 [the Docker socket](docker-socket.md) first for what socket access implies.
 
@@ -37,47 +37,138 @@ port is published anywhere, and Naudit never joins the network itself. Read
    from step 1 must be listed). Optionally smoke-test the shared seam by enabling the
    [session sandbox](session-sandbox.md) once.
 
-## Part B — enable DAST (once released; keys reflect the current design)
+## Two switches
 
-Prerequisites:
+DAST builds and **executes** code from a pull request, so it is gated twice — both must
+agree, because this is a different risk class than the session sandbox (foreign PR code,
+not Naudit's own subscription containers):
 
-- **`Naudit:AccessGate:Mode=Registered` is strongly recommended.** DAST executes code
-  from pull requests; it is meant for repositories you trust. Do not enable it in
-  `Open` mode.
-- The target repo needs a `Dockerfile` (path configurable) starting a single web
-  service that serves HTTP on a fixed port.
-- The manual MCP end-to-end gate from the [MCP tool-loop](mcp-tools.md) must be done.
+- **`Naudit:Review:Dast:Enabled`** — the global kill switch (default `false`).
+- **`Naudit:Review:Dast:Projects`** — an allowlist of `owner/repo` (GitHub) or the GitLab
+  project id, **empty by default, which means no project runs through DAST** even with
+  `Enabled=true`.
 
-Scalar keys are DB-managed (Settings page, then restart) or set as environment
-overrides:
+This belongs on repositories you trust. **Do not enable it with
+`Naudit:AccessGate:Mode=Open`** — pair it with `Registered` so only projects of active,
+vetted accounts can trigger a build-and-run of their own code.
 
-```bash
-Naudit__Review__Dast__Enabled=true          # kill switch (default false)
-Naudit__Review__Dast__DockerfilePath=Dockerfile
-Naudit__Review__Dast__AppPort=8080          # port the app listens on inside its container
-Naudit__Review__Dast__HealthPath=/          # HTTP path for the healthcheck
-Naudit__Review__Dast__TimeBudget=00:05:00   # caps build + start + probe together
-Naudit__Review__Dast__MemoryLimitMb=1024
+## Topology
+
+```text
+Docker network  naudit-dast-net-<key>   (internal: true → no egress)
+ ├─ app container    naudit-dast-app-<key>   (built from the PR's Dockerfile)
+ └─ probe container  naudit-dast-pw-<key>    (ProbeImage; healthcheck via docker exec — PR 2 turns it into the Playwright-MCP server)
+No published ports anywhere and Naudit never joins the network — every interaction is a
+`docker exec` through the socket, so the app is unreachable from the host and the internet.
 ```
 
-List-shaped keys are env-only (indexed syntax):
+`<key>` is a random per-run suffix; the image, network, app container and probe container
+of one review all share it (`naudit-dast-img-<key>`, `naudit-dast-net-<key>`,
+`naudit-dast-app-<key>`, `naudit-dast-pw-<key>`).
 
-```bash
-# "dast" joins the analyzer list:
-Naudit__Sast__Analyzers__0=opengrep
-Naudit__Sast__Analyzers__1=dast
+## Config
 
-# Per-project allowlist — EMPTY means NO project runs through DAST:
-Naudit__Review__Dast__Projects__0=owner/repo
-```
+All keys live under `Naudit:Review:Dast:*`. The scalars are DB-managed (Settings page,
+then restart) or settable as environment overrides, **except `HealthPollInterval`** which is env/appsettings-only;
+`Projects` is list-shaped and therefore **env/appsettings-only** (indexed syntax), like `ProjectTokens`.
 
-Then redeploy (env change) or restart via the Settings page (DB change), open a test PR
-in an allow-listed project, and watch the logs: image build → `naudit-dast-*`
-containers/network on the host → probing → guaranteed teardown.
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Enabled` | `false` | Global kill switch. |
+| `Projects` | *(empty)* | Allowlisted `owner/repo` / GitLab project ids. Empty = no project runs. Env-only. |
+| `DockerfilePath` | `Dockerfile` | Path to the PR's Dockerfile, relative to the checkout root. Missing ⇒ DAST is skipped for that PR. |
+| `AppPort` | `8080` | Port the app listens on inside its own container. |
+| `HealthPath` | `/` | HTTP path used for the healthcheck. |
+| `TimeBudget` | `00:05:00` | Caps build + start + healthcheck together; expiry ⇒ no dynamic grounding. |
+| `HealthPollInterval` | `00:00:01` | Delay between two healthcheck attempts while waiting for the app to come up. — env/appsettings-only, not on the Settings page. |
+| `MemoryLimitMb` | `1024` | Memory limit applied to both the app and the probe container. |
+| `CpuLimit` | `1.0` | CPU limit (NanoCPUs-equivalent) applied to both containers. |
+| `PidsLimit` | `256` | PID limit applied to both containers. |
+| `MaxContextMb` | `200` | Cap on the tar'd build context (it travels through the socket into the daemon); over the cap ⇒ build is skipped. |
+| `DockerSocketPath` | `/var/run/docker.sock` | Engine socket path. Only takes effect if the session sandbox isn't already active — see [Docker socket sharing](#docker-socket-sharing) below. |
+| `ProbeImage` | `mcr.microsoft.com/playwright/mcp:latest` | Image for the probe container. Pulled on demand and deliberately **not** `naudit-dast-`-prefixed, so it survives as a cache across reviews (never removed by the runner or the orphan sweeper). |
 
-## Failure behaviour = fail-open
+### Docker socket sharing
 
-No Dockerfile, broken build, healthcheck timeout, missing socket, exceeded time
-budget — each logs a warning and yields empty DAST findings. **A review never fails
-because of DAST.** Leftovers from a crash (`naudit-dast-*`) are removed by an orphan
-sweeper at startup.
+`DastOptions` and the session sandbox each carry their own `DockerSocketPath`, but only
+**one** `IDockerClient` is registered for the whole process: if
+`Naudit:Ai:SessionSandbox=Docker`, its socket path wins over `DastOptions.DockerSocketPath`
+even when both features are enabled. In practice both mount the same host socket, so this
+only matters if you ever point the two at genuinely different sockets.
+
+## Isolation
+
+Per review, both the app and the probe container get:
+
+- a dedicated **`internal: true`** Docker network (`naudit-dast-net-<key>`) — no egress,
+  no route to the internet or any other Naudit-managed network;
+- **no published ports** anywhere — the app is unreachable from the host, let alone the
+  internet;
+- `MemoryLimitMb` / `CpuLimit` / `PidsLimit` resource limits;
+- `--cap-drop ALL` and `no-new-privileges`;
+- **no volume**, **no environment variables**, and no Naudit secrets of any kind;
+- no access to the Docker socket itself — only Naudit's own process talks to the engine,
+  never a container it started.
+
+Naudit itself never joins the review network; every interaction (healthcheck today,
+MCP-over-exec in PR 2) is a `docker exec` into the probe container from the host side of
+the socket.
+
+The spec's "read-only root filesystem where possible" hardening is deliberately **not**
+implemented in PR 1 (many app images need a writable filesystem at startup); revisit in PR 2.
+
+## Residual risk: the build phase
+
+The isolation story above — internal network, resource limits, `--cap-drop ALL` — applies
+to the **running** app and probe containers. `docker build` runs **before** any of that:
+`RUN` steps execute with the builder's default network (egress is available to whatever the
+Dockerfile does) and without memory/CPU/PID caps, bounded only by the overall `TimeBudget`.
+Image layers are written to the daemon's storage uncapped, and a build aborted by the
+`TimeBudget` can leave dangling intermediate layers behind that the `naudit-dast-*` prefix
+sweeper cannot match (they carry no such name). Run periodic `docker builder prune` /
+`docker image prune` on DAST hosts to reclaim that. This is exactly why the `Projects`
+allowlist is trusted-repos-only — DAST executes a PR's own build instructions with none of
+the runtime isolation guarantees above.
+
+## Fail-open behaviour
+
+Every failure path ends in teardown and `null` (no dynamic grounding) — a review never
+fails because of DAST, with one exception: a caller cancellation (see the last row) also
+tears down but then **rethrows**, so the review itself does stop, exactly as it would
+without DAST in the picture:
+
+| Condition | Result |
+| --- | --- |
+| Project not in `Projects` (or `Enabled=false`) | Skipped before any Docker call. |
+| No `Dockerfile` at `DockerfilePath` in the checkout | Skipped, logged at `Information`. |
+| Build context over `MaxContextMb` | Skipped, logged at `Warning`. |
+| Image build fails | Teardown, skipped, logged at `Information` (with the build log). |
+| App never becomes healthy within `TimeBudget` | Teardown, skipped, logged at `Information`. |
+| Docker socket/engine unreachable, or any other unexpected error | Teardown, skipped, logged at `Warning`. |
+| `TimeBudget` exceeded | Teardown, skipped (end state identical to "never healthy", but log line differs by phase: expiry during health poll → "unreachable" info line; expiry during build/start → generic warning catch). |
+| Caller cancellation (the review itself is being cancelled) | Teardown, then the cancellation is **rethrown** — the only path that does not swallow the failure. |
+
+## Lifecycle & teardown
+
+`IAppRunner.RunAsync` returns a `RunningApp?` whose `DisposeAsync` is idempotent and tears
+down, in order: probe container → app container → network → built image (best-effort,
+each step independently swallowed and logged). The `ProbeImage` itself is **never**
+removed — it is a deliberate cache shared across reviews.
+
+Because a crash or `kill -9` mid-review can leave containers/networks/images behind
+before `DisposeAsync` runs, `DastOrphanSweeper` (an `IHostedService`, registered only when
+`Enabled=true`) removes every `naudit-dast-*` container, network and image at startup —
+prefix-matched only, so unrelated Docker resources on the host are never touched. It is
+fail-quiet: a missing or broken socket at startup just logs a warning and lets the host
+come up.
+
+## Requirement
+
+A reachable Docker engine socket on the same host. Naudit's Docker client speaks Unix
+sockets only, so this is **Linux-only** — the `win-x64` release binary cannot use DAST.
+It does not matter whether Naudit itself runs **containerized** (socket mounted +
+`group_add`) or as a **bare process** (user in the `docker` group) — all interaction with
+the review network runs through the socket either way, so both deployment forms behave
+identically. See [the Docker socket](docker-socket.md) for the trust implications of
+socket access and the setup steps for both deployment forms — the same note applies here
+verbatim.

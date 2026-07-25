@@ -13,12 +13,13 @@ internal sealed class FakeWorkspaceProvider(string rootPath = "/tmp/ws") : IWork
         CheckoutCalled = true;
         if (ThrowOnCheckout)
             throw new InvalidOperationException("checkout failed");
-        return Task.FromResult<IReviewWorkspace>(new FakeWorkspace(rootPath));
+        return Task.FromResult<IReviewWorkspace>(new FakeWorkspace(rootPath, request.ProjectId));
     }
 
-    private sealed class FakeWorkspace(string root) : IReviewWorkspace
+    private sealed class FakeWorkspace(string root, string projectId) : IReviewWorkspace
     {
         public string RootPath { get; } = root;
+        public string ProjectId { get; } = projectId;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

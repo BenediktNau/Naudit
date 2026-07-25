@@ -24,7 +24,7 @@ public sealed class GitWorkspaceProvider(
             await GitAsync(dir, ct, "remote", "add", "origin", info.CloneUrl);
             await GitAsync(dir, ct, "fetch", "--depth", "1", "origin", info.HeadRef);
             await GitAsync(dir, ct, "checkout", "-q", "FETCH_HEAD");
-            return new GitWorkspace(dir);
+            return new GitWorkspace(dir, request.ProjectId);
         }
         catch
         {
@@ -51,9 +51,10 @@ public sealed class GitWorkspaceProvider(
         catch { /* best effort */ }
     }
 
-    private sealed class GitWorkspace(string root) : IReviewWorkspace
+    private sealed class GitWorkspace(string root, string projectId) : IReviewWorkspace
     {
         public string RootPath { get; } = root;
+        public string ProjectId { get; } = projectId;
 
         public ValueTask DisposeAsync()
         {

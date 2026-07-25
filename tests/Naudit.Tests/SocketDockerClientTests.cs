@@ -67,4 +67,29 @@ public class SocketDockerClientTests
         using var docker = new SocketDockerClient("/nonexistent/docker.sock");
         Assert.False(await docker.PingAsync());
     }
+
+    /// <summary>Netz-Lebenszyklus gegen echtes Docker: internes Netz anlegen, listen, entfernen —
+    /// die Naht, auf der der DAST-App-Runner aufsetzt. Container betreten das Netz beim Start
+    /// (ContainerRunSpec.Network, Task 3); ein nachträgliches Connect gibt es bewusst nicht.</summary>
+    [Fact]
+    public async Task NetworkLifecycle_create_list_remove()
+    {
+        if (!Enabled) return; // ohne Docker-Env: übersprungen
+
+        using var docker = new SocketDockerClient(SocketPath);
+        var network = $"naudit-dast-net-{Guid.NewGuid():N}";
+        try
+        {
+            await docker.CreateNetworkAsync(network);
+            await docker.CreateNetworkAsync(network); // idempotent: gibt es schon
+            Assert.Contains(network, await docker.ListNetworksAsync("naudit-dast-"));
+        }
+        finally
+        {
+            await docker.RemoveNetworkAsync(network);
+            await docker.RemoveNetworkAsync(network); // idempotent: schon weg
+        }
+
+        Assert.DoesNotContain(network, await docker.ListNetworksAsync("naudit-dast-"));
+    }
 }

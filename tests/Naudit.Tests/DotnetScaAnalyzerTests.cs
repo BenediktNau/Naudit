@@ -12,6 +12,7 @@ public class DotnetScaAnalyzerTests
     private sealed class Ws(string root) : Naudit.Core.Abstractions.IReviewWorkspace
     {
         public string RootPath { get; } = root;
+        public string ProjectId => "acme/test";
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

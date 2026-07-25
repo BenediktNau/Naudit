@@ -12,4 +12,9 @@ public interface IWorkspaceProvider
 public interface IReviewWorkspace : IAsyncDisposable
 {
     string RootPath { get; }
+
+    /// <summary>Projekt des Reviews (GitLab-Projekt-Id bzw. "owner/repo"). Analyzer bekommen den
+    /// ReviewRequest nicht, brauchen die Kennung aber für projektweise Freigaben (DAST-Allowlist) —
+    /// der Checkout kennt sie ohnehin aus dem Request.</summary>
+    string ProjectId { get; }
 }
