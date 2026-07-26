@@ -1,220 +1,128 @@
-## Task 4: `McpReviewToolProvider` orchestration (fail-open + cache)
+### Task 4: `DastProbeSession` — the MCP client over the exec stream
 
 **Files:**
-- Create: `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs`
-- Create: `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs`
-- Create: `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs`
-- Create: `tests/Naudit.Tests/McpReviewToolProviderTests.cs`
+- Create: `src/Naudit.Infrastructure/Dast/DastProbeSession.cs`
+- Test: `tests/Naudit.Tests/DastProbeSessionTests.cs`
 
 **Interfaces:**
-- Consumes: `McpOptions`, `McpServerConfig` (Task 3); `IReviewToolProvider` (Task 1).
-- Produces: `IMcpToolConnector.ConnectAndListAsync(McpServerConfig, CancellationToken) → Task<IReadOnlyList<AITool>>`; `McpReviewToolProvider(McpOptions, IMcpToolConnector, ILogger<McpReviewToolProvider>)`.
+- Consumes: `IDockerClient.ExecStreamAsync` (Task 3), `DastOptions.ProbeMcpArgv` (Task 2), `RunningApp.ProbeContainerName` (PR 1), `ModelContextProtocol.Protocol.StreamClientTransport`, `ModelContextProtocol.Client.McpClient`.
+- Produces: `DastProbeSession.StartAsync(IDockerClient docker, DastOptions options, string probeContainer, ILoggerFactory loggerFactory, CancellationToken ct) -> Task<DastProbeSession>`; instance exposes `IReadOnlyList<AITool> Tools`; `IAsyncDisposable` disposes the `McpClient` then the exec stream.
 
-- [ ] **Step 1: Add the connector seam and the fake**
+- [ ] **Step 1: Write the failing test**
 
-Create `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs`:
-
-```csharp
-using Microsoft.Extensions.AI;
-
-namespace Naudit.Infrastructure.Mcp;
-
-/// <summary>Verbindet EINEN MCP-Server und listet dessen Tools als MEAI-AITool. Seam, damit
-/// McpReviewToolProvider ohne echten Server getestet wird (echte Impl: McpClientToolConnector).</summary>
-public interface IMcpToolConnector
-{
-    Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default);
-}
-```
-
-Create `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs`:
+Because `McpClient.CreateAsync` speaks the real MCP protocol over the stream, a pure unit test cannot boot a real server. Test what is deterministic without a live MCP peer: that the session launches the correct exec argv in the probe container and that a start failure is surfaced as a thrown `DockerUnavailableException`-derived/`InvalidOperationException` for the analyzer to catch (fail-open lives in the analyzer, Task 5/6 — the session may throw). Create `tests/Naudit.Tests/DastProbeSessionTests.cs`:
 
 ```csharp
-using Microsoft.Extensions.AI;
-using Naudit.Infrastructure.Mcp;
-
-namespace Naudit.Tests.Fakes;
-
-// Pro Server-Name: entweder eine Tool-Liste oder eine Exception (für Fail-open-Tests). Zählt Aufrufe.
-internal sealed class FakeMcpToolConnector : IMcpToolConnector
-{
-    private readonly Dictionary<string, Func<IReadOnlyList<AITool>>> _byServer = new();
-    public int CallCount { get; private set; }
-
-    public FakeMcpToolConnector Returns(string server, params AITool[] tools)
-    {
-        _byServer[server] = () => tools;
-        return this;
-    }
-
-    public FakeMcpToolConnector Throws(string server)
-    {
-        _byServer[server] = () => throw new InvalidOperationException($"boom:{server}");
-        return this;
-    }
-
-    public Task<IReadOnlyList<AITool>> ConnectAndListAsync(McpServerConfig server, CancellationToken ct = default)
-    {
-        CallCount++;
-        if (_byServer.TryGetValue(server.Name, out var f))
-            return Task.FromResult(f());
-        return Task.FromResult<IReadOnlyList<AITool>>([]);
-    }
-}
-```
-
-- [ ] **Step 2: Write the failing tests**
-
-Create `tests/Naudit.Tests/McpReviewToolProviderTests.cs`:
-
-```csharp
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
-using Naudit.Core.Models;
-using Naudit.Infrastructure.Mcp;
+using Naudit.Infrastructure.Dast;
+using Naudit.Infrastructure.Docker;
 using Naudit.Tests.Fakes;
 using Xunit;
 
 namespace Naudit.Tests;
 
-public class McpReviewToolProviderTests
+public class DastProbeSessionTests
 {
-    private static readonly ReviewRequest Request = new("1", 1, "T");
-
-    private static McpServerConfig Server(string name) => new() { Name = name, Transport = "http", Url = "http://x" };
-    private static AITool Tool(string name) => AIFunctionFactory.Create(() => "r", name);
-
-    private static McpReviewToolProvider Provider(McpOptions opts, IMcpToolConnector connector)
-        => new(opts, connector, NullLogger<McpReviewToolProvider>.Instance);
-
     [Fact]
-    public async Task Disabled_returnsEmpty_andNeverCallsConnector()
+    public async Task Start_execsProbeArgv_inProbeContainer()
     {
-        var connector = new FakeMcpToolConnector().Returns("a", Tool("t"));
-        var opts = new McpOptions { Enabled = false, Servers = { Server("a") } };
+        var docker = new ThrowAfterExecDocker();   // lässt ExecStream zu, MCP-Handshake schlägt dann fehl
+        var options = new DastOptions();
 
-        var tools = await Provider(opts, connector).GetToolsAsync(Request);
+        await Assert.ThrowsAnyAsync<Exception>(() => DastProbeSession.StartAsync(
+            docker, options, "naudit-dast-pw-xyz", NullLoggerFactory.Instance, CancellationToken.None));
 
-        Assert.Empty(tools);
-        Assert.Equal(0, connector.CallCount);
+        var call = Assert.Single(docker.ExecStreamCalls);
+        Assert.Equal("naudit-dast-pw-xyz", call.Container);
+        Assert.Equal(options.ProbeMcpArgv, call.Argv);
     }
 
-    [Fact]
-    public async Task Aggregates_toolsFromAllServers()
+    /// <summary>ExecStream liefert einen Stream, auf dem der MCP-Handshake nie antwortet ⇒ StartAsync
+    /// muss (mit Timeout/Fehler) werfen statt zu hängen; der Analyzer fängt das fail-open.</summary>
+    private sealed class ThrowAfterExecDocker : FakeDockerClient
     {
-        var connector = new FakeMcpToolConnector().Returns("a", Tool("t1")).Returns("b", Tool("t2"));
-        var opts = new McpOptions { Enabled = true, Servers = { Server("a"), Server("b") } };
-
-        var tools = await Provider(opts, connector).GetToolsAsync(Request);
-
-        Assert.Equal(2, tools.Count);
-    }
-
-    [Fact]
-    public async Task FailingServer_isSkipped_othersStillReturn()
-    {
-        var connector = new FakeMcpToolConnector().Throws("a").Returns("b", Tool("t2"));
-        var opts = new McpOptions { Enabled = true, Servers = { Server("a"), Server("b") } };
-
-        var tools = await Provider(opts, connector).GetToolsAsync(Request);
-
-        var tool = Assert.Single(tools);
-        Assert.Equal("t2", tool.Name);
-    }
-
-    [Fact]
-    public async Task Caches_nonEmptyResult_acrossCalls()
-    {
-        var connector = new FakeMcpToolConnector().Returns("a", Tool("t1"));
-        var opts = new McpOptions { Enabled = true, Servers = { Server("a") } };
-        var provider = Provider(opts, connector);
-
-        await provider.GetToolsAsync(Request);
-        await provider.GetToolsAsync(Request);
-
-        Assert.Equal(1, connector.CallCount);   // zweiter Review nutzt den Cache
+        // NextExecStdout bleibt leer ⇒ McpClient.CreateAsync bekommt EOF/kein Handshake ⇒ Fehler.
     }
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~McpReviewToolProviderTests"`
-Expected: BUILD FAIL — `McpReviewToolProvider` does not exist.
+Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter DastProbeSessionTests`
+Expected: FAIL — `DastProbeSession` does not exist (CS0246).
 
-- [ ] **Step 4: Implement the provider**
+- [ ] **Step 3: Write the session**
 
-Create `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs`:
+Create `src/Naudit.Infrastructure/Dast/DastProbeSession.cs`:
 
 ```csharp
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using Naudit.Core.Abstractions;
-using Naudit.Core.Models;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
+using Naudit.Infrastructure.Docker;
 
-namespace Naudit.Infrastructure.Mcp;
+namespace Naudit.Infrastructure.Dast;
 
-/// <summary>Baut die MEAI-Tools aus den konfigurierten MCP-Servern. Fail-open: ein nicht
-/// erreichbarer Server ⇒ dieser Server fällt weg, der Review läuft (tool-los) weiter — wie ein
-/// fehlgeschlagener SAST-Checkout → diff-only. Erfolgreiche Tool-Liste wird für die Prozesslaufzeit
-/// gecacht (Server-Host fix, Katalog stabil); ein leeres Ergebnis wird NICHT gecacht (nächster
-/// Review versucht erneut, damit ein zwischenzeitlich erreichbarer Server aufgenommen wird).</summary>
-public sealed class McpReviewToolProvider(
-    McpOptions options, IMcpToolConnector connector, ILogger<McpReviewToolProvider> logger) : IReviewToolProvider
+/// <summary>Eine MCP-Sitzung je Review: startet den Playwright-MCP-Server als stdio-Prozess im
+/// Probe-Container (docker exec, attached duplex), verbindet einen McpClient über die Stream-Naht und
+/// listet die Browser-Tools. Kurzlebig — DisposeAsync schließt Client UND exec-Stream. Anders als der
+/// prozesslebenslange McpReviewToolProvider (Review-Tool-Loop) gehört diese Sitzung genau einem Lauf.</summary>
+public sealed class DastProbeSession : IAsyncDisposable
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private IReadOnlyList<AITool>? _cached;
+    private readonly McpClient _client;
+    private readonly DockerExecStream _exec;
 
-    public async Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest request, CancellationToken ct = default)
+    public IReadOnlyList<AITool> Tools { get; }
+
+    private DastProbeSession(McpClient client, DockerExecStream exec, IReadOnlyList<AITool> tools)
     {
-        if (!options.Enabled || options.Servers.Count == 0)
-            return [];
+        _client = client; _exec = exec; Tools = tools;
+    }
 
-        if (_cached is { Count: > 0 })
-            return _cached;
-
-        await _gate.WaitAsync(ct);
+    public static async Task<DastProbeSession> StartAsync(IDockerClient docker, DastOptions options,
+        string probeContainer, ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        var exec = await docker.ExecStreamAsync(probeContainer, options.ProbeMcpArgv,
+            environment: null, workingDirectory: "/", ct);
         try
         {
-            if (_cached is { Count: > 0 })
-                return _cached;
-
-            var tools = new List<AITool>();
-            foreach (var server in options.Servers)
-            {
-                try
-                {
-                    tools.AddRange(await connector.ConnectAndListAsync(server, ct));
-                }
-                catch (Exception ex) when (!ct.IsCancellationRequested)
-                {
-                    logger.LogWarning(ex, "MCP-Server {Server} nicht erreichbar — Review läuft ohne dessen Tools.", server.Name);
-                }
-            }
-
-            if (tools.Count > 0)
-                _cached = tools;   // nur Erfolg cachen
-            return tools;
+            // serverInput = was WIR schreiben (Server-stdin), serverOutput = was wir lesen (Server-stdout).
+            var transport = new StreamClientTransport(serverInput: exec.Stdin, serverOutput: exec.Stdout, loggerFactory);
+            var client = await McpClient.CreateAsync(transport, null, loggerFactory, ct);
+            var tools = await client.ListToolsAsync((RequestOptions?)null, ct);
+            return new DastProbeSession(client, exec, [.. tools]);
         }
-        finally
+        catch
         {
-            _gate.Release();
+            await exec.DisposeAsync();
+            throw;
         }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await _client.DisposeAsync(); }
+        finally { await _exec.DisposeAsync(); }
     }
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 4: Run test to verify it passes**
 
-Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~McpReviewToolProviderTests"`
-Expected: PASS (all four).
+Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter DastProbeSessionTests`
+Expected: PASS — the argv is recorded before the handshake fails; `StartAsync` throws (no MCP peer answers), which the test asserts. If `McpClient.CreateAsync` blocks instead of failing on an unresponsive stream, wrap the handshake in a short linked-timeout CTS inside `StartAsync` (e.g. 30s) so it fails deterministically; add a German comment explaining the timeout. Re-run.
+
+- [ ] **Step 5: Full suite**
+
+Run: `DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test Naudit.slnx`
+Expected: PASS — 704.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs \
-        tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs tests/Naudit.Tests/McpReviewToolProviderTests.cs
-git commit -m "feat(mcp): McpReviewToolProvider — Server aggregieren, fail-open, cachen"
+git add src/Naudit.Infrastructure/Dast/DastProbeSession.cs tests/Naudit.Tests/DastProbeSessionTests.cs
+git commit -m "feat(dast): DastProbeSession — Playwright-MCP über exec-stdio, kurzlebig je Review"
 ```
 
 ---

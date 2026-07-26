@@ -1,107 +1,100 @@
-# Task 6 Report: Real MCP connector + package + DI wiring (function-invocation)
+# Task 6 report: DastAnalyzer failure paths + guaranteed teardown
 
-**Branch:** `feat/mcp-context7`
-**Commit:** `cb3ccc5` — `feat(mcp): echter McpClientToolConnector + DI-Verdrahtung (Function-Invocation-Loop)`
-**Status:** DONE (Steps 1–5 + 7 complete; Step 6 manual E2E DEFERRED — no live services in this environment)
+**Branch:** `feat/dast-probing`
 
-## What was implemented
+## Summary
 
-### Step 1 — Package (`src/Naudit.Infrastructure/Naudit.Infrastructure.csproj`)
-Added `ModelContextProtocol.Core` version `1.4.1` to the `PackageReference` `ItemGroup`.
-`dotnet restore Naudit.slnx` resolved it cleanly.
+Appended the 4 failure-path tests from the brief (with the branch's own adaptations for the
+probe-throws timing and caller-cancellation) to `DastAnalyzerTests.cs`. All 4 passed against the
+Task 5 `DastAnalyzer` implementation **as-is** — no analyzer code change was needed. One minimal
+fake change was required (see below) to make the caller-cancelled test exercise real
+cancellation-propagation instead of trivially passing.
 
-### Step 2 — Real connector (`src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs`, new)
-`McpClientToolConnector(ILoggerFactory) : IMcpToolConnector`. Written verbatim from the brief with
-**one SDK version-name reconciliation** (see below):
-- Builds an `IClientTransport` per `McpServerConfig`: `stdio` ⇒ `StdioClientTransport`
-  (`Name`/`Command`/`Arguments`), otherwise `http` ⇒ `HttpClientTransport` with
-  `HttpClientTransportOptions { Name, Endpoint, TransportMode = HttpTransportMode.AutoDetect }` and an
-  optional `Authorization: Bearer <ApiKey>` in `AdditionalHeaders`.
-- `McpClient.CreateAsync(transport, null, loggerFactory, ct)` → `client.ListToolsAsync((RequestOptions?)null, ct)`
-  → `[.. tools]` into `IReadOnlyList<AITool>` (`McpClientTool : AIFunction : AITool`).
+## Tests added — pass/fail on first run
 
-**SDK reconciliation (as the brief instructed — member-name drift, not a logic rewrite):** the brief's
-`client.ListToolsAsync((ListToolsRequestParams?)null, ct)` did not compile against `ModelContextProtocol.Core 1.4.1`
-(CS9212: `ListToolsResult` is not spreadable). Verified against
-`~/.nuget/packages/modelcontextprotocol.core/1.4.1/lib/net10.0/ModelContextProtocol.Core.xml`:
-in 1.4.1 it is the **`ListToolsAsync(RequestOptions, CancellationToken)`** overload that returns
-`IList<McpClientTool>` (auto-paginated — XML: *"A list of all available tools as McpClientTool instances"*),
-while the `ListToolsRequestParams` overload returns the raw single-page `ListToolsResult`. Reconciliation:
-disambiguating cast `(ListToolsRequestParams?)null` → `(RequestOptions?)null` and import
-`ModelContextProtocol.Protocol` → `ModelContextProtocol` (namespace of `RequestOptions`). Logic (connect →
-list all tools → return as `AITool`s) is unchanged. All other pinned members
-(`McpClient.CreateAsync`, `HttpClientTransport(options, loggerFactory)`, `HttpClientTransportOptions.*`,
-`StdioClientTransportOptions.*`, `HttpTransportMode.AutoDetect`) matched the XML exactly.
+| Test | Result on first run | Notes |
+|---|---|---|
+| `Analyze_appNeverStarts_returnsEmpty` | **Passed immediately** | `app is null ⇒ return []` path (line 35 of `DastAnalyzer.cs`) already covers this. 2 ms. |
+| `Analyze_nonJsonModelOutput_returnsEmpty_andTearsDown` | **Passed immediately** | `ParseFindings` catches `JsonException` ⇒ `[]`; `await using var app` disposes on the way out regardless. 5 ms. |
+| `Analyze_probeSessionThrows_returnsEmpty_andTearsDownApp` | **Passed immediately** (with the prescribed short `HandshakeTimeout`) | `probeToolsOverride: null` drives the real `DastProbeSession.StartAsync` against the empty `FakeDockerClient` (`ExecStreamAsync` returns an empty stdout stream). `McpClient.CreateAsync` hangs on the handshake until the internal `HandshakeTimeout`-linked CTS fires, throwing `OperationCanceledException`; since the *caller's* `ct` was never cancelled, `DastAnalyzer`'s `catch (OperationCanceledException) when (ct.IsCancellationRequested)` guard does **not** match, so it falls into the generic `catch (Exception)` ⇒ `[]`, and the outer `finally`/`await using` still tear down the app. Used `DastOptions.HandshakeTimeout = 200ms` (already a settable option from Task 4) instead of the default 10s so the test stays fast. **Duration: 247 ms** (well under the 2s ceiling). |
+| `Analyze_callerCancelled_propagates` | **Needed a `FakeAppRunner` change** (test fake, not analyzer) | See below. |
 
-### Step 3 — DI wiring (`src/Naudit.Infrastructure/DependencyInjection.cs`)
-1. **`IChatClient` wrap:** the registration now resolves the client from `AiClientFactory.Create(aiOptions, mcpOptions)`
-   and, when `mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode`, wraps it with
-   `.AsBuilder().UseFunctionInvocation(sp.GetService<ILoggerFactory>(), c => c.MaximumIterationsPerRequest = mcpOptions.MaxIterations).Build()`.
-   ClaudeCode (CLI-native MCP) is deliberately **not** wrapped.
-2. **Tool provider:** replaced the Task-1 unconditional `NullReviewToolProvider` registration with the conditional one —
-   MCP-on + MEAI provider ⇒ register `IMcpToolConnector` = `McpClientToolConnector` and
-   `IReviewToolProvider` = `McpReviewToolProvider`; otherwise ⇒ `NullReviewToolProvider`.
+## FakeAppRunner change (test infrastructure, not analyzer)
 
-### Step 4 — Composition test (`tests/Naudit.Tests/McpDiCompositionTests.cs`, new)
-Written verbatim from the brief. Uses the project's established minimal-config DI-test pattern (same as
-`RedactionWiringTests`): `AddLogging()` + `AddNauditInfrastructure(config)` from an in-memory config, then a
-full `BuildServiceProvider()` and `GetRequiredService<IReviewToolProvider>()`. No DB bootstrap was needed —
-`IReviewToolProvider` (and its transitive deps `IMcpToolConnector`, `ILoggerFactory`) are plain singletons that
-resolve without `AddNauditDatabase`; the `IChatClient` factory stays unevaluated because the test never resolves it.
-The full-provider path was reliable, so the `ServiceDescriptor`-inspection fallback was not needed.
+`FakeAppRunner.RunAsync` previously ignored the `CancellationToken` entirely, so a pre-cancelled
+token passed straight through and the analyzer's `runner.RunAsync(workspace, ct)` call would never
+throw — the test would then only be checking whatever `AnalyzeAsync` itself does with a token it
+never actually observes anywhere. Per the task's explicit instruction, added:
 
-**How the test proves the 3 registration cases:**
-- `McpDisabled_resolvesNullToolProvider` — MEAI provider, `Mcp:Enabled=false` ⇒ `NullReviewToolProvider` (MCP off → No-Op).
-- `McpEnabled_meaiProvider_resolvesMcpToolProvider` — `OpenAICompatible` + `Mcp:Enabled=true` + one server ⇒ `McpReviewToolProvider` (the real MCP path).
-- `McpEnabled_claudeCodeProvider_stillResolvesNullToolProvider` — `ClaudeCode` + `Mcp:Enabled=true` ⇒ `NullReviewToolProvider` (CLI-native MCP, so no `ChatOptions.Tools` provider), guarding the `Provider != ClaudeCode` condition.
+```csharp
+public Task<RunningApp?> RunAsync(IReviewWorkspace workspace, CancellationToken ct = default)
+{
+    ct.ThrowIfCancellationRequested();   // echte Aufrufer-Abbruch-Propagation für den Cancel-Test
+    RunCalled = true;
+    ...
+```
 
-### Step 5 — Full suite: PASS.
+This makes the fake behave like a real cancellable I/O call (starting a container, polling health,
+etc., all honour the token in the Task 1/5 implementation) and exercises `DastAnalyzer`'s
+`catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }` rethrow for real,
+which is exactly the code path the test is meant to prove.
 
-### Step 6 — Manual E2E (real Context7): **DEFERRED / PENDING for the controller.**
-Requires a live Context7 MCP server + the real `claude` CLI + a running host — unavailable in this environment.
-Not attempted; no E2E results fabricated. The connector's `Authorization: Bearer` header shape and the CLI
-`--mcp-config` path still need live confirmation per the brief's Step 6.
+No `DastAnalyzer.cs` production code was touched — the Task 5 implementation already satisfies all
+four failure paths (null app, non-JSON output, probe-session exception, caller cancellation) by
+construction: `await using var app = ...` + the inner `try/finally` around the probe session
+guarantee teardown runs on every non-happy path, and the two-tier `catch` (specific
+`OperationCanceledException` rethrow vs. generic `Exception` swallow) already implements the
+fail-open/caller-cancel distinction the tests assert.
+
+## Files changed
+
+- `tests/Naudit.Tests/DastAnalyzerTests.cs` — 4 new `[Fact]` tests appended.
+- `tests/Naudit.Tests/Fakes/FakeAppRunner.cs` — one-line `ct.ThrowIfCancellationRequested()` added
+  at the top of `RunAsync`.
+- `src/Naudit.Infrastructure/Dast/DastAnalyzer.cs` — **unchanged**.
 
 ## Verify evidence
 
 ```
-$ dotnet restore Naudit.slnx
-  Restored .../Naudit.Infrastructure.csproj ...   (ModelContextProtocol.Core 1.4.1 resolved)
+$ dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter DastAnalyzerTests -l "console;verbosity=detailed"
+  Passed Analyze_notAllowlisted_returnsEmpty_withoutRunning         [49 ms]
+  Passed Analyze_mapsModelJson_toDastFindings                       [137 ms]
+  Passed Analyze_appNeverStarts_returnsEmpty                        [2 ms]
+  Passed Analyze_nonJsonModelOutput_returnsEmpty_andTearsDown       [5 ms]
+  Passed Analyze_callerCancelled_propagates                         [5 ms]
+  Passed Analyze_probeSessionThrows_returnsEmpty_andTearsDownApp    [247 ms]
+  Passed: 6
 
-$ dotnet build Naudit.slnx          # after the RequestOptions reconciliation
-  Build succeeded.  0 Warning(s)  0 Error(s)
-
-$ dotnet test Naudit.slnx --filter "FullyQualifiedName~McpDiCompositionTests"
-  Passed!  - Failed: 0, Passed: 3, Skipped: 0, Total: 3
-
-$ dotnet test Naudit.slnx                         # parallel
-  Failed! - Failed: 22, Passed: 338, Total: 360   # all 22 = WebApplicationFactory inotify flake
-    (PhysicalFilesWatcher.CreateFileChangeToken — the environmental flake the brief flagged)
-
-$ dotnet test Naudit.slnx -- xUnit.MaxParallelThreads=1   # single-threaded confirm
-  Passed!  - Failed: 0, Passed: 360, Skipped: 0, Total: 360
+$ DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test Naudit.slnx
+  Passed!  - Failed: 0, Passed: 711, Skipped: 0, Total: 711, Duration: 56 s
 ```
 
-The 22 parallel failures were exclusively `WebApplicationFactory`-hosted tests failing inside
-`PhysicalFilesWatcher.CreateFileChangeToken` (sandbox inotify limit) — none touch the MCP change. Single-threaded
-re-run: 0 failures / 360 passed. Not a regression.
-
-## Files changed
-- `src/Naudit.Infrastructure/Naudit.Infrastructure.csproj` (M) — `ModelContextProtocol.Core 1.4.1`.
-- `src/Naudit.Infrastructure/Mcp/McpClientToolConnector.cs` (new) — real `IMcpToolConnector`.
-- `src/Naudit.Infrastructure/DependencyInjection.cs` (M) — function-invocation wrap + conditional provider registration.
-- `tests/Naudit.Tests/McpDiCompositionTests.cs` (new) — 3-case DI composition test.
+Baseline was 707; 711 = 707 + 4 new tests. No flake on this run (`GitWorkspaceProviderTests`
+did not need a rerun).
 
 ## Self-review
-- **Core rule intact:** `grep -rn "ModelContextProtocol" src/Naudit.Core/` ⇒ no hits. The SDK lives only in `Naudit.Infrastructure`.
-- **Condition consistency:** the `IChatClient` wrap and the tool-provider branch use the identical guard
-  (`mcpOptions.Enabled && aiOptions.Provider != AiProvider.ClaudeCode`), so a wrapped function-invocation client
-  always pairs with `McpReviewToolProvider`, and ClaudeCode never gets either — no half-wired state.
-- **No dead config:** `using Microsoft.Extensions.AI;` (AsBuilder/UseFunctionInvocation) and
-  `using Naudit.Infrastructure.Ai;` (AiProvider) were already present; build is warning-clean.
-- **Commit hygiene:** only the 4 brief-named files staged; `.superpowers/` left untracked.
-- **Brief fidelity:** connector, DI blocks, and test are verbatim except the one documented, XML-verified
-  `RequestOptions` overload reconciliation the brief pre-authorized.
+
+- All 4 new tests are meaningful (not tautological): each drives a distinct code path in
+  `DastAnalyzer.AnalyzeAsync` and asserts both the return value (`[]`) and a teardown/propagation
+  side effect (`app.RunCalled` / `app.Disposed` / exception type), matching the brief's exact
+  assertions.
+- The probe-throws test genuinely exercises the real `DastProbeSession.StartAsync` code path
+  (`probeToolsOverride: null`), not a stub — confirmed via the 247 ms duration (handshake-timeout
+  bound, not instant), i.e. it really went through the CTS-linked timeout and not some short-circuit.
+- Caller-cancellation test now proves real propagation (via the `FakeAppRunner` fix) rather than
+  passing vacuously.
+- German comments added to both new/changed lines per repo convention.
+- Full suite: 711/711 passed (baseline 707 + 4 new), no flake on this run.
+- Scope discipline: only `tests/Naudit.Tests/DastAnalyzerTests.cs` and
+  `tests/Naudit.Tests/Fakes/FakeAppRunner.cs` were staged/committed. Pre-existing unrelated working-tree
+  changes (`.superpowers/sdd/*` docs, an untracked plan file under `docs/superpowers/plans/`) were left
+  untouched and unstaged, per the binding constraints.
+
+## Concerns
+
+None. All four tests passed against the unmodified Task 5 `DastAnalyzer`; the only change was to
+test infrastructure (`FakeAppRunner`), explicitly anticipated and authorized by the task's own
+adaptation note.
 
 ## Status
-DONE. Manual E2E (Step 6) DEFERRED to the controller. `ModelContextProtocol.*` confined to Infrastructure.
+DONE (not DONE_WITH_CONCERNS) — no production-code gap was found.

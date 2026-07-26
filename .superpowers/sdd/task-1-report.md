@@ -1,122 +1,104 @@
-# Task 1 Report: Core tool seam + ReviewService wiring
+# Task 1 Report — FindingCategory.Dast + prompt rendering
 
-## Summary
-
-Implemented `IReviewToolProvider` (Core abstraction returning MEAI `AITool`s) and wired it into
-`ReviewService.ReviewAsync` so that, with the default `NullReviewToolProvider` (returns `[]`),
-`ChatOptions.Tools` stays `null` — behavior is byte-identical to before this change. Followed the
-brief's steps verbatim (TDD: RED → GREEN → commit).
+## Status: DONE
 
 ## What was implemented
 
-- **Created** `src/Naudit.Core/Abstractions/IReviewToolProvider.cs`: interface
-  `Task<IReadOnlyList<AITool>> GetToolsAsync(ReviewRequest, CancellationToken)` plus the default
-  `NullReviewToolProvider` (returns `[]`). Only depends on `Microsoft.Extensions.AI` (`AITool`)
-  and `Naudit.Core.Models` — Core rule intact (verified `dotnet build` of `Naudit.Core.csproj`
-  alone succeeds, no new package references added).
-- **Modified** `src/Naudit.Core/Review/ReviewService.cs`: primary ctor gained a trailing
-  `IReviewToolProvider toolProvider` parameter (after `auditSink`). In `ReviewAsync`, right before
-  the `chatClient.GetResponseAsync` call, tools are fetched via `toolProvider.GetToolsAsync(request, ct)`
-  and only assigned to `chatOptions.Tools` when non-empty (`tools.Count > 0`) — so the no-op default
-  never touches `ChatOptions.Tools`, leaving it `null`.
-- **Modified** `src/Naudit.Infrastructure/DependencyInjection.cs`: registers
-  `services.AddSingleton<IReviewToolProvider>(new NullReviewToolProvider());` immediately after
-  `services.AddSingleton(aiOptions);` (as specified). A later task (Task 6) will swap this for the
-  real MCP-backed provider when MCP + a MEAI-compatible provider is active.
-- **Modified** `tests/Naudit.Tests/Fakes/FakeChatClient.cs`: added `LastOptions` capture.
-- **Created** `tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs`: fixed-tool-list fake for tests.
-- **Modified** `tests/Naudit.Tests/ReviewServiceTests.cs`: `CreateService` helper gained a
-  `toolProvider` parameter (defaults to `NullReviewToolProvider`); added the two brief-specified
-  tests `ReviewAsync_withoutToolProvider_leavesChatOptionsToolsNull` and
-  `ReviewAsync_withTools_populatesChatOptionsTools`.
-- **Modified** `tests/Naudit.Tests/ReviewAuditSinkTests.cs` (not in the brief's file list, but a
-  necessary consequence of the ctor signature change — see "Deviation from brief" below).
+1. **`src/Naudit.Core/Models/ScanFinding.cs`** — appended `Dast` as the last member of
+   `FindingCategory` (`{ Sast, Sca, Secrets, Dast }`), preserving existing ordinals (0-2
+   unchanged, Dast = 3). Updated the XML doc comment (German) to mention the new category.
+2. **`src/Naudit.Core/Review/PromtBuilder.cs`** — added one line directly after the existing
+   SAST `AppendCategory` call in `AppendFindings`:
+   ```csharp
+   AppendCategory(sb, "DAST (dynamic)", findings.Where(f => f.Category == FindingCategory.Dast));
+   ```
+   Reuses the existing `AppendCategory` helper (heading + `[SEVERITY][scope] tool · rule ·
+   file:line → message` lines), so DAST findings render exactly like every other category —
+   empty list renders nothing (section omitted), consistent with Secrets/SCA/SAST.
+3. **`tests/Naudit.Tests/PromtBuilderTests.cs`** — added
+   `Build_rendersDastFindings_underDynamicHeading`, placed after
+   `Build_rendersSecretsFindings_beforeOtherCategories` (next to the other
+   category-rendering tests). Asserts `"DAST (dynamic)"` heading and the finding message
+   appear in the rendered user message.
+
+## Adaptations from the brief
+
+The brief's test sketch referenced `SystemPrompt`/`Request`/`Changes` "helper" fixtures that
+do not exist in the real `PromtBuilderTests.cs` — every test in that file constructs its own
+local `request`/`changes`/`findings` inline (e.g. `Build_rendersSecretsFindings_beforeOtherCategories`).
+Adapted the test to that inline pattern, mirroring
+`Build_rendersFindings_withScopeLabels`/`Build_rendersSecretsFindings_beforeOtherCategories`
+exactly (same `ReviewRequest("1", 42, "T")` / single `CodeChange("a.cs", "@@ +1 @@")` shape),
+and used `PromptBuilder.Build("SYS", request, changes, findings)[1].Text!` like the other
+category tests instead of the brief's `PromptBuilder.Build(SystemPrompt, Request, Changes,
+findings)` + `messages.Where(m => m.Role == ChatRole.User)...` form. Behaviourally identical;
+assertions kept as specified (`"DAST (dynamic)"` and the XSS message substring).
+
+Also: `--filter PromtBuilderTests` (brief's Step 5, matching the typo'd filename) does not
+match anything — the class is `PromptBuilderTests` (no typo). Used `--filter
+PromptBuilderTests` instead; noted here since the brief's exact filter string doesn't work
+as written.
 
 ## TDD evidence
 
-### RED
-
-Command: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ReviewServiceTests"`
-
-Run after Steps 1–3 (fakes + tests written, Core seam NOT yet created):
-
+**RED** (`dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter
+"FullyQualifiedName~Build_rendersDastFindings"`, before Steps 3-4):
 ```
-/home/bnau/workspace/Naudit/.claude/worktrees/feat-mcp-context7/tests/Naudit.Tests/ReviewServiceTests.cs(21,9): error CS0246: The type or namespace name 'IReviewToolProvider' could not be found (are you missing a using directive or an assembly reference?) [.../Naudit.Tests.csproj]
-/home/bnau/workspace/Naudit/.claude/worktrees/feat-mcp-context7/tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs(8,71): error CS0246: The type or namespace name 'IReviewToolProvider' could not be found (are you missing a using directive or an assembly reference?) [.../Naudit.Tests.csproj]
+tests/Naudit.Tests/PromtBuilderTests.cs(106,53): error CS0117: 'FindingCategory' does not
+contain a definition for 'Dast' [.../Naudit.Tests.csproj]
 ```
+Matches the brief's expected failure mode (CS0117).
 
-Matches the brief's expectation exactly: "BUILD FAIL — `IReviewToolProvider` / `NullReviewToolProvider` do not exist yet."
-
-### GREEN
-
-After Steps 5–7 (Core seam created, `ReviewService` wired, DI registered) plus the extra
-`ReviewAuditSinkTests.cs` ctor-call fix (see below):
-
-Command: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ReviewServiceTests"`
-
+**GREEN** (`dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter PromptBuilderTests`,
+after Steps 3-4):
 ```
-Passed!  - Failed:     0, Passed:    29, Skipped:     0, Total:    29, Duration: 77 ms - Naudit.Tests.dll (net10.0)
+Passed!  - Failed: 0, Passed: 23, Skipped: 0, Total: 23, Duration: 131 ms
 ```
+(22 pre-existing + 1 new).
 
-(27 pre-existing `ReviewServiceTests` + the 2 new ones, all pass.)
+**Build:** `dotnet build Naudit.slnx` → 0 Errors, 20 warnings (all pre-existing
+`NU1903`/`System.Security.Cryptography.Xml` advisory noise, unrelated to this change).
 
-Full-suite run, command: `dotnet test Naudit.slnx`
-
-```
-Passed!  - Failed:     0, Passed:   345, Skipped:     0, Total:   345, Duration: 4 s - Naudit.Tests.dll (net10.0)
-```
-
-(One transient environment-level failure was observed on an earlier full-suite run —
-`ExternalAuthTests.GitHubChallenge_notMapped_whenDisabled` threw
-`System.IO.IOException: The configured user limit (128) on the number of inotify instances has
-been reached...` from `WebApplicationFactory`/`FileSystemWatcher` startup, unrelated to any code
-change here. Confirmed environmental: (1) `dotnet test --filter "FullyQualifiedName~ExternalAuthTests"`
-passed in isolation immediately after, and (2) a clean re-run of the full suite passed 345/345 with
-zero failures. Not caused by this change.)
+**Full suite:** `DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test Naudit.slnx`:
+- First run: 700 passed / 1 failed
+  (`Naudit.Tests.GitWorkspaceProviderTests.CheckoutAsync_throwsAndCleansUp_whenGitFails`,
+  `Assert.Empty()` on leftover temp dirs) — **unrelated** to this change (no touch to
+  `GitWorkspaceProvider` or its tests).
+- Verified pre-existing/flaky, not caused by this change: `git stash`'d this task's diff back
+  to baseline HEAD `94ecb39` and ran that single test in isolation → passed (1/1). Restored
+  the stash (`git stash pop`) and re-ran the **full** suite again with no isolation trick:
+  **701 passed / 0 failed** (`Total: 701, Duration: 26s`), i.e. baseline 700 + 1 new test, as
+  expected. The single earlier failure is consistent with test-parallelism/tmp-dir flakiness
+  in `GitWorkspaceProviderTests`, not a regression from this task.
 
 ## Files changed
 
-- `src/Naudit.Core/Abstractions/IReviewToolProvider.cs` (new)
-- `src/Naudit.Core/Review/ReviewService.cs`
-- `src/Naudit.Infrastructure/DependencyInjection.cs`
-- `tests/Naudit.Tests/Fakes/FakeChatClient.cs`
-- `tests/Naudit.Tests/Fakes/FakeReviewToolProvider.cs` (new)
-- `tests/Naudit.Tests/ReviewServiceTests.cs`
-- `tests/Naudit.Tests/ReviewAuditSinkTests.cs` (not in brief — see below)
+- `src/Naudit.Core/Models/ScanFinding.cs`
+- `src/Naudit.Core/Review/PromtBuilder.cs`
+- `tests/Naudit.Tests/PromtBuilderTests.cs`
 
-## Self-review findings
+## Self-review
 
-- Verified `chatOptions.Tools` stays `null` for the default no-op path (explicit test assertion
-  `Assert.Null(chat.LastOptions!.Tools)`), and gets populated (`[.. tools]`, a fresh array) when a
-  provider returns a non-empty list.
-- Verified Core's dependency footprint is unchanged: `src/Naudit.Core/Naudit.Core.csproj` still
-  references only `Microsoft.Extensions.AI.Abstractions`; built `Naudit.Core.csproj` alone
-  successfully with no new package references.
-- Checked for any other direct `ReviewService` constructor call sites across the repo
-  (`grep -rln "ReviewService"` over all `.cs` files, excluding `bin`/`obj`) to make sure nothing
-  else silently broke or was missed. Found exactly one such site beyond the brief's list —
-  `ReviewAuditSinkTests.cs` — and fixed it (see Deviation below). `SastWiringTests.cs` resolves
-  `ReviewService` via DI (`AddNauditInfrastructure`), so it picked up the new `NullReviewToolProvider`
-  registration automatically and needed no change.
-- DI registration placement matches the brief exactly (right after
-  `services.AddSingleton(aiOptions);`), and uses `IReviewToolProvider` which is already in scope via
-  the existing `using Naudit.Core.Abstractions;` in `DependencyInjection.cs`.
-
-## Deviation from brief
-
-The brief's file list did not include `tests/Naudit.Tests/ReviewAuditSinkTests.cs`, but it has its
-own local `CreateService` helper that directly calls `new ReviewService(...)` with a positional
-9-argument list (one short of the new 10-parameter primary ctor after this change). Once the ctor
-gained the trailing `IReviewToolProvider toolProvider` parameter (Step 6), that file failed to
-compile (`CS7036`, missing required parameter). This wasn't a case of the brief being wrong — it
-was simply an incomplete file list, since `ReviewAuditSinkTests` isn't part of the brief's explicit
-"Files" section. I fixed it consistently with the brief's own established pattern: appended
-`new NullReviewToolProvider()` as the last constructor argument. No test logic changed — same
-behavior as before (no-op tool provider), only the ctor call updated. All 3 tests in that file still
-pass. This was small, unambiguous, and clearly implied by the ctor-shape change the brief itself
-mandates, so I did not stop to ask.
+- Enum member appended **last** — ordinals of `Sast`(0)/`Sca`(1)/`Secrets`(2) unchanged, so any
+  persisted/serialized `FindingCategory` values (DB `ReviewFindingEntity`, if stored as int)
+  stay stable. Confirmed no other file in the repo pattern-matches on `FindingCategory` via a
+  `switch` that would need a new arm (grep confirms `AppendFindings` is the only consumer
+  besides `ScanFinding` itself and test fixtures).
+- Rendering follows the established `AppendCategory` pattern exactly (no new formatting code,
+  no new branches) — empty-DAST-list stays byte-identical to today's prompt (verified
+  implicitly: all pre-existing `Build_with*ByteIdentical` tests still pass).
+- Core rule intact: no new dependency, `Naudit.Core` still only touches
+  `Microsoft.Extensions.AI.Abstractions` types plus its own `Models`/`Review` namespace.
+- Committed exactly the three intended files (`git status` before commit confirmed no
+  unrelated pre-existing working-tree changes — `.superpowers/sdd/progress.md`,
+  `.superpowers/sdd/task-1-brief.md`, and an untracked plan doc — were swept in).
+- Commit message matches the brief's Step 7 exactly:
+  `feat(dast): FindingCategory.Dast + Prompt-Sektion für dynamische Funde`.
 
 ## Concerns
 
-None. Change is minimal and additive; default behavior is provably unchanged (dedicated test
-asserts `Tools` stays `null`); Core rule intact; full suite green.
+- None blocking. The one pre-existing flaky test
+  (`GitWorkspaceProviderTests.CheckoutAsync_throwsAndCleansUp_whenGitFails`) is worth a look
+  by whoever owns DAST PR 1/sandbox work if it recurs, but it is out of scope for this task and
+  not caused by this change (confirmed via isolated run against baseline HEAD and a clean
+  second full-suite run at 701/701).
