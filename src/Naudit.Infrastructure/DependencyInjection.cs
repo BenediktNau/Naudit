@@ -85,7 +85,19 @@ public static class DependencyInjection
             // Single-Modus und den Fallback-Pfad der Sessions ab (SessionSelectionFactory reicht diesen
             // globalen Client als Fallback durch).
             if (aiLogging.Enabled)
-                client = new MediatorChatClient(client, sp.GetRequiredService<IMediator>());
+            {
+                // Einmalige Warnung statt stiller Kappungs-Default: Enabled=true allein schreibt mit
+                // den übrigen Defaults ungekappte Prompt-Volltexte (Quellcode-Diffs) in eine Tabelle
+                // ohne Verfallslogik — und das ist DB-verwaltet, also ohne Code-Review umlegbar.
+                // Bewusst kein automatischer Cap: wer Prompts tunt, will sie vollständig sehen.
+                if (aiLogging.Persist && aiLogging.MaxCharsPerField <= 0)
+                    sp.GetRequiredService<ILoggerFactory>().CreateLogger("Naudit.Ai.Logging").LogWarning(
+                        "Prompt-Logging ist aktiv und persistiert UNGEKAPPT (Naudit:Ai:Logging:MaxCharsPerField=0). " +
+                        "ChatTranscripts wächst unbegrenzt mit Prompt-Volltexten; Kappung setzen oder regelmäßig aufräumen " +
+                        "(siehe docs/prompt-logging.md).");
+                client = new MediatorChatClient(client, sp.GetRequiredService<IMediator>(),
+                    sp.GetRequiredService<ILoggerFactory>().CreateLogger<MediatorChatClient>());
+            }
             return client;
         });
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)

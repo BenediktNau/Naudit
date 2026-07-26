@@ -38,7 +38,7 @@ public sealed class SessionSelectionFactory(
         // genau einmal protokolliert — schlägt er fehl, protokolliert der (bereits umhüllte) globale
         // Fallback-Client seinen Aufruf separat. Kein Doppel-Log desselben Ergebnisses.
         if (logging.Enabled)
-            sessionClient = new MediatorChatClient(sessionClient, mediator);
+            sessionClient = new MediatorChatClient(sessionClient, mediator, loggerFactory.CreateLogger<MediatorChatClient>());
 
         // Cooldown darf nie 0/negativ werden (sonst Retry-Storm gegen ein rate-limitiertes Abo).
         var cooldown = TimeSpan.FromMinutes(Math.Max(1, options.CooldownMinutes));

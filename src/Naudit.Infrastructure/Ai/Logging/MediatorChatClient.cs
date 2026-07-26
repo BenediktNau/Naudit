@@ -1,5 +1,6 @@
 using Mediator;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace Naudit.Infrastructure.Ai.Logging;
 
@@ -8,7 +9,7 @@ namespace Naudit.Infrastructure.Ai.Logging;
 /// weiterhin nur IChatClient — der Mediator bleibt vollständig eine Infrastructure-Sache.
 /// Streaming/GetService/Dispose reichen unverändert an den inneren Client durch (der Review-Pfad
 /// nutzt kein Streaming).</summary>
-public sealed class MediatorChatClient(IChatClient inner, IMediator mediator) : IChatClient
+public sealed class MediatorChatClient(IChatClient inner, IMediator mediator, ILogger<MediatorChatClient>? logger = null) : IChatClient
 {
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -23,7 +24,12 @@ public sealed class MediatorChatClient(IChatClient inner, IMediator mediator) : 
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
-        => inner.GetStreamingResponseAsync(messages, options, cancellationToken);
+    {
+        // Brotkrume statt stiller Lücke: der Review-Pfad streamt nicht, aber ein künftiger
+        // streamender Aufrufer bekäme hier sonst unbemerkt gar kein Protokoll.
+        logger?.LogDebug("Streaming-Aufruf umgeht das Prompt-Logging (kein Transcript) — siehe docs/prompt-logging.md.");
+        return inner.GetStreamingResponseAsync(messages, options, cancellationToken);
+    }
 
     public object? GetService(Type serviceType, object? serviceKey = null)
         => inner.GetService(serviceType, serviceKey);

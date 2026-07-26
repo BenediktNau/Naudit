@@ -72,6 +72,9 @@ Token) oder setzt `IncludePrompts=false`/`IncludeResponse=false`.
 `Persist=true` ist, und `MaxCharsPerField` begrenzt nur die Zeilenbreite, nicht die Zeilenzahl. Bei
 Dauerbetrieb mit aktivem Logging gehört ein Purge-Job dazu (offener Punkt); für den gedachten
 Einsatz — zeitweise einschalten, Prompts tunen, wieder ausschalten — reicht das Löschen von Hand.
+Weil `Enabled` DB-verwaltet ist (also ohne Code-Review umlegbar), **warnt der Start** einmalig, wenn
+Logging mit `Persist=true` und ohne Kappung (`MaxCharsPerField=0`) hochkommt. Ein automatischer
+Default-Cap wäre der falsche Weg: wer Prompts tunt, will sie vollständig sehen.
 
 ## Umfang / bewusste Grenzen
 
@@ -84,9 +87,9 @@ Einsatz — zeitweise einschalten, Prompts tunen, wieder ausschalten — reicht 
 - **Streaming wird nicht protokolliert.** `MediatorChatClient.GetStreamingResponseAsync` reicht
   unverändert an den inneren Client durch und geht damit an der Mediator-Pipeline vorbei. Der
   Review-Pfad streamt nicht (`ReviewService` ruft ausschließlich `GetResponseAsync`), aber wer den
-  Decorator künftig vor einen streamenden Pfad hängt, bekommt dort **stillschweigend** kein
-  Protokoll. Ein Streaming-Behavior müsste die Chunks aggregieren — bewusst nicht gebaut, solange es
-  keinen streamenden Aufrufer gibt.
+  Decorator künftig vor einen streamenden Pfad hängt, bekäme dort kein Protokoll — deshalb schreibt
+  dieser Weg wenigstens eine **Debug-Brotkrume**, statt still zu bleiben. Ein Streaming-Behavior
+  müsste die Chunks aggregieren; bewusst nicht gebaut, solange es keinen streamenden Aufrufer gibt.
 - **Der Tool-Loop ist eine Zeile.** Der Decorator liegt außerhalb des Function-Invocation-Wrappers
   (`DependencyInjection.cs`): bei aktivem MCP läuft der agentische Loop innerhalb *eines*
   Mediator-Durchgangs. Protokolliert wird die finale Antwort; `ToolCount` zählt die **angebotenen**

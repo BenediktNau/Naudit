@@ -419,17 +419,30 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
             var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty,
                 body.AuthorLogin, ReviewTrigger.Ci);
 
-            // Korrelation für die Prompt-Transcripts dieses CI-Reviews setzen (nur wenn Logging an).
+            // Korrelation für die Prompt-Transcripts dieses CI-Reviews setzen (nur wenn Logging an)
+            // und danach zurücknehmen — symmetrisch zum ReviewBackgroundService. Heute räumt der
+            // Request-Kontext das ohnehin ab; explizit zurückgesetzt bleibt es auch dann korrekt,
+            // wenn hier je Fire-and-Forget-Arbeit auf demselben Ausführungskontext dazukommt.
             var aiLogging = context.RequestServices.GetRequiredService<Naudit.Infrastructure.Ai.Logging.AiLoggingOptions>();
-            if (aiLogging.Enabled)
-                context.RequestServices.GetRequiredService<Naudit.Infrastructure.Ai.Logging.IReviewCorrelationAccessor>()
-                    .Current = new Naudit.Infrastructure.Ai.Logging.ReviewCorrelation(
-                        Guid.NewGuid(), request.ProjectId, request.MergeRequestIid, request.Trigger.ToString());
+            var correlation = aiLogging.Enabled
+                ? context.RequestServices.GetRequiredService<Naudit.Infrastructure.Ai.Logging.IReviewCorrelationAccessor>()
+                : null;
+            if (correlation is not null)
+                correlation.Current = new Naudit.Infrastructure.Ai.Logging.ReviewCorrelation(
+                    Guid.NewGuid(), request.ProjectId, request.MergeRequestIid, request.Trigger.ToString());
 
-            var result = await reviewService.ReviewAsync(request, ct);
+            try
+            {
+                var result = await reviewService.ReviewAsync(request, ct);
 
-            var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";
-            return Results.Ok(new { verdict });
+                var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";
+                return Results.Ok(new { verdict });
+            }
+            finally
+            {
+                if (correlation is not null)
+                    correlation.Current = null;
+            }
         });
 
         // GitHub-App-Installations-Status fürs Onboarding-Banner — mappt sich selbst nur bei
