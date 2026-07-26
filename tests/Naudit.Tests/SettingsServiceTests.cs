@@ -68,6 +68,23 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SetAsync_liste_wirdNormalisiertGespeichert()
+    {
+        await _service.SetAsync("Naudit:Sast:Analyzers", " opengrep , ,trivy ");
+        var row = await _db.Settings.SingleAsync(s => s.Key == "Naudit:Sast:Analyzers");
+        Assert.Equal("opengrep,trivy", row.Value);
+        Assert.False(row.IsSecret);
+    }
+
+    [Fact]
+    public async Task SetAsync_leereListe_entferntDenKey()
+    {
+        await _service.SetAsync("Naudit:Sast:Analyzers", "trivy");
+        await _service.SetAsync("Naudit:Sast:Analyzers", " , ");
+        Assert.Empty(await _db.Settings.Where(s => s.Key == "Naudit:Sast:Analyzers").ToListAsync());
+    }
+
+    [Fact]
     public void Catalog_kenntKernKeys_mitKorrektemSecretFlag()
     {
         Assert.True(SettingsCatalog.TryGet("Naudit:Ai:ApiKey", out var apiKey));

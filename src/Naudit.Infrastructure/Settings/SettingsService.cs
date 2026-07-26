@@ -15,6 +15,14 @@ public sealed class SettingsService(NauditDbContext db, IDataProtectionProvider 
         if (!SettingsCatalog.TryGet(key, out var def))
             throw new InvalidOperationException($"'{key}' ist kein verwalteter Setting-Key.");
 
+        if (def.IsList)
+        {
+            // Listen liegen als EINE CSV-Zeile in der DB; leer nach dem Normalisieren heißt
+            // "zurück auf Default" — sonst stünde dort eine Zeile mit leerem Wert.
+            value = SettingsValues.Normalize(value);
+            if (value.Length == 0) { await RemoveAsync(def.Key, ct); return; }
+        }
+
         var stored = def.IsSecret
             ? dataProtection.CreateProtector(ProtectorPurpose).Protect(value)
             : value;

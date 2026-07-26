@@ -40,12 +40,12 @@ public static class DbSettingsLoader
             // Nur Katalog-Keys aus der DB honorieren: die DB ist eine niedrigere Vertrauensstufe als
             // env. Manuell/stale eingefügte Zeilen für env-only Keys (z. B. Naudit:Ui:Admins) oder
             // entfernte Keys werden ignoriert — sonst könnten sie sich unter env in die Config schummeln.
-            if (!SettingsCatalog.TryGet(row.Key, out _)) continue;
+            if (!SettingsCatalog.TryGet(row.Key, out var definition)) continue;
             // IsSecret bleibt das Zeilen-Flag, nicht der Katalog: es sagt, WIE der Wert gespeichert
             // wurde (ver-/entschlüsselt). SettingsService hält es beim Schreiben synchron zum Katalog;
             // ein späterer Katalog-Flip darf eine korrekt gespeicherte Zeile nicht falsch dekodieren.
-            if (!row.IsSecret) { settings[row.Key] = row.Value; continue; }
-            try { settings[row.Key] = protector.Unprotect(row.Value); }
+            if (!row.IsSecret) { Store(definition, row.Value); continue; }
+            try { Store(definition, protector.Unprotect(row.Value)); }
             catch (CryptographicException)
             {
                 // Keyring weg/DB kopiert: Wert gilt als fehlend, wird neu abgefragt — kein Crash.
@@ -53,6 +53,15 @@ public static class DbSettingsLoader
             }
         }
         return new DbSettingsLoadResult(settings, warnings);
+
+        void Store(SettingDefinition definition, string value)
+        {
+            if (!definition.IsList) { settings[definition.Key] = value; return; }
+            // Listen: CSV ⇒ indizierte Kind-Keys, sonst bindet List<string> nichts.
+            var index = 0;
+            foreach (var item in SettingsValues.Split(value))
+                settings[$"{definition.Key}:{index++}"] = item;
+        }
     }
 
     /// <summary>SQLite legt Dateien an, aber keine Verzeichnisse — "Data Source=data/naudit.db"
