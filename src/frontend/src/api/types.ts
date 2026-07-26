@@ -106,7 +106,10 @@ export interface SettingItem {
   isSet: boolean;
   source: "db" | "env" | "default";
   editable: boolean;
+  /** Bei kind === "list" die Komma-Liste; Secrets sind immer null. */
   value: string | null;
+  kind: "scalar" | "list";
+  allowedValues: string[] | null;
 }
 
 export interface SettingsDto {
