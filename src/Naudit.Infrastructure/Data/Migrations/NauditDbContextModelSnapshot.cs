@@ -90,6 +90,62 @@ namespace Naudit.Infrastructure.Data.Migrations
                     b.ToTable("Accounts");
                 });
 
+            modelBuilder.Entity("Naudit.Infrastructure.Data.ChatTranscriptEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Failed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("InputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LatencyMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("OutputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PrNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProjectId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResponseText")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SystemPrompt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ToolCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Trigger")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserPrompt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrelationId");
+
+                    b.ToTable("ChatTranscripts");
+                });
+
             modelBuilder.Entity("Naudit.Infrastructure.Data.GitHubLinkEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -236,6 +292,9 @@ namespace Naudit.Infrastructure.Data.Migrations
 
                     b.Property<int?>("AiSessionAccountId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("CorrelationId")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");

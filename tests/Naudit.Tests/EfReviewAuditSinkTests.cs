@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Ai.Logging;
 using Naudit.Infrastructure.Ui;
 using Naudit.Tests.Fakes;
 using Xunit;
@@ -28,7 +29,7 @@ public class EfReviewAuditSinkTests
     public async Task Record_upsertsProject_insertsReviewWithFindings()
     {
         await using var db = NewDb();
-        var sink = new EfReviewAuditSink(db, NullLogger<EfReviewAuditSink>.Instance);
+        var sink = new EfReviewAuditSink(db, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
 
         await sink.RecordAsync(Audit());
         await sink.RecordAsync(Audit(pr: 8)); // zweiter Review, gleiches Projekt
@@ -41,6 +42,35 @@ public class EfReviewAuditSinkTests
         Assert.Single(project.Reviews[0].Findings);
     }
 
+    /// <summary>Die Klammer zwischen Review und seinen Prompt-Transcripts: der Sink spiegelt die
+    /// Ambient-CorrelationId auf die Review-Zeile (kein FK — die Transcripts entstehen vorher).</summary>
+    [Fact]
+    public async Task Record_spiegelt_CorrelationId_auf_das_Review()
+    {
+        await using var db = NewDb();
+        var corr = new ReviewCorrelation(Guid.NewGuid(), "owner/repo", 7, "Webhook");
+        var sink = new EfReviewAuditSink(db,
+            new AsyncLocalReviewCorrelationAccessor { Current = corr },
+            NullLogger<EfReviewAuditSink>.Instance);
+
+        await sink.RecordAsync(Audit());
+
+        Assert.Equal(corr.Id, (await db.Reviews.SingleAsync()).CorrelationId);
+    }
+
+    /// <summary>Ohne aktives Prompt-Logging bleibt die Spalte null — das Review-Detail zeigt dann
+    /// gar kein Transcript-Panel.</summary>
+    [Fact]
+    public async Task Record_laesst_CorrelationId_null_ohne_Korrelation()
+    {
+        await using var db = NewDb();
+        var sink = new EfReviewAuditSink(db, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
+
+        await sink.RecordAsync(Audit());
+
+        Assert.Null((await db.Reviews.SingleAsync()).CorrelationId);
+    }
+
     [Fact]
     public async Task Record_linksProjectToOwningActiveAccount()
     {
@@ -50,7 +80,7 @@ public class EfReviewAuditSinkTests
         db.Accounts.Add(acct);
         await db.SaveChangesAsync();
 
-        var sink = new EfReviewAuditSink(db, NullLogger<EfReviewAuditSink>.Instance);
+        var sink = new EfReviewAuditSink(db, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
         await sink.RecordAsync(Audit());
 
         Assert.Equal(acct.Id, (await db.Projects.SingleAsync()).AccountId);
@@ -63,7 +93,7 @@ public class EfReviewAuditSinkTests
         var acct = new AccountEntity { Username = "alice", Provider = AccountProvider.GitHub, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow };
         db.Context.Accounts.Add(acct);
         await db.Context.SaveChangesAsync();
-        var sink = new EfReviewAuditSink(db.Context, NullLogger<EfReviewAuditSink>.Instance);
+        var sink = new EfReviewAuditSink(db.Context, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
 
         await sink.RecordAsync(new ReviewAudit("o/r", 1, "T", ReviewVerdict.Approve, "S", [], 1, 1, "m",
             AiSessionAccountId: acct.Id));
@@ -75,7 +105,7 @@ public class EfReviewAuditSinkTests
     public async Task RecordAsync_persistsPlatformCommentAndNoteIds()
     {
         using var test = new TestDb();
-        var sink = new EfReviewAuditSink(test.Context, NullLogger<EfReviewAuditSink>.Instance);
+        var sink = new EfReviewAuditSink(test.Context, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
         var audit = new ReviewAudit("owner/repo", 1, "T", ReviewVerdict.Approve, "S",
             [new AuditFinding(FindingSeverity.High, ReviewConfidence.High, "a.cs", 1, "f", "gh-1", "gl-9")],
             null, null, null);

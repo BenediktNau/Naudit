@@ -5,6 +5,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Open-Source-Mediator (MIT, Source-Generator). Bewusst NICHT MediatR: das ist seit
+         2025-07 kommerziell (Lucky Penny Software). Source-Generator statt Reflection ⇒ AOT-tauglich,
+         passt zu .NET 10. Trägt die Prompt-/Kommunikations-Middleware (PromptLoggingBehavior).
+         SourceGenerator gehört ins äußerste Projekt, das Messages+Handler kennt = Infrastructure. -->
+    <PackageReference Include="Mediator.Abstractions" Version="3.0.2" />
+    <PackageReference Include="Mediator.SourceGenerator" Version="3.0.2">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />

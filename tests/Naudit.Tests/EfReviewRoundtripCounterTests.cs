@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Ai.Logging;
 using Naudit.Infrastructure.Ui;
 using Xunit;
 
@@ -26,7 +27,7 @@ public class EfReviewRoundtripCounterTests
     {
         await using var db = NewDb();
         // Über den Audit-Sink seeden — der Zähler zählt genau das, was der Sink schreibt.
-        var sink = new EfReviewAuditSink(db, NullLogger<EfReviewAuditSink>.Instance);
+        var sink = new EfReviewAuditSink(db, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
         await sink.RecordAsync(Audit("owner/repo", 7));
         await sink.RecordAsync(Audit("owner/repo", 7));
         await sink.RecordAsync(Audit("owner/repo", 8));   // anderer PR
