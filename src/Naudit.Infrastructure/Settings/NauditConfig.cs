@@ -29,14 +29,27 @@ public static class NauditConfig
                 insertAt = i + 1;
             }
         }
-        configuration.Sources.Insert(insertAt, new MemoryConfigurationSource
-        {
-            InitialData = new Dictionary<string, string?>(dbSettings),
-        });
-
+        // Env-Snapshot VOR dem Einfügen bilden (Skip(insertAt) == Skip(insertAt + 1) danach) —
+        // er entscheidet gleich mit, welche DB-Listen überhaupt eingefügt werden.
         var overrides = new ConfigurationBuilder();
-        foreach (var source in configuration.Sources.Skip(insertAt + 1))
+        foreach (var source in configuration.Sources.Skip(insertAt))
             overrides.Add(source);
-        return new EnvOverrides(overrides.Build());
+        var overrideRoot = overrides.Build();
+
+        var effective = new Dictionary<string, string?>(dbSettings);
+        foreach (var definition in SettingsCatalog.All.Where(d => d.IsList))
+        {
+            // Listen mergen in der Konfiguration INDEXWEISE über Quellen hinweg: env-Index 0 würde
+            // den DB-Index 0 überschreiben, DB-Index 1 aber stehen lassen — eine Mischliste, die
+            // niemand so konfiguriert hat. Setzt die Umgebung die Liste, fällt die DB-Liste ganz weg.
+            if (!SettingsValues.IsSet(overrideRoot, definition)) continue;
+            foreach (var key in effective.Keys
+                         .Where(k => k.StartsWith($"{definition.Key}:", StringComparison.OrdinalIgnoreCase))
+                         .ToList())
+                effective.Remove(key);
+        }
+
+        configuration.Sources.Insert(insertAt, new MemoryConfigurationSource { InitialData = effective });
+        return new EnvOverrides(overrideRoot);
     }
 }
