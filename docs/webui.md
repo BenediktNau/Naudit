@@ -212,9 +212,21 @@ the stable external id.
 
 - **BFF pattern:** the SPA never sees a token — HttpOnly session cookie (`naudit.session`),
   `GET /api/me` resolves the auth state, 401 on `/api/*` sends the SPA back to the login.
-- **Frontend** lives in `src/frontend` (Vite + React + TS + Tailwind 4, NauAssist layout);
+- **Frontend** lives in `src/frontend` (Vite + React + TS + Tailwind 4);
   the container build compiles it into `wwwroot/`. For local dev: `dotnet run` (port 5290)
   + `npm run dev` (proxies `/api` and `/auth`).
+- **Shell & design system:** the app frame is a left sidebar (`components/Sidebar.tsx`,
+  226 px, collapses to a wrapping top bar below `md`) plus one scrolling `<main>` capped at
+  1280 px; the active nav entry is marked by a pill that *glides* between entries (measured
+  with a `ResizeObserver`, not a per-item class). `App.tsx` owns page state, the page-in
+  direction (`swipeup`/`swipedown` by nav order) and the ⌘K **command palette**
+  (`components/CommandPalette.tsx` — pages, projects and recent PRs from the dashboard query;
+  arrow keys + Enter, Esc closes). Colours, fonts, easing and every keyframe are tokens in
+  `src/index.css` (`@theme`); one global `prefers-reduced-motion` rule freezes all of it.
+  Shared primitives sit in `components/ui/` — `Panel`/`PanelRow`, `StatTile`, `Sparkline`,
+  `Pill`/`SevTag`, `Input`/`Select`/`Textarea`, `PageHeader`/`LiveChip`, `Collapse`,
+  `EmptyState`, `Skeleton*`, plus `severity.ts` as the single severity→colour map. Add new
+  screens from these rather than fresh class strings.
 - **Persistence** is EF Core (`src/Naudit.Infrastructure/Data/`) on **SQLite (default) or
   Postgres** (`Naudit:Db:Provider`) and is always on; the schema is applied via
   `Database.Migrate()` at startup (run once, in the `DbSettingsLoader` bootstrap, before

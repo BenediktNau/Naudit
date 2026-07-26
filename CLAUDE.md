@@ -27,7 +27,7 @@ dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter ReviewServiceTests
 # Single test method
 dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter "FullyQualifiedName~ReviewAsync_postsModelOutput_asSummary"
 
-# WebUI frontend (src/frontend — Vite + React + TS + Tailwind 4, NauAssist layout)
+# WebUI frontend (src/frontend — Vite + React + TS + Tailwind 4, sidebar shell + ⌘K palette)
 cd src/frontend && npm ci && npm run lint && npm run build   # build = tsc --noEmit && vite build
 npm run dev   # dev server, proxies /api and /auth to dotnet run (port 5290)
 ```

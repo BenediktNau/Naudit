@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useRestartApp, useSaveSettings, useSettings } from "@/hooks/queries";
 import { Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { Skeleton, SkeletonPanel } from "@/components/ui/Skeleton";
 import type { SettingItem } from "@/api/types";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
@@ -14,19 +15,24 @@ import { SignInWizard } from "@/components/settings/wizards/SignInWizard";
 import { computeHints } from "@/components/settings/hints";
 import { CATEGORIES, type CategoryId, type SettingsCtx, type WizardState } from "@/components/settings/model";
 
+const banner = "rounded-[11px] border px-4 py-3 text-[12.5px]";
+
 function SettingsSkeleton() {
   return (
-    <div className="flex min-h-[70vh]">
-      <div className="w-[230px] shrink-0 border-r border-hairline px-[14px] py-5">
-        <Skeleton className="mb-4 h-3 w-16" />
-        {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="mb-2 h-8 w-full" />)}
+    <>
+      <Skeleton className="h-5 w-28" />
+      <Skeleton className="mt-2 h-3 w-80" />
+      <div className="mt-5 flex flex-wrap gap-5">
+        <div className="basis-[200px] shrink-0">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Skeleton key={i} className="mb-1.5 h-9 w-full" />
+          ))}
+        </div>
+        <div className="min-w-0 flex-1">
+          <SkeletonPanel />
+        </div>
       </div>
-      <div className="flex-1 px-8 py-7">
-        <Skeleton className="h-6 w-40" />
-        <Skeleton className="mt-2 h-3 w-96" />
-        <div className="mt-5"><SkeletonPanel /></div>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -47,17 +53,23 @@ export function SettingsPage() {
     return m;
   }, [data]);
 
-  const ctx: SettingsCtx = useMemo(() => ({
-    get: (k) => drafts[k] ?? byKey.get(k)?.value ?? "",
-    set: (k, v) => setDrafts((d) => ({ ...d, [k]: v })),
-    locked: (k) => byKey.get(k)?.editable === false,
-    secretSet: (k) => byKey.get(k)?.isSet ?? false,
-    options: (k) => byKey.get(k)?.allowedValues ?? [],
-    openWizard: (w) => setWizard(w),
-  }), [drafts, byKey]);
+  const ctx: SettingsCtx = useMemo(
+    () => ({
+      get: (k) => drafts[k] ?? byKey.get(k)?.value ?? "",
+      set: (k, v) => setDrafts((d) => ({ ...d, [k]: v })),
+      locked: (k) => byKey.get(k)?.editable === false,
+      secretSet: (k) => byKey.get(k)?.isSet ?? false,
+      options: (k) => byKey.get(k)?.allowedValues ?? [],
+      openWizard: (w) => setWizard(w),
+    }),
+    [drafts, byKey],
+  );
 
-  const dirty = Object.keys(drafts).length > 0;
-  const toggleRaw = (v: boolean) => { setRawMode(v); localStorage.setItem("naudit.settings.rawMode", v ? "1" : "0"); };
+  const dirtyCount = Object.keys(drafts).length;
+  const toggleRaw = (v: boolean) => {
+    setRawMode(v);
+    localStorage.setItem("naudit.settings.rawMode", v ? "1" : "0");
+  };
 
   if (isLoading || !data) return <SettingsSkeleton />;
 
@@ -75,47 +87,55 @@ export function SettingsPage() {
   const base = ctx.get("Naudit:PublicBaseUrl").replace(/\/+$/, "");
 
   return (
-    <div className="flex min-h-[70vh]">
-      <SettingsSidebar active={active} onSelect={setActive} rawMode={rawMode} onToggleRaw={toggleRaw} hints={hints} />
-      <div className="flex-1 px-8 py-7">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="font-mono text-[18px] font-bold">{rawMode ? "Raw keys" : activeMeta.title}</h2>
-            {!rawMode && <p className="mt-1 max-w-[56ch] text-[13px] text-ink2">{activeMeta.blurb}</p>}
-          </div>
-          <Button onClick={onSave} disabled={!dirty || save.isPending} className="shrink-0 px-3 py-1.5 text-[12.5px]">
-            {save.isPending ? "saving…" : "Save changes"}
-          </Button>
-        </div>
+    <>
+      <PageHeader title="Settings" subtitle="Changes apply after a restart. Keys set by environment are locked." />
 
+      <div className="flex flex-col gap-3">
         {data.recoveryError && (
-          <div className="mt-4 rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+          <div className={`${banner} border-danger/40 bg-danger/10 text-danger`}>
             <b>Recovery mode:</b> {data.recoveryError} — reviews are paused until fixed &amp; restarted.
           </div>
         )}
         {data.warnings.map((w) => (
-          <div key={w} className="mt-4 rounded border border-warn/40 bg-warn/10 px-4 py-3 text-[12.5px] text-warn">{w}</div>
+          <div key={w} className={`${banner} border-warn/40 bg-warn/10 text-warn`}>
+            {w}
+          </div>
         ))}
         {data.restartPending && (
-          <div className="mt-4 flex items-center justify-between rounded border border-hairline bg-elev px-4 py-3 text-[12.5px] text-ink2">
+          <div className={`${banner} flex flex-wrap items-center justify-between gap-3 border-hairline bg-surface text-ink2`}>
             <span>Pending changes — restart Naudit to apply.</span>
-            <Button variant="secondary" onClick={() => restart.mutate()} disabled={restart.isPending} className="px-3 py-1 text-[12.5px]">
+            <Button
+              variant="secondary"
+              onClick={() => restart.mutate()}
+              disabled={restart.isPending}
+              className="px-3 py-1 text-[12.5px]"
+            >
               {restart.isPending ? "restarting…" : "Restart now"}
             </Button>
           </div>
         )}
         {save.isError && (
-          <div className="mt-4 rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+          <div className={`${banner} border-danger/40 bg-danger/10 text-danger`}>
             Couldn't save settings: {save.error?.message ?? "unknown error"}
           </div>
         )}
         {restart.isError && (
-          <div className="mt-4 rounded border border-danger/40 bg-danger/10 px-4 py-3 text-[12.5px] text-danger">
+          <div className={`${banner} border-danger/40 bg-danger/10 text-danger`}>
             Restart failed: {restart.error?.message ?? "unknown error"}
           </div>
         )}
+      </div>
 
-        <div className="mt-5">
+      <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-start">
+        <SettingsSidebar active={active} onSelect={setActive} rawMode={rawMode} onToggleRaw={toggleRaw} hints={hints} />
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-4">
+            <h2 className="text-[14px] font-semibold text-ink">{rawMode ? "Raw keys" : activeMeta.title}</h2>
+            <p className="mt-1 max-w-[58ch] text-[12px] leading-relaxed text-ink3">
+              {rawMode ? "Every setting as its configuration key. For debugging and one-off overrides." : activeMeta.blurb}
+            </p>
+          </div>
           {rawMode ? (
             <RawKeys items={data.settings} ctx={ctx} />
           ) : (
@@ -129,7 +149,27 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+
+      {/* Speicherleiste erscheint erst, wenn es etwas zu speichern gibt — sie klebt am unteren Rand,
+          damit sie auch am Ende einer langen Kategorie erreichbar bleibt. */}
+      {dirtyCount > 0 && (
+        <div className="sticky bottom-0 z-30 -mx-5 mt-5 flex animate-risein flex-wrap items-center gap-3.5 border-t border-border bg-input px-5 py-3 md:-mx-6 md:px-6">
+          <span className="size-1.5 animate-livedot rounded-full bg-warn" aria-hidden />
+          <span className="text-[12.5px] text-ink2">
+            {dirtyCount} unsaved {dirtyCount === 1 ? "change" : "changes"} · applies after restart
+          </span>
+          <div className="ml-auto flex gap-2">
+            <Button variant="secondary" onClick={() => setDrafts({})} disabled={save.isPending} className="px-3.5 py-1.5 text-[12.5px]">
+              Discard
+            </Button>
+            <Button onClick={onSave} loading={save.isPending} className="px-4 py-1.5 text-[12.5px]">
+              Save changes
+            </Button>
+          </div>
+        </div>
+      )}
+
       {wizard && <SignInWizard state={wizard} ctx={ctx} base={base} onClose={() => setWizard(null)} />}
-    </div>
+    </>
   );
 }
