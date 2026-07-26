@@ -150,7 +150,9 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   **one comma-separated row** and expanded by `DbSettingsLoader` into indexed config keys
   (`…:Analyzers:0`), so the `*Options` classes see plain binding; `SettingsValues` holds the
   only two list-aware spots, reading a value and detecting env-set-ness — `Naudit__…__0` sets
-  no parent value, so the lock check goes through the section's children. `AllowedValues` is
+  no parent value, so the lock check goes through the section's children, and
+  `NauditConfig.InsertDbSettings` drops a DB list whose env counterpart is set (config merges
+  lists *per index* — otherwise env index 0 + DB index 1 would form a mixed list). `AllowedValues` is
   enforced by `PUT /api/settings` — an invalid analyzer name would otherwise only surface as
   recovery mode on the next start. `ProjectTokens`/`Ui:Admins` and the admin seed stay env-only
   on purpose). `SettingsService` writes/removes rows in the new `Settings` table,

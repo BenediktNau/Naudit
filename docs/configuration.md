@@ -45,7 +45,10 @@ Naudit__Sast__Analyzers__1=trivy
 ```
 
 A list counts as env-set — and is therefore **locked** in the UI — as soon as *any* index is
-present, even though the parent key itself never carries a value. `ProjectTokens` and
+present, even though the parent key itself never carries a value. In that case the database
+list is dropped entirely rather than merged: configuration merges lists *per index*, so an
+env-provided index `0` next to a database index `1` would otherwise produce a mixed list
+nobody configured. `ProjectTokens` and
 `Ui:Admins` stay env-only regardless: credentials and role grants do not belong in the same
 form as feature switches.
 
