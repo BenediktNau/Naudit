@@ -145,9 +145,15 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   before enqueue — silent drop with 200 — and in `POST /review` — 403).
 
   **Config model:** most `Naudit:*` keys are now DB-managed — a whitelist in
-  `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs` (`SettingDefinition(Key,
-  IsSecret)`; list-shaped keys like `ProjectTokens`/`Ui:Admins` and the admin seed stay
-  env-only on purpose). `SettingsService` writes/removes rows in the new `Settings` table,
+  `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs` (`SettingDefinition(Key, IsSecret,
+  IsList, AllowedValues)`; `IsList` keys — `Sast:Analyzers`, `Dast:Projects` — are stored as
+  **one comma-separated row** and expanded by `DbSettingsLoader` into indexed config keys
+  (`…:Analyzers:0`), so the `*Options` classes see plain binding; `SettingsValues` holds the
+  only two list-aware spots, reading a value and detecting env-set-ness — `Naudit__…__0` sets
+  no parent value, so the lock check goes through the section's children. `AllowedValues` is
+  enforced by `PUT /api/settings` — an invalid analyzer name would otherwise only surface as
+  recovery mode on the next start. `ProjectTokens`/`Ui:Admins` and the admin seed stay env-only
+  on purpose). `SettingsService` writes/removes rows in the new `Settings` table,
   encrypting `IsSecret` values with Data Protection (purpose `"Naudit.Settings"`).
   `DbSettingsLoader.Load` runs **before the host is built**: it builds its own throwaway
   `ServiceProvider` (DbContext + Data Protection on the same DB), runs
@@ -286,6 +292,8 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   `ISastAnalyzer` whenever `Naudit:Review:Dast:Enabled=true` — it is **not** an entry in
   `Naudit:Sast:Analyzers`. Gated twice: `Naudit:Review:Dast:Enabled` **and** the
   `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no project) — it executes foreign PR code.
+  Both switches (like `Naudit:Sast:Enabled`/`:Analyzers`) are DB-managed and live in the WebUI
+  under Settings → Review rules.
   Fail-open everywhere (`null`/empty findings — only a caller cancellation rethrows after teardown),
   plus a `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace`
   gained `ProjectId` for that allowlist. See `docs/dast.md`.
