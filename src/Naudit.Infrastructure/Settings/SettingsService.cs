@@ -23,6 +23,8 @@ public sealed class SettingsService(NauditDbContext db, IDataProtectionProvider 
             if (value.Length == 0) { await RemoveAsync(def.Key, ct); return; }
         }
 
+        value = Canonicalize(def, value);
+
         var stored = def.IsSecret
             ? dataProtection.CreateProtector(ProtectorPurpose).Protect(value)
             : value;
@@ -37,6 +39,21 @@ public sealed class SettingsService(NauditDbContext db, IDataProtectionProvider 
             row.UpdatedAtUtc = DateTime.UtcNow;
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Prüft Werte gegen AllowedValues und schreibt sie in der Schreibweise des Katalogs.
+    /// Die Validierung sitzt hier statt nur in der Settings-API, damit die Invariante für JEDEN
+    /// Aufrufer gilt (Tests, Seed, künftiges Admin-Tooling) — ein ungültiger Analyzer-Name fiele
+    /// sonst erst als Recovery-Modus beim nächsten Start auf. Kanonisiert wird, weil die WebUI
+    /// Werte exakt vergleicht: "TRIVY" dürfte nicht als eigener Eintrag neben "trivy" stehen.</summary>
+    private static string Canonicalize(SettingDefinition def, string value)
+    {
+        if (def.AllowedValues is not { } allowed) return value;
+        var items = def.IsList ? SettingsValues.Split(value) : [value];
+        return string.Join(",", items.Select(item =>
+            allowed.FirstOrDefault(a => string.Equals(a, item, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"'{item}' ist kein gültiger Wert für '{def.Key}'. Erlaubt: {string.Join(", ", allowed)}.")));
     }
 
     public async Task<bool> RemoveAsync(string key, CancellationToken ct = default)

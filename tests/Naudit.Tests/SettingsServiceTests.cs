@@ -77,6 +77,25 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SetAsync_werteMitAllowedValues_werdenAufKatalogSchreibweiseNormalisiert()
+    {
+        // Die UI vergleicht Analyzer-Namen exakt (Checkbox-Zustand) — "TRIVY" darf nicht als
+        // zweiter, eigener Eintrag neben "trivy" landen.
+        await _service.SetAsync("Naudit:Sast:Analyzers", "TRIVY, OpenGrep");
+        var row = await _db.Settings.SingleAsync(s => s.Key == "Naudit:Sast:Analyzers");
+        Assert.Equal("trivy,opengrep", row.Value);
+    }
+
+    [Fact]
+    public async Task SetAsync_ungueltigerWert_wirft()
+    {
+        // Invariante gilt unabhängig vom Aufrufer, nicht nur über die Settings-API.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.SetAsync("Naudit:Sast:Analyzers", "trivy,trivvy"));
+        Assert.Empty(await _db.Settings.ToListAsync());
+    }
+
+    [Fact]
     public async Task SetAsync_leereListe_entferntDenKey()
     {
         await _service.SetAsync("Naudit:Sast:Analyzers", "trivy");

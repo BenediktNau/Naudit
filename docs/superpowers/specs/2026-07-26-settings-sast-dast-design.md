@@ -91,8 +91,11 @@ anzeigen, den DB-Wert speichern — und die Umgebung würde ihn trotzdem überst
 | `Naudit:Sast:Reducer` | Skalar | `AllowedValues`: `deterministic` |
 | `Naudit:Review:Dast:Projects` | **Liste** | freie Werte (`owner/repo` bzw. GitLab-Projekt-Id) |
 
-Die `AllowedValues` für Analyzer sind die exakten `case`-Labels des Switch in
-`DependencyInjection.cs` — eine Abweichung wirft dort `InvalidOperationException`.
+Die `AllowedValues` für Analyzer sind die `case`-Labels des Switch in
+`DependencyInjection.cs`; dieser vergleicht über `name.ToLowerInvariant()`, ist also
+case-insensitiv — ein *unbekannter* Name wirft dort `InvalidOperationException`, eine
+abweichende Schreibweise nicht. `SettingsService` schreibt Werte trotzdem in der Schreibweise
+des Katalogs, weil die WebUI Analyzer-Namen exakt vergleicht (Checkbox-Zustand).
 
 ### 4. API
 
