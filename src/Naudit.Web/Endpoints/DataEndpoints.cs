@@ -89,6 +89,27 @@ public static class DataEndpoints
                 .Select(m => m.SourceFindingId!.Value)
                 .ToListAsync(ctx.RequestAborted);
 
+            // Prompt-/Kommunikations-Transcripts (Naudit:Ai:Logging) — NUR für Admins: die Volltexte
+            // enthalten (redigierten) Quellcode. Über CorrelationId dem Review zugeordnet.
+            var transcripts = acct.IsAdmin && review.CorrelationId is Guid corr
+                ? await db.ChatTranscripts.Where(t => t.CorrelationId == corr).OrderBy(t => t.CreatedAtUtc)
+                    .Select(t => new
+                    {
+                        id = t.Id,
+                        model = t.Model,
+                        systemPrompt = t.SystemPrompt,
+                        userPrompt = t.UserPrompt,
+                        responseText = t.ResponseText,
+                        inputTokens = t.InputTokens,
+                        outputTokens = t.OutputTokens,
+                        latencyMs = t.LatencyMs,
+                        toolCount = t.ToolCount,
+                        failed = t.Failed,
+                        createdAt = t.CreatedAtUtc,
+                    })
+                    .ToListAsync(ctx.RequestAborted)
+                : null;
+
             return Results.Ok(new
             {
                 id = review.Id,
@@ -112,6 +133,7 @@ public static class DataEndpoints
                     falsePositive = fpIds.Contains(f.Id),
                     resolutionStatus = f.ResolutionStatus,
                 }),
+                transcripts,
             });
         });
 

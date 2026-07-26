@@ -249,6 +249,24 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   undecryptable-token accounts, empty pool ⇒ global — sequential, not parallel; it is deliberate
   account-sharing under Anthropic's consumer terms, gated behind per-user consent. See
   `docs/author-sessions.md`.
+- **Prompt/communication logging (Mediator middleware):** every LLM call is made traceable —
+  system prompt, assembled user prompt, raw response, token usage, latency, model. Carried by an
+  **open-source Mediator** (`martinothamar/Mediator`, MIT source-generator — deliberately **not**
+  MediatR, which went commercial 2025-07) that lives **entirely in Infrastructure** (Core rule
+  intact — `ReviewService` unchanged). `MediatorChatClient` (`src/Naudit.Infrastructure/Ai/Logging/`)
+  decorates the global **and** the author/pool session `IChatClient`, routing `GetResponseAsync`
+  through `mediator.Send(ChatCompletionRequest)`; `PromptLoggingBehavior`
+  (`IPipelineBehavior<ChatCompletionRequest, ChatResponse>`) is the middleware: structured ILogger
+  + best-effort persistence of a `ChatTranscriptEntity` via `IChatTranscriptSink`/`EfChatTranscriptSink`.
+  Fail-open (logging/persist errors never fail the review; only a real call exception rethrows after
+  a `Failed`-transcript is captured). Review⇄transcript link is a `CorrelationId` (AsyncLocal
+  `IReviewCorrelationAccessor`, set at review entry in `ReviewBackgroundService`/`POST /review`,
+  mirrored onto `ReviewEntity.CorrelationId` by the audit sink — no FK, transcripts predate the
+  review row). Off by default, config-only via `Naudit:Ai:Logging` (`Enabled`/`IncludePrompts`/
+  `IncludeResponse`/`Persist`/`MaxCharsPerField`, DB-managed). WebUI: an **admin-only** "Prompt &
+  Kommunikation" panel in the review detail (`GET /api/reviews/{id}` returns `transcripts` only to
+  admins — prompts carry redacted source). DAST probing keeps its own un-wrapped base client and is
+  out of scope. See `docs/prompt-logging.md`.
 - **Session sandbox (containerized subscription sessions):** `Naudit:Ai:SessionSandbox = None | Docker`
   (default `None` = in-process CLI runs, today's behaviour). `Docker` moves Author/RoundRobin session
   runs into long-lived sibling containers per account (host Docker socket, same Naudit image,

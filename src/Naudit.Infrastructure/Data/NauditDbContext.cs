@@ -15,6 +15,7 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
     public DbSet<SetupDraftEntity> SetupDrafts => Set<SetupDraftEntity>();
     public DbSet<MemoryEntryEntity> MemoryEntries => Set<MemoryEntryEntity>();
     public DbSet<ProjectGuidelinesEntity> ProjectGuidelines => Set<ProjectGuidelinesEntity>();
+    public DbSet<ChatTranscriptEntity> ChatTranscripts => Set<ChatTranscriptEntity>();
 
     /// <summary>Data-Protection-Keys (Session-Cookie-Signatur) — in der DB statt im Dateisystem,
     /// damit Sessions Container-Neustarts auf beiden Backends überleben.</summary>
@@ -67,6 +68,8 @@ public sealed class NauditDbContext(DbContextOptions<NauditDbContext> options)
             e.HasIndex(x => x.ProjectId).IsUnique();     // genau ein Profil pro Projekt
             e.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
         });
+        // Transcript-Zeilen werden über CorrelationId dem Review zugeordnet (kein FK) — Index für den Join.
+        b.Entity<ChatTranscriptEntity>(e => e.HasIndex(x => x.CorrelationId));
         b.Entity<SettingEntity>(e => e.HasKey(x => x.Key));
         // Id wird von der App gesetzt (immer 1) — kein Autoincrement, hält die Migration provider-neutral.
         b.Entity<SetupDraftEntity>(e => e.Property(x => x.Id).ValueGeneratedNever());

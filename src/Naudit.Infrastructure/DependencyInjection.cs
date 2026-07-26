@@ -1,3 +1,4 @@
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -8,6 +9,7 @@ using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.ClaudeCode;
+using Naudit.Infrastructure.Ai.Logging;
 using Naudit.Infrastructure.Ai.Sandbox;
 using Naudit.Infrastructure.Context;
 using Naudit.Infrastructure.Dast;
@@ -48,6 +50,16 @@ public static class DependencyInjection
         // AI-Provider: aus Config gewählt, hinter IChatClient (austauschbar via appsettings).
         var aiOptions = configuration.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
 
+        // Prompt-/Kommunikations-Logging (Naudit:Ai:Logging). Der Mediator + Sink + Korrelations-Accessor
+        // werden IMMER registriert (billig, und SessionSelectionFactory nimmt IMediator im Ctor); die
+        // PromptLoggingBehavior-Pipeline läuft aber nur, wenn ein IChatClient tatsächlich mit
+        // MediatorChatClient umhüllt ist — und das passiert ausschließlich bei aiLogging.Enabled.
+        var aiLogging = configuration.GetSection("Naudit:Ai:Logging").Get<AiLoggingOptions>() ?? new AiLoggingOptions();
+        services.AddSingleton(aiLogging);
+        services.AddSingleton<IReviewCorrelationAccessor, AsyncLocalReviewCorrelationAccessor>();
+        services.AddMediator(o => o.PipelineBehaviors = new[] { typeof(PromptLoggingBehavior) });
+        services.AddScoped<IChatTranscriptSink, EfChatTranscriptSink>();
+
         // MCP-Runtime-Config (Naudit:Review:Mcp). Vor der IChatClient-Registrierung binden, damit der
         // Client-Wrap + der ClaudeCode-CLI-Pfad sie teilen. Singleton für die Review-Pipeline.
         var mcpOptions = configuration.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
@@ -68,6 +80,12 @@ public static class DependencyInjection
                         // abschalten bzw. die MEAI-Middleware mit einem ungültigen Wert brechen.
                         c => c.MaximumIterationsPerRequest = Math.Max(1, mcpOptions.MaxIterations))
                     .Build();
+            // Prompt-Logging als äußerste Hülle: leitet jeden GetResponseAsync durch den Mediator
+            // (PromptLoggingBehavior). Nur bei aktivem Logging — sonst kein Overhead. Deckt den
+            // Single-Modus und den Fallback-Pfad der Sessions ab (SessionSelectionFactory reicht diesen
+            // globalen Client als Fallback durch).
+            if (aiLogging.Enabled)
+                client = new MediatorChatClient(client, sp.GetRequiredService<IMediator>());
             return client;
         });
         services.AddSingleton(aiOptions); // effektive AI-Config für DI (Review-Pipeline; AiClientFactory oben)

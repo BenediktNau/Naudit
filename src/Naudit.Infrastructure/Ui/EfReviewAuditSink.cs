@@ -2,13 +2,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
+using Naudit.Infrastructure.Ai.Logging;
 using Naudit.Infrastructure.Data;
 
 namespace Naudit.Infrastructure.Ui;
 
 /// <summary>Persistiert Review-Audits: Projekt-Upsert (Auto-Registrierung beim 1. Review,
 /// inkl. Owner-Zuordnung zum aktiven Account) + Review + Findings.</summary>
-public sealed class EfReviewAuditSink(NauditDbContext db, ILogger<EfReviewAuditSink> logger) : IReviewAuditSink
+public sealed class EfReviewAuditSink(
+    NauditDbContext db,
+    IReviewCorrelationAccessor correlation,
+    ILogger<EfReviewAuditSink> logger) : IReviewAuditSink
 {
     public async Task RecordAsync(ReviewAudit audit, CancellationToken ct = default)
     {
@@ -49,6 +53,9 @@ public sealed class EfReviewAuditSink(NauditDbContext db, ILogger<EfReviewAuditS
             OutputTokens = audit.OutputTokens,
             Model = audit.Model,
             AiSessionAccountId = audit.AiSessionAccountId,
+            // Prompt-Transcripts sind über diese Id angehängt (vom PromptLoggingBehavior geschrieben);
+            // null, wenn Naudit:Ai:Logging aus war. Aus dem Ambient-Kontext dieses Reviews.
+            CorrelationId = correlation.Current?.Id,
             CreatedAt = now,
         };
         foreach (var f in audit.Findings)

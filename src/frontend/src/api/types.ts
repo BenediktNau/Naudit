@@ -62,6 +62,20 @@ export interface FindingDto {
   resolutionStatus?: string | null;
 }
 
+export interface TranscriptDto {
+  id: number;
+  model: string | null;
+  systemPrompt: string | null;
+  userPrompt: string | null;
+  responseText: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  latencyMs: number;
+  toolCount: number;
+  failed: boolean;
+  createdAt: string;
+}
+
 export interface ReviewDetailDto {
   id: number;
   prNumber: number;
@@ -74,6 +88,8 @@ export interface ReviewDetailDto {
   outputTokens: number | null;
   createdAt: string;
   findings: FindingDto[];
+  /** Prompt-/Kommunikations-Protokoll (Naudit:Ai:Logging) — nur für Admins befüllt, sonst null/leer. */
+  transcripts?: TranscriptDto[] | null;
 }
 
 export interface AccountDto {

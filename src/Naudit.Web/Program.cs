@@ -418,6 +418,14 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
             // frisches Verdict (und ist der Weg, ein weiteres Review zu erzwingen).
             var request = new ReviewRequest(body.ProjectId, body.MergeRequestIid, body.Title ?? string.Empty,
                 body.AuthorLogin, ReviewTrigger.Ci);
+
+            // Korrelation für die Prompt-Transcripts dieses CI-Reviews setzen (nur wenn Logging an).
+            var aiLogging = context.RequestServices.GetRequiredService<Naudit.Infrastructure.Ai.Logging.AiLoggingOptions>();
+            if (aiLogging.Enabled)
+                context.RequestServices.GetRequiredService<Naudit.Infrastructure.Ai.Logging.IReviewCorrelationAccessor>()
+                    .Current = new Naudit.Infrastructure.Ai.Logging.ReviewCorrelation(
+                        Guid.NewGuid(), request.ProjectId, request.MergeRequestIid, request.Trigger.ToString());
+
             var result = await reviewService.ReviewAsync(request, ct);
 
             var verdict = result.Verdict == ReviewVerdict.RequestChanges ? "request_changes" : "approve";

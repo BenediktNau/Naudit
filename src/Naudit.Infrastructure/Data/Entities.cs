@@ -69,6 +69,11 @@ public sealed class ReviewEntity
 
     /// <summary>Account, dessen Autor-Session dieses Review getragen hat (null = globaler Provider).</summary>
     public int? AiSessionAccountId { get; set; }
+
+    /// <summary>Verknüpft dieses Review mit seinen ChatTranscript-Zeilen (Prompt/Antwort-Protokoll).
+    /// Wird vom PromptLoggingBehavior gesetzt und hier vom Audit-Sink gespiegelt; null, wenn
+    /// Naudit:Ai:Logging aus war. Kein FK — die Transcripts entstehen VOR der Review-Zeile.</summary>
+    public Guid? CorrelationId { get; set; }
 }
 
 public sealed class ReviewFindingEntity
@@ -99,6 +104,30 @@ public sealed class ReviewFindingEntity
     /// <summary>Plattform-Login bzw. WebUI-Username, der das Finding aufgelöst hat.</summary>
     public string? ResolvedBy { get; set; }
     public DateTime? ResolvedAtUtc { get; set; }
+}
+
+/// <summary>Protokoll eines einzelnen LLM-Austauschs (Prompt + rohe Antwort + Metadaten), erzeugt
+/// vom PromptLoggingBehavior, wenn Naudit:Ai:Logging aktiv ist. Über CorrelationId dem Review
+/// zugeordnet (ein Review kann mehrere Zeilen haben: Retry, Autor-Fallback, DAST). Prompt-/
+/// Antwort-Volltexte sind bereits redigiert (Redaction läuft vor dem Prompt) — im WebUI dennoch
+/// nur Admins sichtbar.</summary>
+public sealed class ChatTranscriptEntity
+{
+    public int Id { get; set; }
+    public Guid CorrelationId { get; set; }
+    public required string ProjectId { get; set; }     // PlatformProjectId ("owner/repo" bzw. GitLab-Id)
+    public int PrNumber { get; set; }
+    public string? Trigger { get; set; }               // "Webhook" | "Ci" | …
+    public string? Model { get; set; }
+    public string? SystemPrompt { get; set; }
+    public string? UserPrompt { get; set; }
+    public string? ResponseText { get; set; }          // rohe LLM-Antwort (vor dem JSON-Parsen)
+    public long? InputTokens { get; set; }
+    public long? OutputTokens { get; set; }
+    public long LatencyMs { get; set; }
+    public int ToolCount { get; set; }
+    public bool Failed { get; set; }                   // Aufruf warf (z. B. Autor-Session vor Fallback)
+    public DateTime CreatedAtUtc { get; set; }
 }
 
 /// <summary>Ein verwalteter Konfigurationswert (Key in Doppelpunkt-Notation, z. B. "Naudit:Ai:Provider").

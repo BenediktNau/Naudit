@@ -118,6 +118,45 @@ export function ReviewDetail({ id }: { id: number }) {
           ))}
         </div>
       )}
+      {data.transcripts && data.transcripts.length > 0 && (
+        <div className="mt-4 border-t border-hairline pt-3">
+          <div className="mb-2 font-mono text-[11px] tracking-wide text-ink3 uppercase">
+            Prompt &amp; Kommunikation · {data.transcripts.length}
+          </div>
+          <div className="flex flex-col gap-2">
+            {data.transcripts.map((t) => (
+              <details key={t.id} className="rounded border border-hairline bg-elev">
+                <summary className="cursor-pointer list-none px-3 py-2 font-mono text-[11px] text-ink2">
+                  <span className={t.failed ? "text-danger" : "text-acc"}>{t.failed ? "✗ failed" : "▸ call"}</span>
+                  {t.model && <span className="text-ink3"> · {t.model}</span>}
+                  <span className="text-ink3 tabular-nums">
+                    {" "}· {t.latencyMs}ms
+                    {t.inputTokens !== null && ` · ${fmtTokens(t.inputTokens)} in / ${fmtTokens(t.outputTokens ?? 0)} out`}
+                    {t.toolCount > 0 && ` · ${t.toolCount} tools`}
+                  </span>
+                </summary>
+                <div className="flex flex-col gap-2 px-3 pt-1 pb-3">
+                  {t.systemPrompt && <PromptBlock label="System-Prompt" text={t.systemPrompt} />}
+                  {t.userPrompt && <PromptBlock label="User-Prompt (Diff + Kontext)" text={t.userPrompt} />}
+                  {t.responseText && <PromptBlock label="Rohe LLM-Antwort" text={t.responseText} />}
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Ein beschriftetes, scrollbares Klartext-Feld (Prompt bzw. Antwort) — Volltext zum Prompt-Optimieren. */
+function PromptBlock({ label, text }: { label: string; text: string }) {
+  return (
+    <div>
+      <div className="mb-1 font-mono text-[10px] text-ink3">{label}</div>
+      <pre className="max-h-80 overflow-auto rounded bg-bg p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink2">
+        {text}
+      </pre>
     </div>
   );
 }
