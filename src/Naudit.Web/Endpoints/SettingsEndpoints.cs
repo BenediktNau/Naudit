@@ -25,8 +25,8 @@ public static class SettingsEndpoints
                 restartPending = restarter.RestartPending,
                 settings = SettingsCatalog.All.Select(def =>
                 {
-                    var envLocked = env.Root[def.Key] is not null;
-                    var isSet = envLocked || dbKeys.Contains(def.Key) || config[def.Key] is not null;
+                    var envLocked = SettingsValues.IsSet(env.Root, def);
+                    var isSet = envLocked || dbKeys.Contains(def.Key) || SettingsValues.IsSet(config, def);
                     return new
                     {
                         key = def.Key,
@@ -34,7 +34,9 @@ public static class SettingsEndpoints
                         isSet,
                         source = envLocked ? "env" : dbKeys.Contains(def.Key) ? "db" : "default",
                         editable = !envLocked,
-                        value = def.IsSecret ? null : config[def.Key],
+                        value = def.IsSecret ? null : SettingsValues.Read(config, def),
+                        kind = def.IsList ? "list" : "scalar",
+                        allowedValues = def.AllowedValues,
                     };
                 }),
             });
@@ -52,10 +54,17 @@ public static class SettingsEndpoints
             // Erst komplett validieren, dann schreiben — keine halb angewendeten Batches.
             foreach (var change in body.Changes)
             {
-                if (!SettingsCatalog.TryGet(change.Key, out _))
+                if (!SettingsCatalog.TryGet(change.Key, out var def))
                     return Results.BadRequest(new { error = $"'{change.Key}' is not a managed setting." });
-                if (env.Root[change.Key] is not null)
+                if (SettingsValues.IsSet(env.Root, def))
                     return Results.BadRequest(new { error = $"'{change.Key}' is set via environment and cannot be edited here." });
+                if (change.Value is null || def.AllowedValues is not { } allowed) continue;
+                // Ungültige Werte würden erst beim nächsten Start auffallen — und den Host dann
+                // in den Recovery-Modus zwingen. Deshalb hier hart ablehnen.
+                var candidates = def.IsList ? SettingsValues.Split(change.Value) : [change.Value];
+                foreach (var candidate in candidates)
+                    if (!allowed.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+                        return Results.BadRequest(new { error = $"'{candidate}' is not a valid value for '{change.Key}'. Allowed: {string.Join(", ", allowed)}." });
             }
             foreach (var change in body.Changes)
             {

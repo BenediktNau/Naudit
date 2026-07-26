@@ -94,6 +94,52 @@ public class SettingsEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Get_liefertKindUndAllowedValues()
+    {
+        var (client, _) = CreateLoggedInAdmin();
+        var doc = JsonDocument.Parse(await client.GetStringAsync("/api/settings"));
+        var settings = doc.RootElement.GetProperty("settings").EnumerateArray().ToList();
+
+        var analyzers = settings.Single(s => s.GetProperty("key").GetString() == "Naudit:Sast:Analyzers");
+        Assert.Equal("list", analyzers.GetProperty("kind").GetString());
+        Assert.Contains("trivy", analyzers.GetProperty("allowedValues").EnumerateArray().Select(v => v.GetString()));
+
+        var model = settings.Single(s => s.GetProperty("key").GetString() == "Naudit:Ai:Model");
+        Assert.Equal("scalar", model.GetProperty("kind").GetString());
+        Assert.Equal(JsonValueKind.Null, model.GetProperty("allowedValues").ValueKind);
+    }
+
+    [Fact]
+    public async Task Put_unbekannterAnalyzer_wirdAbgelehnt()
+    {
+        var (client, restarter) = CreateLoggedInAdmin();
+        var res = await client.PutAsJsonAsync("/api/settings", new
+        {
+            changes = new[] { new { key = "Naudit:Sast:Analyzers", value = (string?)"trivy,trivvy" } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains("trivvy", await res.Content.ReadAsStringAsync());
+        Assert.False(restarter.RestartPending); // nichts geschrieben, kein Restart angefordert
+    }
+
+    [Fact]
+    public async Task Put_gueltigeAnalyzerListe_wirdGespeichert()
+    {
+        var (client, restarter) = CreateLoggedInAdmin();
+        var res = await client.PutAsJsonAsync("/api/settings", new
+        {
+            changes = new[] { new { key = "Naudit:Sast:Analyzers", value = (string?)"trivy, dotnet-sca" } },
+        });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(restarter.RestartPending);
+
+        var doc = JsonDocument.Parse(await client.GetStringAsync("/api/settings"));
+        var analyzers = doc.RootElement.GetProperty("settings").EnumerateArray()
+            .Single(s => s.GetProperty("key").GetString() == "Naudit:Sast:Analyzers");
+        Assert.Equal("db", analyzers.GetProperty("source").GetString());
+    }
+
+    [Fact]
     public async Task Restart_ruftRestarter_undGibt204()
     {
         var (client, restarter) = CreateLoggedInAdmin();
