@@ -68,6 +68,42 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SetAsync_liste_wirdNormalisiertGespeichert()
+    {
+        await _service.SetAsync("Naudit:Sast:Analyzers", " opengrep , ,trivy ");
+        var row = await _db.Settings.SingleAsync(s => s.Key == "Naudit:Sast:Analyzers");
+        Assert.Equal("opengrep,trivy", row.Value);
+        Assert.False(row.IsSecret);
+    }
+
+    [Fact]
+    public async Task SetAsync_werteMitAllowedValues_werdenAufKatalogSchreibweiseNormalisiert()
+    {
+        // Die UI vergleicht Analyzer-Namen exakt (Checkbox-Zustand) — "TRIVY" darf nicht als
+        // zweiter, eigener Eintrag neben "trivy" landen.
+        await _service.SetAsync("Naudit:Sast:Analyzers", "TRIVY, OpenGrep");
+        var row = await _db.Settings.SingleAsync(s => s.Key == "Naudit:Sast:Analyzers");
+        Assert.Equal("trivy,opengrep", row.Value);
+    }
+
+    [Fact]
+    public async Task SetAsync_ungueltigerWert_wirft()
+    {
+        // Invariante gilt unabhängig vom Aufrufer, nicht nur über die Settings-API.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.SetAsync("Naudit:Sast:Analyzers", "trivy,trivvy"));
+        Assert.Empty(await _db.Settings.ToListAsync());
+    }
+
+    [Fact]
+    public async Task SetAsync_leereListe_entferntDenKey()
+    {
+        await _service.SetAsync("Naudit:Sast:Analyzers", "trivy");
+        await _service.SetAsync("Naudit:Sast:Analyzers", " , ");
+        Assert.Empty(await _db.Settings.Where(s => s.Key == "Naudit:Sast:Analyzers").ToListAsync());
+    }
+
+    [Fact]
     public void Catalog_kenntKernKeys_mitKorrektemSecretFlag()
     {
         Assert.True(SettingsCatalog.TryGet("Naudit:Ai:ApiKey", out var apiKey));

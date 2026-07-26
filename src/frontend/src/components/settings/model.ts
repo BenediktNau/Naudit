@@ -10,6 +10,7 @@ export interface SettingsCtx {
   set(key: string, value: string): void;
   locked(key: string): boolean;   // env-gesetzt (editable === false)
   secretSet(key: string): boolean;
+  options(key: string): string[];  // allowedValues aus dem Katalog, [] wenn frei
   openWizard(w: NonNullable<WizardState>): void;
 }
 

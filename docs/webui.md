@@ -156,7 +156,7 @@ Unauthorized webhooks are dropped silently; the project simply gets no review co
 ## Settings are editable
 
 The Settings screen shows every DB-managed key (platform, AI provider/model, review/gate
-tuning, access-gate mode, sign-in methods — the whitelist in
+tuning, the SAST/DAST switches, access-gate mode, sign-in methods — the whitelist in
 [`SettingsCatalog.cs`](../src/Naudit.Infrastructure/Settings/SettingsCatalog.cs)) and lets
 an **admin** change them:
 
@@ -166,6 +166,12 @@ an **admin** change them:
 - **Changes apply after a restart.** Saving writes to the database and shows a
   "restart required" banner with a "Restart now" button (`IAppRestarter` — an in-process
   restart, no container/orchestrator restart needed, a couple of seconds of downtime).
+- **Scanning lives under "Review rules".** A "Static analysis (SAST)" panel (switch + one
+  checkbox per analyzer) and a "Dynamic testing (DAST)" panel (switch + project allowlist,
+  one per line, plus Dockerfile path/app port/health path). Both keys are list-shaped
+  underneath — see [List-shaped settings](configuration.md#list-shaped-settings). DAST builds
+  and runs untrusted pull-request code and needs the mounted Docker socket; enabling it
+  without allowlisting a project runs nothing, and the panel says so.
 - **Secrets are write-only.** The API never returns a secret's value, only whether it is
   set; a new value overwrites, an empty value clears it back to the default. Secrets are
   encrypted at rest (ASP.NET Data Protection) — see

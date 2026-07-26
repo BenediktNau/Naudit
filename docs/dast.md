@@ -124,13 +124,16 @@ drop needed at container start). There is no config knob to relax this — loose
 All keys live under `Naudit:Review:Dast:*`. Most scalars are DB-managed (Settings page,
 then restart) or settable as environment overrides; `HealthPollInterval`, `ProbeMcpArgv`
 and `HandshakeTimeout` are **env/appsettings-only**, not on the Settings page (see
-`SettingsCatalog.cs` for the authoritative list); `Projects` is list-shaped and therefore
-**env/appsettings-only** (indexed syntax), like `ProjectTokens`.
+`SettingsCatalog.cs` for the authoritative list). `Projects` is list-shaped but DB-managed:
+the Settings page has a "Dynamic testing (DAST)" panel (one project per line) and stores the
+value as a single comma-separated row. Setting it via environment still uses the indexed
+syntax (`Naudit__Review__Dast__Projects__0`) and locks the field in the UI — see
+[List-shaped settings](configuration.md#list-shaped-settings).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `Enabled` | `false` | Global kill switch. |
-| `Projects` | *(empty)* | Allowlisted `owner/repo` / GitLab project ids. Empty = no project runs. Env-only. |
+| `Projects` | *(empty)* | Allowlisted `owner/repo` / GitLab project ids. Empty = no project runs. Settings page, or indexed env syntax. |
 | `DockerfilePath` | `Dockerfile` | Path to the PR's Dockerfile, relative to the checkout root. Missing ⇒ DAST is skipped for that PR. |
 | `AppPort` | `8080` | Port the app listens on inside its own container. |
 | `HealthPath` | `/` | HTTP path used for the healthcheck. |

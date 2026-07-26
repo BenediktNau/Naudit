@@ -16,8 +16,8 @@ variable always **wins over the database** and shows up on the Settings page as
 the Settings page; the page is for the keys you *haven't* pinned via env. The exact list
 of DB-managed keys is the whitelist in
 [`SettingsCatalog.cs`](../src/Naudit.Infrastructure/Settings/SettingsCatalog.cs) — it
-covers platform/AI/review/access-gate/sign-in settings, but not list-shaped config
-(`ProjectTokens`, `Ui:Admins`), the admin seed (`Ui:Admin:Username`/`InitialPassword` —
+covers platform/AI/review/scanning/access-gate/sign-in settings, but not the credential
+lists (`ProjectTokens`, `Ui:Admins`), the admin seed (`Ui:Admin:Username`/`InitialPassword` —
 **required on first start** to create the initial local admin, unless you sign in through
 an external provider whose username is in `Ui:Admins`), or the redaction/review-context
 tuning knobs, which stay user-secrets/environment-only for now.
@@ -27,6 +27,30 @@ needed *before* the database can be opened, or they configure the transport itse
 putting them in the database would be circular: `Naudit:Db:Provider`,
 `Naudit:Db:ConnectionString`, `Naudit:ForwardedHeaders:*`, and the listening
 port/URLs (`ASPNETCORE_URLS`). These never appear on the Settings page.
+
+### List-shaped settings
+
+A few DB-managed keys are lists — `Naudit:Sast:Analyzers` and `Naudit:Review:Dast:Projects`.
+In the database they live in a **single row** holding a comma-separated value
+(`opengrep,trivy`); on startup `DbSettingsLoader` expands them into the indexed config keys
+(`Naudit:Sast:Analyzers:0`, `:1`, …) that normal options binding expects. On the Settings page
+they are edited as checkboxes / one entry per line, and in the raw-keys view as a
+comma-separated field.
+
+Setting them via environment still uses the indexed syntax:
+
+```
+Naudit__Sast__Analyzers__0=opengrep
+Naudit__Sast__Analyzers__1=trivy
+```
+
+A list counts as env-set — and is therefore **locked** in the UI — as soon as *any* index is
+present, even though the parent key itself never carries a value. In that case the database
+list is dropped entirely rather than merged: configuration merges lists *per index*, so an
+env-provided index `0` next to a database index `1` would otherwise produce a mixed list
+nobody configured. `ProjectTokens` and
+`Ui:Admins` stay env-only regardless: credentials and role grants do not belong in the same
+form as feature switches.
 
 **Secrets** (🔒 in the table below) stored via the Settings page are **encrypted at
 rest** in the database (ASP.NET Data Protection) and **write-only** through the API — it
@@ -116,6 +140,12 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Review:Mcp:Enabled` | Let the review LLM call MCP tools (Context7 live docs) — **default `false`**, byte-identical single-shot when off (see [MCP tools](mcp-tools.md)) |
 | `Naudit:Review:Mcp:MaxIterations` | Tool round-trip cap per review, both provider paths (default `4`) |
 | `Naudit:Review:Mcp:Servers:<n>:Name` / `:Transport` / `:Url` / `:Command` / `:Arguments` / `:ApiKey` | Configured MCP servers — list-shaped like `ProjectTokens`, env/appsettings-configurable; the per-server `ApiKey` is a **secret** and must not go in `appsettings.json` (user-secrets/env/secret-manager only, see [MCP tools](mcp-tools.md)) |
+| `Naudit:Sast:Enabled` | SAST/SCA grounding on/off — default `false`; off ⇒ exactly diff-only (see [SAST grounding](sast-grounding.md)) |
+| `Naudit:Sast:Analyzers` | Active analyzers — `opengrep` \| `betterleaks` \| `osv-scanner` \| `trivy` \| `dotnet-sca`; **list-shaped** (see [List-shaped settings](#list-shaped-settings)); empty ⇒ `opengrep,trivy` |
+| `Naudit:Sast:AnalyzerTimeout` | Timeout per analyzer run (default `00:05:00`) |
+| `Naudit:Sast:MaxFindingsPerGroup` | Cap per category when condensing findings (default `20`) |
+| `Naudit:Sast:Reducer` | Reducer strategy — currently only `deterministic` |
+| `Naudit:Review:Dast:Enabled` / `:Projects` | Dynamic testing on/off plus the per-project allowlist (**list-shaped**, empty ⇒ no project runs). Both switches must agree — DAST builds and runs untrusted PR code (see [DAST](dast.md)) |
 | `Naudit:Review:Memory:Enabled` | Inject per-project maintainer guidance (false positives + conventions) as a read-only prompt section — **default `true`** (see [Review memory](review-memory.md)) |
 | `Naudit:Review:Memory:MaxEntries` | Cap on memory entries injected per review — conventions first, then false positives, newest-first (default `50`) |
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |

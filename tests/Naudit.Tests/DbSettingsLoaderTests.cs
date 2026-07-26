@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Settings;
@@ -61,6 +63,39 @@ public sealed class DbSettingsLoaderTests : IDisposable
         var result = DbSettingsLoader.Load(Options);
         Assert.False(result.Settings.ContainsKey("Naudit:Ai:ApiKey"));
         Assert.Contains(result.Warnings, w => w.Contains("Naudit:Ai:ApiKey"));
+    }
+
+    [Fact]
+    public void Load_listenKey_wirdZuIndiziertenConfigKeysExpandiert()
+    {
+        DbSettingsLoader.Load(Options);
+        WriteViaService(svc =>
+        {
+            svc.SetAsync("Naudit:Sast:Analyzers", "opengrep, trivy").GetAwaiter().GetResult();
+            svc.SetAsync("Naudit:Review:Dast:Projects", "acme/web").GetAwaiter().GetResult();
+        });
+
+        var result = DbSettingsLoader.Load(Options);
+
+        Assert.Equal("opengrep", result.Settings["Naudit:Sast:Analyzers:0"]);
+        Assert.Equal("trivy", result.Settings["Naudit:Sast:Analyzers:1"]);
+        Assert.Equal("acme/web", result.Settings["Naudit:Review:Dast:Projects:0"]);
+        // Elternkey bleibt leer: List<string>-Binding liest ausschliesslich Kinder.
+        Assert.False(result.Settings.ContainsKey("Naudit:Sast:Analyzers"));
+    }
+
+    [Fact]
+    public void Load_listenKey_bindetAufSastOptions()
+    {
+        DbSettingsLoader.Load(Options);
+        WriteViaService(svc => svc.SetAsync("Naudit:Sast:Analyzers", "trivy,dotnet-sca").GetAwaiter().GetResult());
+
+        var config = new ConfigurationBuilder()
+            .Add(new MemoryConfigurationSource { InitialData = DbSettingsLoader.Load(Options).Settings })
+            .Build();
+        var options = config.GetSection("Naudit:Sast").Get<Naudit.Infrastructure.Sast.SastOptions>()!;
+
+        Assert.Equal(["trivy", "dotnet-sca"], options.Analyzers);
     }
 
     private NauditDbContext OpenContext()

@@ -52,6 +52,7 @@ export function SettingsPage() {
     set: (k, v) => setDrafts((d) => ({ ...d, [k]: v })),
     locked: (k) => byKey.get(k)?.editable === false,
     secretSet: (k) => byKey.get(k)?.isSet ?? false,
+    options: (k) => byKey.get(k)?.allowedValues ?? [],
     openWizard: (w) => setWizard(w),
   }), [drafts, byKey]);
 

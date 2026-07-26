@@ -16,6 +16,15 @@ their own (no hard tool gate).
 | `AnalyzerTimeout` | `00:05:00` | Per-tool timeout. |
 | `MaxFindingsPerGroup` | `20` | Cap per category after sorting. |
 
+`Enabled`, `Analyzers`, `Reducer`, `AnalyzerTimeout` and `MaxFindingsPerGroup` are
+DB-managed: the WebUI has a "Static analysis (SAST)" panel under **Settings → Review rules**
+(switch plus one checkbox per analyzer), and changes apply after the restart triggered from
+the same page. `Analyzers` is list-shaped — one comma-separated row in the database, indexed
+syntax when set via environment (`Naudit__Sast__Analyzers__0=opengrep`), which then locks the
+field in the UI (see [List-shaped settings](configuration.md#list-shaped-settings)). An
+unknown analyzer name is rejected by the Settings API; `OpengrepRules` stays
+env/appsettings-only.
+
 ## Analyzers
 
 - **opengrep** — SAST, multi-language, no build (does not execute repo code).

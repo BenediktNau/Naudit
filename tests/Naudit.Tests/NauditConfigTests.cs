@@ -47,6 +47,28 @@ public sealed class NauditConfigTests : IDisposable
     }
 
     [Fact]
+    public void EnvGesetzteListe_verdraengtDieDbListeKomplett()
+    {
+        var builder = new ConfigurationBuilder();
+        builder.AddInMemoryCollection(new Dictionary<string, string?>   // simuliert Naudit__Sast__Analyzers__0
+        {
+            ["Naudit:Sast:Analyzers:0"] = "opengrep",
+        });
+
+        var env = NauditConfig.InsertDbSettings(builder, new Dictionary<string, string?>
+        {
+            ["Naudit:Sast:Analyzers:0"] = "trivy",
+            ["Naudit:Sast:Analyzers:1"] = "dotnet-sca",   // wuerde sonst als Index 1 dazugemischt
+            ["Naudit:Review:Dast:Projects:0"] = "acme/web", // andere Liste: bleibt unangetastet
+        });
+        var config = builder.Build();
+
+        Assert.Equal(["opengrep"], config.GetSection("Naudit:Sast:Analyzers").GetChildren().Select(c => c.Value));
+        Assert.Equal(["acme/web"], config.GetSection("Naudit:Review:Dast:Projects").GetChildren().Select(c => c.Value));
+        Assert.NotNull(env.Root["Naudit:Sast:Analyzers:0"]);
+    }
+
+    [Fact]
     public void OhneAppsettingsQuellen_landetDbGanzUnten()
     {
         var builder = new ConfigurationBuilder();

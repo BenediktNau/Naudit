@@ -1,13 +1,20 @@
 namespace Naudit.Infrastructure.Settings;
 
-/// <summary>Ein DB-verwaltbarer Konfigurationswert. IsSecret steuert Verschlüsselung
-/// und Write-only-Verhalten der Settings-API.</summary>
-public sealed record SettingDefinition(string Key, bool IsSecret);
+/// <summary>Ein DB-verwaltbarer Konfigurationswert. IsSecret steuert Verschlüsselung und
+/// Write-only-Verhalten der Settings-API. IsList ⇒ eine CSV-Zeile in der DB, die der
+/// DbSettingsLoader zu indizierten Config-Keys expandiert. AllowedValues ⇒ die Settings-API
+/// lehnt alles andere ab (ein ungültiger Wert würde den nächsten Start in den Recovery-Modus
+/// zwingen).</summary>
+public sealed record SettingDefinition(
+    string Key,
+    bool IsSecret,
+    bool IsList = false,
+    IReadOnlyList<string>? AllowedValues = null);
 
 /// <summary>Whitelist der DB-verwaltbaren Keys. Bootstrap-Keys (Naudit:Db:*, ForwardedHeaders,
 /// Ports) fehlen hier bewusst — sie müssen vor dem DB-Zugriff bekannt sein und bleiben env-only.
-/// Listen-Keys (ProjectTokens, Ui:Admins) bleiben vorerst ebenfalls env-only (Index-Keys passen
-/// schlecht in ein Key/Value-Formular).</summary>
+/// Listen-Keys sind über IsList möglich (CSV-Zeile ⇒ indizierte Config-Keys); ProjectTokens und
+/// Ui:Admins bleiben trotzdem env-only — Zugangsdaten gehören nicht in dieselbe Maske.</summary>
 public static class SettingsCatalog
 {
     public static IReadOnlyList<SettingDefinition> All { get; } =
@@ -44,12 +51,19 @@ public static class SettingsCatalog
         new("Naudit:Ai:Sandbox:DockerSocketPath", false),
         new("Naudit:Ai:Sandbox:RemoveTimeout", false),
         new("Naudit:Ai:Sandbox:Image", false),
+        new("Naudit:Sast:Enabled", false),
+        new("Naudit:Sast:Analyzers", false, IsList: true,
+            AllowedValues: ["opengrep", "betterleaks", "osv-scanner", "trivy", "dotnet-sca"]),
+        new("Naudit:Sast:AnalyzerTimeout", false),
+        new("Naudit:Sast:MaxFindingsPerGroup", false),
+        new("Naudit:Sast:Reducer", false, AllowedValues: ["deterministic"]),
         new("Naudit:Review:SystemPrompt", false),
         new("Naudit:Review:Gate:MinSeverity", false),
         new("Naudit:Review:Gate:MinConfidence", false),
         new("Naudit:Review:Mcp:Enabled", false),
         new("Naudit:Review:Mcp:MaxIterations", false),
         new("Naudit:Review:Dast:Enabled", false),
+        new("Naudit:Review:Dast:Projects", false, IsList: true),
         new("Naudit:Review:Dast:DockerfilePath", false),
         new("Naudit:Review:Dast:AppPort", false),
         new("Naudit:Review:Dast:HealthPath", false),

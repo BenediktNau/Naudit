@@ -17,6 +17,10 @@ export function computeHints(ctx: SettingsCtx): Record<CategoryId, { tone: "acc"
   const conf = ctx.get("Naudit:Review:Gate:MinConfidence");
   const gateDefault = (!sev || sev === "High") && (!conf || conf === "Medium");
 
+  const sast = ctx.get("Naudit:Sast:Enabled") === "true";
+  const dast = ctx.get("Naudit:Review:Dast:Enabled") === "true";
+  const scans = [sast && "sast", dast && "dast"].filter(Boolean).join(" · ");
+
   const gh = ctx.get("Naudit:Ui:Auth:GitHub:Enabled") === "true";
   const oidc = ctx.get("Naudit:Ui:Auth:Oidc:Enabled") === "true";
 
@@ -25,7 +29,9 @@ export function computeHints(ctx: SettingsCtx): Record<CategoryId, { tone: "acc"
       ? { tone: "acc", text: "✓" } : { tone: "warn", text: "not set" },
     git: gitConnected ? { tone: "acc", text: `✓ ${platform}` } : { tone: "ink3", text: platform },
     ai: { tone: "ink3", text: providerLabel },
-    review: gateDefault ? { tone: "ink3", text: "defaults" } : { tone: "ink3", text: "custom" },
+    review: scans
+      ? { tone: "acc", text: scans }
+      : gateDefault ? { tone: "ink3", text: "defaults" } : { tone: "ink3", text: "custom" },
     signin: gh ? { tone: "acc", text: "GitHub" } : oidc ? { tone: "acc", text: "SSO" } : { tone: "warn", text: "local only" },
   };
 }
