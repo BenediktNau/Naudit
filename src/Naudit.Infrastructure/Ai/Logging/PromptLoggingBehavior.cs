@@ -33,8 +33,11 @@ public sealed class PromptLoggingBehavior(
             corr?.ProjectId ?? "-", corr?.PrNumber ?? 0, corr?.Id, toolCount,
             systemPrompt?.Length ?? 0, userPrompt?.Length ?? 0);
         if (options.IncludePrompts)
+            // Auch das Log wird gekappt: MaxCharsPerField ist eine Obergrenze für den Prompt-Text
+            // überhaupt, nicht nur für die DB-Spalte — Logs haben oft weitere Verbreitung als das
+            // admin-geschützte Review-Detail.
             logger.LogDebug("LLM-Prompt ▸ corr={Corr}\n--- system ---\n{System}\n--- user ---\n{User}",
-                corr?.Id, systemPrompt, userPrompt);
+                corr?.Id, Cap(systemPrompt), Cap(userPrompt));
 
         var start = Stopwatch.GetTimestamp();
         ChatResponse response;
@@ -63,7 +66,7 @@ public sealed class PromptLoggingBehavior(
         logger.LogInformation("LLM-Antwort ◂ {Project}#{Pr} corr={Corr} {Ms}ms {In} in/{Out} out model={Model}",
             corr?.ProjectId ?? "-", corr?.PrNumber ?? 0, corr?.Id, ms, input, output, response.ModelId);
         if (options.IncludeResponse)
-            logger.LogDebug("LLM-Antwort-Text ◂ corr={Corr}\n{Text}", corr?.Id, response.Text);
+            logger.LogDebug("LLM-Antwort-Text ◂ corr={Corr}\n{Text}", corr?.Id, Cap(response.Text));
 
         await PersistSafe(new ChatTranscript(
             corr?.Id ?? Guid.Empty, corr?.ProjectId ?? "", corr?.PrNumber ?? 0, corr?.Trigger ?? "",
@@ -86,7 +89,14 @@ public sealed class PromptLoggingBehavior(
             var sink = scope.ServiceProvider.GetRequiredService<IChatTranscriptSink>();
             await sink.RecordAsync(transcript, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // Auch ein Abbruch wird geschluckt: das Nachtragen ist Buchhaltung. Entwiche die
+            // OperationCanceledException, ersetzte sie im Erfolgsfall die bereits erhaltene Antwort
+            // und im Fehlerfall die ursprüngliche Aufruf-Exception (die direkt danach geworfen wird).
+            logger.LogDebug("Transcript-Persistenz abgebrochen ▸ corr={Corr}", corr.Id);
+        }
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "Transcript-Persistenz fehlgeschlagen ▸ corr={Corr}", corr.Id);
         }
@@ -95,12 +105,24 @@ public sealed class PromptLoggingBehavior(
     /// <summary>Prompt-Feld: nur wenn IncludePrompts an, sonst null (Metadaten bleiben erhalten).</summary>
     private string? Prompt(string? text) => options.IncludePrompts ? Cap(text) : null;
 
+    /// <summary>Kürzt auf MaxCharsPerField. Die Grenze gilt für das FERTIGE Feld — der Marker zählt
+    /// mit, sonst wäre gerade der gekappte Wert länger als konfiguriert. Ist die Grenze kleiner als
+    /// der Marker, wird hart abgeschnitten (ein Marker allein spränge sonst schon darüber).</summary>
     private string? Cap(string? text)
     {
         if (text is null) return null;
         var max = options.MaxCharsPerField;
-        return max > 0 && text.Length > max ? text[..max] + "…[gekürzt]" : text;
+        if (max <= 0 || text.Length <= max) return text;
+
+        var end = max <= TruncationMarker.Length ? max : max - TruncationMarker.Length;
+        // Kein Surrogat-Paar (z. B. Emoji) zerschneiden — sonst bleibt ein ungültiges lone surrogate stehen.
+        if (end > 0 && char.IsHighSurrogate(text[end - 1]))
+            end--;
+
+        return max <= TruncationMarker.Length ? text[..end] : text[..end] + TruncationMarker;
     }
+
+    private const string TruncationMarker = "…[gekürzt]";
 
     private static string? JoinRole(IEnumerable<ChatMessage> messages, ChatRole role)
     {

@@ -14,7 +14,7 @@ Träger ist ein **Open-Source-Mediator** (`martinothamar/Mediator`, MIT, Source-
 `Naudit.Infrastructure`**; die zentrale Core-Regel (Core kennt nur MEAI-Abstraktionen) bleibt
 intakt — `ReviewService` ist unverändert.
 
-```
+```text
 ReviewService (Core)
   └─ IChatClient.GetResponseAsync            ← Core sieht nur diese MEAI-Naht
        └─ MediatorChatClient (Decorator)     ← Infrastructure, nur bei Logging=on
@@ -42,7 +42,7 @@ ReviewService (Core)
 | `IncludePrompts` | `true` | System-/User-Prompt-Volltext in Log/DB (sonst nur Metadaten). |
 | `IncludeResponse` | `true` | Rohe LLM-Antwort in Log/DB. |
 | `Persist` | `true` | Transcript in die DB (WebUI). Aus ⇒ nur strukturiertes ILogger-Logging. |
-| `MaxCharsPerField` | `0` | Kappung gespeicherter Prompt-/Antwort-Länge (0 = unbegrenzt). |
+| `MaxCharsPerField` | `0` | Obergrenze für Prompt-/Antwort-Felder (0 = unbegrenzt). Gilt für DB **und** Log, und für das fertige Feld inklusive `…[gekürzt]`-Marker. |
 
 Ändern über die WebUI-Settings (Katalog-Keys) — ein Restart übernimmt sie (das Umhüllen wird zur
 DI-Registrierzeit entschieden).
@@ -59,7 +59,19 @@ Quellcode (`GET /api/reviews/{id}` liefert `transcripts` nur an Admins).
 Prompts laufen durch die [Redaction](redaction.md) (Secrets/IPs/E-Mails maskiert), **bevor** sie
 gebaut und damit auch, bevor sie protokolliert werden. Dennoch enthalten sie Quellcode-Diffs:
 Persistenz ist opt-in, die WebUI-Volltextansicht admin-only, und `MaxCharsPerField` begrenzt die
-DB-Größe.
+Feldlänge.
+
+**Zwei Kanäle, eine Grenze:** Die Volltexte gehen nicht nur in die DB, sondern bei `Debug`-Level
+auch ins **Log** — und Logs haben in der Regel weitere Verbreitung und längere Aufbewahrung als das
+admin-geschützte Review-Detail. `MaxCharsPerField` kappt deshalb beide Kanäle. Wer Prompts gar nicht
+im Log haben will, lässt das Log-Level für `Naudit.Infrastructure.Ai.Logging` auf `Information` (die
+Info-Zeilen tragen nur Metadaten: Projekt, PR, Korrelation, Tool-Anzahl, Zeichenzahlen, Latenz,
+Token) oder setzt `IncludePrompts=false`/`IncludeResponse=false`.
+
+**Aufbewahrung:** `ChatTranscripts` hat **keine Verfallslogik** — die Tabelle wächst, solange
+`Persist=true` ist, und `MaxCharsPerField` begrenzt nur die Zeilenbreite, nicht die Zeilenzahl. Bei
+Dauerbetrieb mit aktivem Logging gehört ein Purge-Job dazu (offener Punkt); für den gedachten
+Einsatz — zeitweise einschalten, Prompts tunen, wieder ausschalten — reicht das Löschen von Hand.
 
 ## Umfang / bewusste Grenzen
 
@@ -69,6 +81,16 @@ DB-Größe.
   überhaupt anläuft (hash-gecacht) — als zusätzliche Transcript-Zeile desselben Reviews.
 - Auf dem **Fallback-Pfad** (Autor-Session scheitert → globaler Client) entstehen zwei Zeilen: ein
   `Failed`-Versuch (Session) und der erfolgreiche globale Aufruf — bewusst, als ehrliches Protokoll.
+- **Streaming wird nicht protokolliert.** `MediatorChatClient.GetStreamingResponseAsync` reicht
+  unverändert an den inneren Client durch und geht damit an der Mediator-Pipeline vorbei. Der
+  Review-Pfad streamt nicht (`ReviewService` ruft ausschließlich `GetResponseAsync`), aber wer den
+  Decorator künftig vor einen streamenden Pfad hängt, bekommt dort **stillschweigend** kein
+  Protokoll. Ein Streaming-Behavior müsste die Chunks aggregieren — bewusst nicht gebaut, solange es
+  keinen streamenden Aufrufer gibt.
+- **Der Tool-Loop ist eine Zeile.** Der Decorator liegt außerhalb des Function-Invocation-Wrappers
+  (`DependencyInjection.cs`): bei aktivem MCP läuft der agentische Loop innerhalb *eines*
+  Mediator-Durchgangs. Protokolliert wird die finale Antwort; `ToolCount` zählt die **angebotenen**
+  Tools, nicht die Aufrufe.
 
 ## Erweiterungspunkt (Core-Regel wahren)
 

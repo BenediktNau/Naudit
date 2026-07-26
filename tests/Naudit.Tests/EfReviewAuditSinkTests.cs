@@ -42,6 +42,35 @@ public class EfReviewAuditSinkTests
         Assert.Single(project.Reviews[0].Findings);
     }
 
+    /// <summary>Die Klammer zwischen Review und seinen Prompt-Transcripts: der Sink spiegelt die
+    /// Ambient-CorrelationId auf die Review-Zeile (kein FK — die Transcripts entstehen vorher).</summary>
+    [Fact]
+    public async Task Record_spiegelt_CorrelationId_auf_das_Review()
+    {
+        await using var db = NewDb();
+        var corr = new ReviewCorrelation(Guid.NewGuid(), "owner/repo", 7, "Webhook");
+        var sink = new EfReviewAuditSink(db,
+            new AsyncLocalReviewCorrelationAccessor { Current = corr },
+            NullLogger<EfReviewAuditSink>.Instance);
+
+        await sink.RecordAsync(Audit());
+
+        Assert.Equal(corr.Id, (await db.Reviews.SingleAsync()).CorrelationId);
+    }
+
+    /// <summary>Ohne aktives Prompt-Logging bleibt die Spalte null — das Review-Detail zeigt dann
+    /// gar kein Transcript-Panel.</summary>
+    [Fact]
+    public async Task Record_laesst_CorrelationId_null_ohne_Korrelation()
+    {
+        await using var db = NewDb();
+        var sink = new EfReviewAuditSink(db, new AsyncLocalReviewCorrelationAccessor(), NullLogger<EfReviewAuditSink>.Instance);
+
+        await sink.RecordAsync(Audit());
+
+        Assert.Null((await db.Reviews.SingleAsync()).CorrelationId);
+    }
+
     [Fact]
     public async Task Record_linksProjectToOwningActiveAccount()
     {
