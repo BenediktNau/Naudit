@@ -163,12 +163,14 @@ public class StartupReportTests
     {
         var lines = StartupReport.BuildLines(Config(
             ("Naudit:Review:Context:Enabled", "false"),
+            ("Naudit:Review:Memory:Enabled", "false"),
             ("Naudit:Review:Memory:MaxEntries", "7"),
             ("Naudit:Review:Guidelines:Enabled", "false"),
             ("Naudit:Redaction:Enabled", "false")), Ready, null);
 
         var prompt = Line(lines, "Prompt:");
         Assert.Contains("Kontext aus", prompt);
+        Assert.Contains("Memory aus", prompt);
         Assert.Contains("(max 7)", prompt);
         Assert.Contains("Guidelines aus", prompt);
         Assert.Contains("Redaction aus", prompt);
@@ -179,11 +181,12 @@ public class StartupReportTests
     {
         var lines = StartupReport.BuildLines(Config(
             ("Naudit:Review:Gate:MinSeverity", "Critical"),
+            ("Naudit:Review:Gate:MinConfidence", "High"),
             ("Naudit:Review:MaxRoundtrips", "9"),
             ("Naudit:Review:Resolution:Enabled", "false")), Ready, null);
 
         var review = Line(lines, "Review:");
-        Assert.Contains("Gate ab Critical", review);
+        Assert.Contains("Gate ab Critical/High", review);
         Assert.Contains("MaxRoundtrips 9", review);
         Assert.Contains("Resolution aus", review);
     }
