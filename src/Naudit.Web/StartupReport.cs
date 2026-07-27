@@ -98,4 +98,34 @@ public static class StartupReport
         var version = plus > 0 ? raw[..plus] : raw;
         return version.StartsWith("1.0.0", StringComparison.Ordinal) ? $"v{version} (dev)" : $"v{version}";
     }
+
+    /// <summary>Gültige, aber wirkungslose Konfigurationen — sie erzeugen keinen Fehler und fallen
+    /// deshalb sonst erst auf, wenn ein erwartetes Review-Verhalten ausbleibt.</summary>
+    public static IReadOnlyList<string> BuildWarnings(IConfiguration config)
+    {
+        var ai = config.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
+        var sast = config.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
+        var dast = config.GetSection("Naudit:Review:Dast").Get<DastOptions>() ?? new DastOptions();
+        var review = config.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
+
+        var warnings = new List<string>();
+
+        if (dast.Enabled && dast.Projects.Count == 0)
+            warnings.Add("DAST ist aktiviert, aber Allowlist Naudit:Review:Dast:Projects ist leer — "
+                + "kein Projekt wird dynamisch getestet.");
+
+        if (sast.Enabled && sast.Analyzers.Count == 0)
+            warnings.Add("Naudit:Sast:Analyzers ist leer — es greift der Default "
+                + $"'{string.Join(", ", SastOptions.DefaultAnalyzers)}'.");
+
+        if (ai.SessionSandbox == SessionSandbox.Docker && ai.SessionRouting == SessionRouting.Single)
+            warnings.Add("Naudit:Ai:SessionSandbox=Docker bleibt ohne Wirkung — die Sandbox greift "
+                + "nur bei SessionRouting Author/RoundRobin.");
+
+        if (review.MaxRoundtrips <= 0)
+            warnings.Add("Naudit:Review:MaxRoundtrips ist deaktiviert — jeder Push löst ein "
+                + "weiteres Review aus (Kostenbremse aus).");
+
+        return warnings;
+    }
 }

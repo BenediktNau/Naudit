@@ -144,4 +144,65 @@ public class StartupReportTests
         foreach (var (_, value) in values)
             Assert.DoesNotContain(value, joined);
     }
+
+    [Fact]
+    public void BuildWarnings_dastEnabledWithoutAllowlist_warns()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(("Naudit:Review:Dast:Enabled", "true")));
+
+        Assert.Contains(warnings, w => w.Contains("DAST") && w.Contains("Allowlist"));
+    }
+
+    [Fact]
+    public void BuildWarnings_dastEnabledWithAllowlist_isSilent()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(
+            ("Naudit:Review:Dast:Enabled", "true"),
+            ("Naudit:Review:Dast:Projects:0", "acme/web")));
+
+        Assert.DoesNotContain(warnings, w => w.Contains("DAST"));
+    }
+
+    [Fact]
+    public void BuildWarnings_sastEnabledWithoutAnalyzers_warnsAboutTheDefault()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(("Naudit:Sast:Enabled", "true")));
+
+        Assert.Contains(warnings, w => w.Contains("Naudit:Sast:Analyzers"));
+    }
+
+    [Fact]
+    public void BuildWarnings_sandboxDockerWithSingleRouting_warns()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(
+            ("Naudit:Ai:SessionSandbox", "Docker"),
+            ("Naudit:Ai:SessionRouting", "Single")));
+
+        Assert.Contains(warnings, w => w.Contains("SessionSandbox"));
+    }
+
+    [Fact]
+    public void BuildWarnings_sandboxDockerWithAuthorRouting_isSilent()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(
+            ("Naudit:Ai:SessionSandbox", "Docker"),
+            ("Naudit:Ai:SessionRouting", "Author")));
+
+        Assert.DoesNotContain(warnings, w => w.Contains("SessionSandbox"));
+    }
+
+    [Fact]
+    public void BuildWarnings_roundtripLimitOff_warns()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(("Naudit:Review:MaxRoundtrips", "0")));
+
+        Assert.Contains(warnings, w => w.Contains("MaxRoundtrips"));
+    }
+
+    [Fact]
+    public void BuildWarnings_defaultConfig_isSilent()
+    {
+        // Frische Installation ohne Zutun: SAST/DAST aus, Routing Single, MaxRoundtrips 3.
+        Assert.Empty(StartupReport.BuildWarnings(Config()));
+    }
 }
