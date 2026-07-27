@@ -7,6 +7,13 @@ import { selCls } from "./shared";
 const KEY_ENABLED = "Naudit:Review:Dast:Enabled";
 const KEY_PROJECTS = "Naudit:Review:Dast:Projects";
 
+// Der gespeicherte Wert ist eine CSV-Zeile, die Textarea zeigt eine Zeile pro Projekt. Die
+// Umrechnung muss VERLUSTFREI sein: filtert man beim Tippen leere Zeilen weg, loescht das
+// kontrollierte Feld den gerade gedrueckten Zeilenumbruch sofort wieder — ein zweites Projekt
+// liesse sich nie eingeben. Getrimmt/verworfen wird erst beim Speichern (SettingsService.Normalize).
+const toLines = (csv: string) => csv.split(",").join("\n");
+const toCsv = (text: string) => text.split("\n").join(",");
+
 export function DastPanel({ ctx }: { ctx: SettingsCtx }) {
   const on = ctx.get(KEY_ENABLED) === "true";
   const projects = ctx.get(KEY_PROJECTS).split(",").map((s) => s.trim()).filter(Boolean);
@@ -31,9 +38,8 @@ export function DastPanel({ ctx }: { ctx: SettingsCtx }) {
           <textarea rows={3} disabled={ctx.locked(KEY_PROJECTS)}
             className="min-h-[72px] w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-[13px] text-ink outline-none placeholder:text-ink3 focus:border-acc disabled:opacity-50"
             placeholder="acme/web"
-            value={projects.join("\n")}
-            onChange={(e) => ctx.set(KEY_PROJECTS,
-              e.target.value.split("\n").map((s) => s.trim()).filter(Boolean).join(","))} />
+            value={toLines(ctx.get(KEY_PROJECTS))}
+            onChange={(e) => ctx.set(KEY_PROJECTS, toCsv(e.target.value))} />
         </Field>
 
         {on && projects.length === 0 && (
