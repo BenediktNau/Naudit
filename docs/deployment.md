@@ -265,3 +265,32 @@ Notes:
 - **Dependabot** (`.github/dependabot.yml`) keeps the pins current for three ecosystems —
   `github-actions`, `nuget`, `docker` — with a **cooldown** grace period (7 days; 14 for major)
   to dampen churn and give time to spot yanked/compromised releases, grouped into a single PR.
+
+## Startup-Report
+
+Beim Hochfahren — und nach jedem Settings-Restart erneut — loggt Naudit einen
+kompakten Block mit der effektiv geladenen Konfiguration:
+
+```
+════════════════════════════════════════════════
+  Naudit v0.4.2
+  Modus:      Review aktiv
+  Plattform:  GitHub · Auth: App · PostVerdict: aus
+  AI:         Anthropic · claude-opus-5 · Routing: Single · Sandbox: None · MCP: aus · Logging: aus
+  SAST:       AN · opengrep, trivy
+  DAST:       aus
+  Prompt:     Kontext AN · Memory AN (max 50) · Guidelines AN · Redaction AN
+  Review:     Gate ab High/Medium · MaxRoundtrips 3 · Resolution AN
+  Zugang:     AccessGate Open · DB Sqlite
+════════════════════════════════════════════════
+```
+
+Das ist der schnellste Weg zu prüfen, ob eine Settings-Änderung angekommen ist.
+Im Setup-Modus steht statt `Review aktiv` ein `SETUP …` samt der noch fehlenden
+Schlüssel, im Recovery-Modus `RECOVERY …` samt Fehlermeldung.
+
+Zusätzlich erscheinen Warnzeilen für gültige, aber wirkungslose Kombinationen —
+etwa DAST aktiviert bei leerer `Naudit:Review:Dast:Projects`-Allowlist (dann wird
+kein Projekt dynamisch getestet).
+
+Der Block enthält **keine Secrets** — nur Schalter, Namen und Zahlen.

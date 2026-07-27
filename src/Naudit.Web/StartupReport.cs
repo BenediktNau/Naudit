@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Extensions.Logging;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.Logging;
@@ -127,5 +128,23 @@ public static class StartupReport
                 + "weiteres Review aus (Kostenbremse aus).");
 
         return warnings;
+    }
+
+    /// <summary>Block als Information, Warnzeilen als Warning. Vollständig fail-safe: ein Fehler
+    /// im Report (z. B. ein un-parsebarer Enum-Wert in der Config) darf den Start nie kippen —
+    /// dafür ist im Fehlerfall der Recovery-Modus zuständig, nicht das Log.</summary>
+    public static void Log(ILogger logger, IConfiguration config, SetupStatusResult setup, string? recoveryError)
+    {
+        try
+        {
+            foreach (var line in BuildLines(config, setup, recoveryError))
+                logger.LogInformation("{Line}", line);
+            foreach (var warning in BuildWarnings(config))
+                logger.LogWarning("{Warning}", warning);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Startup-Report konnte nicht erzeugt werden.");
+        }
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Naudit.Infrastructure.Settings;
 using Naudit.Infrastructure.Setup;
 using Naudit.Web;
@@ -204,5 +205,39 @@ public class StartupReportTests
     {
         // Frische Installation ohne Zutun: SAST/DAST aus, Routing Single, MaxRoundtrips 3.
         Assert.Empty(StartupReport.BuildWarnings(Config()));
+    }
+
+    private sealed class RecordingLogger : ILogger
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
+    [Fact]
+    public void Log_writesBlockAsInformation_andWarningsAsWarning()
+    {
+        var logger = new RecordingLogger();
+
+        StartupReport.Log(logger, Config(("Naudit:Review:Dast:Enabled", "true")), Ready, null);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("Modus:"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("DAST"));
+    }
+
+    [Fact]
+    public void Log_whenConfigThrows_doesNotPropagate()
+    {
+        // Ein Report-Fehler darf den Host NIE am Start hindern (Audit-Sink-Philosophie).
+        var logger = new RecordingLogger();
+        // Ein un-parsebarer Enum-Wert lässt Get<AiOptions>() werfen.
+        var broken = Config(("Naudit:Ai:Provider", "KeinEchterProvider"));
+
+        StartupReport.Log(logger, broken, Ready, null);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("Startup-Report"));
     }
 }
