@@ -1,114 +1,147 @@
-# Task 4 report: `McpReviewToolProvider` orchestration (fail-open + cache)
+# Task 4 Report — DastProbeSession
 
-## What I implemented
+## Status: DONE
 
-Followed the brief verbatim (TDD: fake connector + failing tests → verify RED → implement →
-verify GREEN → full suite → commit).
+Commit `56f89ab` on `feat/dast-probing`: "feat(dast): DastProbeSession — Playwright-MCP über
+exec-stdio, kurzlebig je Review".
 
-1. `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs` — the per-server seam interface
-   (`ConnectAndListAsync(McpServerConfig, CancellationToken) → Task<IReadOnlyList<AITool>>`).
-2. `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs` — test double with `Returns(server, tools...)`
-   / `Throws(server)` per-server-name configuration and a `CallCount`.
-3. `tests/Naudit.Tests/McpReviewToolProviderTests.cs` — 4 tests: disabled→empty (connector never
-   called), aggregate across servers, failing-server-skipped (fail-open), cache across two
-   `GetToolsAsync` calls (connector called once).
-4. `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs` — implements Core's
-   `IReviewToolProvider`. `Enabled=false` or no servers ⇒ `[]`, connector never touched.
-   Otherwise iterates `options.Servers`, calls the connector per server inside a try/catch that
-   swallows (and logs a warning for) any exception unless cancellation was requested, aggregates
-   into one flat `List<AITool>`. Double-checked locking via a `SemaphoreSlim(1,1)` gate: only a
-   non-empty result populates `_cached`, so an all-servers-down first attempt is not cached and a
-   later review retries.
+## What was implemented
 
-All four files match the brief's code blocks byte-for-byte (I copy-pasted from the brief, then
-verified against the actual `IReviewToolProvider`, `McpOptions`/`McpServerConfig`, and
-`ReviewRequest` signatures already on this branch — no adjustments were needed, everything lined
-up).
+- `src/Naudit.Infrastructure/Dast/DastProbeSession.cs`: `DastProbeSession.StartAsync(IDockerClient
+  docker, DastOptions options, string probeContainer, ILoggerFactory loggerFactory,
+  CancellationToken ct)` launches the Playwright-MCP server as a stdio process in the probe
+  container via `docker.ExecStreamAsync` (Task 3), wraps the resulting `DockerExecStream` in a
+  `ModelContextProtocol.Protocol.StreamClientTransport(serverInput: exec.Stdin, serverOutput:
+  exec.Stdout, loggerFactory)`, connects `McpClient.CreateAsync(...)`, lists tools via
+  `client.ListToolsAsync((RequestOptions?)null, ct)`, and exposes them as `IReadOnlyList<AITool>
+  Tools`. `IAsyncDisposable.DisposeAsync` disposes the `McpClient` then the exec stream (`try/finally`).
+- `tests/Naudit.Tests/DastProbeSessionTests.cs`: exactly the brief's test — `ThrowAfterExecDocker :
+  FakeDockerClient` (empty `NextExecStdout`), asserts `StartAsync` throws and that the exec call was
+  recorded with the right container name and `options.ProbeMcpArgv` before the throw.
 
-## TDD evidence
+## TDD
 
-**RED** — before `McpReviewToolProvider.cs` existed:
+- RED: with only the test file present, `dotnet test --filter DastProbeSessionTests` failed with
+  CS0103 (`DastProbeSession` doesn't exist in the current context — the compiler's phrasing for the
+  missing-type case here, functionally the CS0246 the brief anticipated).
+- GREEN: after adding `DastProbeSession.cs`, first compile attempt failed CS0246/CS1503 on
+  `RequestOptions` — **SDK-surface adaptation**, see below. After adding `using ModelContextProtocol;`
+  it compiled and the test passed.
 
-```
-$ cd /home/bnau/workspace/Naudit/.claude/worktrees/feat-mcp-context7 && \
-  dotnet test Naudit.slnx --filter "FullyQualifiedName~McpReviewToolProviderTests"
-...
-/home/.../tests/Naudit.Tests/McpReviewToolProviderTests.cs(17,20): error CS0246:
-The type or namespace name 'McpReviewToolProvider' could not be found
-(are you missing a using directive or an assembly reference?)
-[/home/.../tests/Naudit.Tests/Naudit.Tests.csproj]
-```
+## Handshake timeout — needed, and non-trivial
 
-Build failure as expected — the type didn't exist yet.
+The brief assumed an empty `NextExecStdout` would make `McpClient.CreateAsync` fail fast
+(EOF/throw). I verified empirically (throwaway repro project referencing
+`ModelContextProtocol.Core 1.4.1` directly) that this assumption is **false** for the real SDK:
+`McpClient.CreateAsync` over a `StreamClientTransport` backed by an empty `MemoryStream` does not
+throw on EOF — it just hangs until cancelled. Confirmed via a standalone repro: with an 8s
+`CancellationTokenSource` and no other timeout, it threw `TaskCanceledException` at exactly 8.02s,
+i.e. it genuinely blocks until cancellation, not shorter.
 
-**GREEN** — after implementing `McpReviewToolProvider.cs`:
+So the timeout backstop described in the brief's Step 4 is **required**, not just defensive. I
+implemented it as specified: a linked `CancellationTokenSource` (external `ct` + an internal
+timeout) wraps `CreateAsync` + `ListToolsAsync`.
 
-```
-$ dotnet test Naudit.slnx --filter "FullyQualifiedName~McpReviewToolProviderTests"
-...
-Passed!  - Failed: 0, Passed: 4, Skipped: 0, Total: 4, Duration: 37 ms - Naudit.Tests.dll (net10.0)
-```
+**Deviation from the brief's literal "e.g. 30s":** with a 30s timeout the test took the full 30s
+(confirmed: `Duration: 30 s`), which conflicts with the explicit "keep the test fast / verify it
+completes in seconds" constraint. I reduced the internal `HandshakeTimeout` constant to **10
+seconds** — still generous for a warm probe container (image already pulled, container already
+running `sleep infinity`; only `node` start + headless-Chromium launch remain, typically well under
+that) while keeping the test at a `Duration: 10 s` instead of 30s. This is a production-relevant
+value, not just a test knob — the constant lives in `DastProbeSession`, not in the test. Documented
+with a German comment explaining both the "why a timeout at all" (SDK doesn't fail fast on EOF) and
+the "why 10s" (probe container is already warm) reasoning.
 
-All four tests (`Disabled_returnsEmpty_andNeverCallsConnector`,
-`Aggregates_toolsFromAllServers`, `FailingServer_isSkipped_othersStillReturn`,
-`Caches_nonEmptyResult_acrossCalls`) pass.
-
-**Full suite (parallel, default):**
-
-```
-$ dotnet test Naudit.slnx
-...
-Failed! - Failed: 18, Passed: 335, Skipped: 0, Total: 353, Duration: 3 s
-```
-
-All 18 failures were `WebApplicationFactory`/host tests
-(`AdminEndpointTests`, `WebhookEndpointTests`, `ExternalAuthTests`, etc.) throwing
-`System.IO.IOException: The configured user limit (128) on the number of inotify instances has
-been reached` from `PhysicalFilesWatcher` during host bootstrap — the documented sandbox flake,
-unrelated to this change (no file I ran touches file watchers or those endpoints).
-
-**Full suite (single-threaded, to confirm environmental):**
-
-```
-$ dotnet test Naudit.slnx -- xUnit.MaxParallelThreads=1
-...
-Passed!  - Failed: 0, Passed: 353, Skipped: 0, Total: 353, Duration: 10 s
-```
-
-0 failures single-threaded — confirms the 18 parallel failures were the known inotify flake, not
-real regressions.
+Full-suite run confirmed no CI-speed regression: `Duration: 26 s` for all 705 tests, in line with
+the pre-existing baseline scale.
 
 ## Files changed
 
-- `src/Naudit.Infrastructure/Mcp/IMcpToolConnector.cs` (new)
-- `src/Naudit.Infrastructure/Mcp/McpReviewToolProvider.cs` (new)
-- `tests/Naudit.Tests/Fakes/FakeMcpToolConnector.cs` (new)
-- `tests/Naudit.Tests/McpReviewToolProviderTests.cs` (new)
+- `src/Naudit.Infrastructure/Dast/DastProbeSession.cs` (new)
+- `tests/Naudit.Tests/DastProbeSessionTests.cs` (new, verbatim per brief)
 
-Commit: `ebd6380 feat(mcp): McpReviewToolProvider — Server aggregieren, fail-open, cachen`
-(exact message from the brief's Step 6).
+## SDK-surface adaptations vs. the brief's Step 3 code
+
+1. **`using ModelContextProtocol;` added.** `RequestOptions` is declared in namespace
+   `ModelContextProtocol`, not `ModelContextProtocol.Client` as the brief's interface note implied.
+   Confirmed by reflecting the installed `ModelContextProtocol.Core 1.4.1` assembly
+   (`ModelContextProtocol.RequestOptions`) and by cross-checking `McpClientToolConnector.cs`, which
+   already has this exact `using` at the top for the same reason.
+2. **`StreamClientTransport` ctor and `McpClient.CreateAsync`/`ListToolsAsync` overloads** — verified
+   via reflection against the actual 1.4.1 DLL to match the brief exactly:
+   `StreamClientTransport(Stream serverInput, Stream serverOutput, ILoggerFactory
+   loggerFactory = default)`; `McpClient.CreateAsync(IClientTransport, McpClientOptions? = default,
+   ILoggerFactory? = default, CancellationToken = default)`; `ListToolsAsync(RequestOptions,
+   CancellationToken)` returning the auto-paginating list overload (not the raw
+   `ListToolsRequestParams` overload) — no further code changes needed here.
+3. **Timeout value 30s → 10s** — see above, driven by the CI-speed constraint plus empirically
+   confirmed real SDK hang behavior.
+4. **Defensive addition beyond the brief's literal code:** the brief's `catch` block only disposes
+   `exec`, which would leak a successfully-created `McpClient` if `ListToolsAsync` throws after
+   `CreateAsync` succeeded (a real code path the test doesn't exercise, since in the test
+   `CreateAsync` itself is what times out — confirmed via the same standalone repro, which showed
+   the hang/timeout happens inside `CreateAsync`, before `ListToolsAsync` is ever reached). Hardened
+   by capturing `client` outside the `try` and disposing it (client-then-exec order, matching
+   `DisposeAsync`) in the `catch` block if non-null. Re-verified green after this change.
 
 ## Self-review
 
-- Code matches the brief exactly; no deviations were needed since the consumed types
-  (`IReviewToolProvider`, `McpOptions`, `McpServerConfig`, `ReviewRequest`) already exist on this
-  branch (Tasks 1 & 3) with the signatures the brief assumes.
-- Core rule intact: `McpReviewToolProvider` lives in `Naudit.Infrastructure/Mcp/`, only
-  implements the Core interface `IReviewToolProvider`; no Core file touched.
-- Fail-open behaviour verified by a dedicated test (`FailingServer_isSkipped_othersStillReturn`) —
-  a throwing connector for one server doesn't stop the loop or propagate; the exception filter
-  `when (!ct.IsCancellationRequested)` deliberately lets a caller-requested cancellation still
-  propagate as `OperationCanceledException` rather than being swallowed and logged as a warning.
-- Caching: double-checked locking with `SemaphoreSlim(1,1)` avoids a redundant connector round-trip
-  under concurrent first calls; only non-empty results are cached, matching the "retry on next
-  review if all servers were down" requirement. This is process-lifetime (not per-request) caching,
-  as specified — `McpReviewToolProvider` needs to be registered as a singleton in DI (Task 5, not
-  in scope here) for the cache to actually span reviews.
-- No `ModelContextProtocol` package added — confirmed no new package reference was introduced
-  (`git diff` on `*.csproj` files is empty for this commit).
+- **Dispose ordering (client-then-exec):** `DisposeAsync` does `try { client.DisposeAsync() } finally
+  { exec.DisposeAsync() }` — matches the brief. The `catch` block in `StartAsync` mirrors the same
+  order for the partial-failure case (see adaptation #4).
+- **Exec stream disposed on start failure:** yes, in all `StartAsync` failure paths (both the
+  original CreateAsync-throws path and the newly hardened ListToolsAsync-throws-after-CreateAsync
+  path).
+- **No hang:** verified — without the timeout the test hung until manually timed out; with the 10s
+  internal timeout it deterministically throws and the test passes in ~10s, full suite in line with
+  baseline duration.
+- `docker.ExecStreamAsync` call itself is outside the `try` (matches the brief) — if it throws
+  (`DockerUnavailableException`, per `IDockerClient` contract), there is nothing to dispose yet.
+
+## Full suite
+
+`DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test Naudit.slnx` → **705 passed, 0 failed** (baseline
+704 + 1 new test). No `GitWorkspaceProviderTests` flake observed on this run.
 
 ## Concerns
 
-None. The four tests are exactly the ones prescribed, the implementation is the verbatim code
-from the brief, and the only test failures seen were the pre-documented sandbox inotify flake,
-confirmed environmental by the single-threaded re-run.
+- The 10s handshake timeout is a judgment call, not something verified against a real Playwright-MCP
+  container (no live Docker/MCP peer available in this sandbox). If real-world node+Chromium
+  startup under load in the probe container occasionally exceeds 10s, the session will throw and the
+  Task 5/6 analyzer's fail-open will simply skip DAST grounding for that review — not a correctness
+  bug, but worth a quick sanity check against a real container once one is available, and the
+  constant is trivially tunable if it proves too tight.
+- `RequestOptions` type in the `ListToolsAsync` call is unrelated to the `Naudit:Review:*` `Options`
+  pattern used elsewhere in the codebase; it's an MCP SDK type (nullable, passed as literal `null`)
+  — no ambiguity risk found during compilation.
+
+## Fix nach Review
+
+**Observation:** The hardcoded 10-second timeout in `DastProbeSession.cs` (line 22) made the
+`DastProbeSessionTests` test take ~10 seconds for no production reason. The test only verifies
+that a timeout occurs on a broken MCP connection; this should be fast.
+
+**Change:**
+
+1. Added `HandshakeTimeout` property to `DastOptions.cs` (German doc comment explaining the
+   config's purpose: allow tests to be fast while production remains tunable):
+   ```csharp
+   public TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(10);
+   ```
+
+2. Removed the `private static readonly TimeSpan HandshakeTimeout` constant from
+   `DastProbeSession.cs` and replaced its usage on line 42 with `options.HandshakeTimeout` in
+   the `CancellationTokenSource` constructor. Kept the German comment explaining the timeout's
+   rationale.
+
+3. Updated `DastProbeSessionTests.cs` to construct `new DastOptions { HandshakeTimeout =
+   TimeSpan.FromMilliseconds(200) }` instead of `new DastOptions()`, so the test now completes
+   in ~0.2s instead of ~10s.
+
+**Results:**
+
+- **DastProbeSessionTests duration:** 10,000 ms → 258 ms (39x faster)
+- **Full suite:** 705 passed, 0 failed, completed in 25 seconds (no regression)
+- **Test assertions unchanged:** argv recorded + ThrowsAnyAsync still verified
+
+**Commit:** `c33a8f0`

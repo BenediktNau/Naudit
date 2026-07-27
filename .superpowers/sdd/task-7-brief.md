@@ -1,36 +1,86 @@
-## Task 7: Documentation
+### Task 7: DI wiring + settings
 
 **Files:**
-- Create: `docs/mcp-tools.md`
-- Modify: `docs/configuration.md`
+- Modify: `src/Naudit.Infrastructure/DependencyInjection.cs` (the `dastOptions.Enabled` block from PR 1)
+- Modify: `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs`
+- Test: `tests/Naudit.Tests/DastWiringTests.cs` (extend)
 
-- [ ] **Step 1: Write `docs/mcp-tools.md`**
+**Interfaces:**
+- Consumes: PR-1 `IAppRunner` registration, the global `IChatClient`, the shared `IDockerClient`.
+- Produces: `ISastAnalyzer` = `DastAnalyzer` registered when `dastOptions.Enabled`; `Naudit:Review:Dast:MaxProbeSteps` in the catalog.
 
-Create `docs/mcp-tools.md` (English, matching the other docs) covering:
+- [ ] **Step 1: Write the failing test**
 
-- What it does: the review LLM can call MCP tools at review time; the first tool is Context7 (live library docs).
-- The two provider paths (MEAI `ChatOptions.Tools` + function-invocation loop; ClaudeCode CLI `--mcp-config` + MCP-only `--allowedTools`), and that the built-in CLI file/shell tools stay off.
-- Opt-in and fail-open behaviour (`Naudit:Review:Mcp:Enabled=false` ⇒ today's single-shot; unreachable server ⇒ tool-less review).
-- The full config block (from the spec), including that the per-server `ApiKey` is env-only (list-shaped), while `Enabled`/`MaxIterations` are DB-manageable via Settings.
-- The iteration cap (`MaxIterations`) and why it exists (token/latency).
-- A pointer that Playwright/DAST are separate future slices (B/C), not part of this.
+Append to `tests/Naudit.Tests/DastWiringTests.cs`:
 
-- [ ] **Step 2: Link it from `docs/configuration.md`**
+```csharp
+    [Fact]
+    public void Dast_enabled_registersDastAnalyzer_amongSastAnalyzers()
+    {
+        var settings = BaseSettings();
+        settings["Naudit:Review:Dast:Enabled"] = "true";
+        using var provider = Build(settings);
 
-Add a short "MCP tools (review runtime)" subsection to `docs/configuration.md` that summarizes the `Naudit:Review:Mcp:*` keys and links to `docs/mcp-tools.md`.
+        Assert.Contains(provider.GetServices<Naudit.Core.Abstractions.ISastAnalyzer>(),
+            a => a.Name == "dast");
+    }
 
-- [ ] **Step 3: Commit**
+    [Fact]
+    public void Dast_disabled_registersNoDastAnalyzer()
+    {
+        using var provider = Build(BaseSettings());
+
+        Assert.DoesNotContain(provider.GetServices<Naudit.Core.Abstractions.ISastAnalyzer>(),
+            a => a.Name == "dast");
+    }
+```
+
+(`GetServices<ISastAnalyzer>()` must resolve; ensure the test's service collection registers what `AddNauditInfrastructure` needs — mirror the existing `DastWiringTests` bootstrap. The DAST analyzer needs `IChatClient` + `IDockerClient` + `IAppRunner` in the container; all are registered when DAST is enabled.)
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter "FullyQualifiedName~Dast_enabled_registersDastAnalyzer"`
+Expected: FAIL — no `ISastAnalyzer` named "dast" is registered.
+
+- [ ] **Step 3: Wire it**
+
+In `src/Naudit.Infrastructure/DependencyInjection.cs`, inside the existing `if (dastOptions.Enabled)` block (after the `IAppRunner` + sweeper registrations from PR 1), add:
+
+```csharp
+            // DAST-Probing als weiterer ISastAnalyzer (läuft, sobald _analyzers nicht leer ist —
+            // unabhängig von sastOptions.Enabled). Nutzt den GLOBALEN IChatClient (nie den
+            // Author-Session-Router), wie DistillingReviewGuidelines.
+            services.AddScoped<ISastAnalyzer>(sp => new DastAnalyzer(
+                sp.GetRequiredService<IAppRunner>(),
+                dastOptions,
+                sp.GetRequiredService<IChatClient>(),
+                sp.GetRequiredService<IDockerClient>(),
+                sp.GetRequiredService<ILoggerFactory>()));
+```
+
+Add `using Naudit.Core.Abstractions;` and `using Microsoft.Extensions.AI;` if not already present.
+
+- [ ] **Step 4: Add the catalog key**
+
+In `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs`, with the other `Naudit:Review:Dast:*` keys:
+
+```csharp
+        new("Naudit:Review:Dast:MaxProbeSteps", false),
+```
+
+(`ProbeMcpArgv` is list-shaped ⇒ env-only, not in the catalog — `Projects` precedent.)
+
+- [ ] **Step 5: Run tests + full suite**
+
+Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter DastWiringTests`
+Expected: PASS. Then `DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test Naudit.slnx` — 712.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add docs/mcp-tools.md docs/configuration.md
-git commit -m "docs(mcp): MCP-Tools in der Review-Runtime + Konfiguration"
+git add src/Naudit.Infrastructure/DependencyInjection.cs src/Naudit.Infrastructure/Settings/SettingsCatalog.cs tests/Naudit.Tests/DastWiringTests.cs
+git commit -m "feat(dast): DastAnalyzer als ISastAnalyzer verdrahtet + MaxProbeSteps im Katalog"
 ```
 
 ---
 
-## Self-Review notes (for the implementer)
-
-- **Spec coverage:** Core-thin seam (Task 1), prompt guidance (Task 2), config + catalog (Task 3), fail-open/cache orchestration (Task 4), ClaudeCode CLI path with MCP-only allowlist (Task 5), real connector + function-invocation + iteration cap + conditional wiring (Task 6), docs (Task 7). Every spec section maps to a task.
-- **Core rule:** only `IReviewToolProvider` (returning MEAI `AITool`) and `NullReviewToolProvider` live in Core; all `ModelContextProtocol.*` usage is in `Naudit.Infrastructure/Mcp/`. Verified: `Naudit.Core.csproj` references only `Microsoft.Extensions.AI.Abstractions`.
-- **No behaviour change when off:** Task 1 keeps `ChatOptions.Tools` null with the null provider; Task 5 keeps the ClaudeCode args byte-identical (`--tools ""`, `--max-turns 1`) when MCP is off; Task 6 only wraps the client and swaps the provider when `Enabled && provider != ClaudeCode`.
-- **Version-sensitive spots flagged:** MEAI `MaximumIterationsPerRequest`/`UseFunctionInvocation` and the MCP SDK `McpClient.CreateAsync`/`ListToolsAsync`/`HttpClientTransportOptions` are pinned to the verified package versions with an implementer note in Task 6.

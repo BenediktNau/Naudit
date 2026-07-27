@@ -1,222 +1,251 @@
-## Task 5: ClaudeCode CLI path (`--mcp-config` / `--allowedTools` / `--max-turns`)
+### Task 5: `DastAnalyzer` — orchestration happy path
 
 **Files:**
-- Modify: `src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs`
-- Modify: `src/Naudit.Infrastructure/Ai/AiClientFactory.cs`
-- Modify: `src/Naudit.Infrastructure/DependencyInjection.cs`
-- Modify: `tests/Naudit.Tests/ClaudeCodeChatClientTests.cs`
+- Create: `src/Naudit.Infrastructure/Dast/DastProbePrompt.cs`, `src/Naudit.Infrastructure/Dast/DastAnalyzer.cs`
+- Test: `tests/Naudit.Tests/DastAnalyzerTests.cs`
 
 **Interfaces:**
-- Consumes: `McpOptions` (Task 3).
-- Produces: `AiClientFactory.Create(AiOptions, McpOptions?)`; `ClaudeCodeChatClient(AiOptions, IProcessRunner, McpOptions?)`.
+- Consumes: `IAppRunner.RunAsync` (PR 1), `DastProbeSession` (Task 4), `IChatClient` (global), `DastOptions`, `IReviewWorkspace`, `FakeChatClient`, `FakeDockerClient`, and a fake `IAppRunner`.
+- Produces: `DastAnalyzer : ISastAnalyzer` (`Name => "dast"`, `AnalyzeAsync(workspace, changes, ct) -> IReadOnlyList<ScanFinding>`). Emits `ScanFinding(Tool: "dast", Category: FindingCategory.Dast, …)` with the endpoint in `Message`, `FilePath`/`Line` null.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the probing prompt + JSON contract**
 
-In `tests/Naudit.Tests/ClaudeCodeChatClientTests.cs`, add a small helper and three tests. The `Client` helper currently builds a client without `McpOptions`; add an overload path — the client's third ctor arg is the new `McpOptions?` (null = today's behaviour):
+Create `src/Naudit.Infrastructure/Dast/DastProbePrompt.cs`:
 
 ```csharp
-    [Fact]
-    public async Task GetResponseAsync_mcpDisabled_keepsTodaysArgs()
+namespace Naudit.Infrastructure.Dast;
+
+/// <summary>System-Prompt für den agentischen Probing-Lauf. „Playwright ist die Hand, nicht das Hirn":
+/// der Browser navigiert, das LLM beurteilt. Grounding-Schritt ⇒ non-JSON ist „keine Funde", nie ein
+/// fail-closed-Abbruch.</summary>
+public static class DastProbePrompt
+{
+    public static string System(string appUrl, int maxSteps) =>
+        $$"""
+        You are a security probe driving a headless browser (Playwright tools) against a running
+        web app at {{appUrl}}. Explore reachable pages and forms and look for evidence of concrete
+        vulnerabilities: reflected/stored XSS, obvious injection, missing auth on sensitive routes,
+        open redirects, sensitive data in responses. Use at most {{maxSteps}} tool calls; be frugal.
+
+        You are grounding a code review, not producing a final verdict. When done, respond with ONLY
+        a JSON object, no prose:
+        {"findings":[{"severity":"High|Medium|Low","endpoint":"<url or route>","summary":"<one line>"}]}
+        If you found nothing, respond exactly {"findings":[]}.
+        """;
+}
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/Naudit.Tests/DastAnalyzerTests.cs`. The `FakeChatClient` must return the JSON contract; a fake `IAppRunner` returns a `RunningApp`; the probe session is exercised via `FakeDockerClient` (no live MCP — so the analyzer must tolerate a probe-session start failure as fail-open, tested in Task 6; here we test the path where the model answers with findings). To make the happy path deterministic without a live MCP peer, inject the probe-session factory as a delegate so the test supplies tools directly:
+
+```csharp
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging.Abstractions;
+using Naudit.Core.Abstractions;
+using Naudit.Core.Models;
+using Naudit.Infrastructure.Dast;
+using Naudit.Tests.Fakes;
+using Xunit;
+
+namespace Naudit.Tests;
+
+public class DastAnalyzerTests
+{
+    private const string Project = "acme/shop";
+
+    private sealed class Ws(string root) : IReviewWorkspace
     {
-        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
-        var client = new ClaudeCodeChatClient(
-            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub,
-            new Naudit.Infrastructure.Mcp.McpOptions { Enabled = false });
+        public string RootPath => root;
+        public string ProjectId => Project;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 
-        await client.GetResponseAsync(Messages());
+    private static DastOptions Options() => new() { Enabled = true, Projects = { Project } };
 
-        var args = stub.LastSpec!.Arguments.ToList();
-        Assert.Equal("1", args[args.IndexOf("--max-turns") + 1]);
-        Assert.Equal("", args[args.IndexOf("--tools") + 1]);   // Tools aus
-        Assert.DoesNotContain("--mcp-config", args);
-        Assert.DoesNotContain("--allowedTools", args);
+    [Fact]
+    public async Task Analyze_mapsModelJson_toDastFindings()
+    {
+        var app = new FakeAppRunner(); // RunAsync -> non-null RunningApp
+        var chat = new FakeChatClient(
+            "{\"findings\":[{\"severity\":\"High\",\"endpoint\":\"/search?q=\",\"summary\":\"Reflected XSS\"}]}");
+        var analyzer = new DastAnalyzer(app, Options(), chat, new FakeDockerClient(),
+            NullLoggerFactory.Instance, probeToolsOverride: []);   // leere Toolliste ⇒ kein echter MCP
+
+        var findings = await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []);
+
+        var f = Assert.Single(findings);
+        Assert.Equal("dast", f.Tool);
+        Assert.Equal(FindingCategory.Dast, f.Category);
+        Assert.Equal(FindingSeverity.High, f.Severity);
+        Assert.Contains("/search?q=", f.Message);
+        Assert.Contains("Reflected XSS", f.Message);
+        Assert.Null(f.FilePath);
+        Assert.True(app.Disposed);   // Teardown lief
     }
 
     [Fact]
-    public async Task GetResponseAsync_mcpEnabled_addsMcpConfig_allowlist_andRaisesMaxTurns()
+    public async Task Analyze_notAllowlisted_returnsEmpty_withoutRunning()
     {
-        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
-        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
+        var app = new FakeAppRunner();
+        var opts = Options(); opts.Projects.Clear();
+        var analyzer = new DastAnalyzer(app, opts, new FakeChatClient("{\"findings\":[]}"),
+            new FakeDockerClient(), NullLoggerFactory.Instance, probeToolsOverride: []);
+
+        Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
+        Assert.False(app.RunCalled);
+    }
+}
+```
+
+Add the `FakeAppRunner` to `tests/Naudit.Tests/Fakes/` (implements `IAppRunner`; `RunAsync` records `RunCalled`, returns a `RunningApp("http://naudit-dast-app-x:8080/", "naudit-dast-net-x", "naudit-dast-app-x", "naudit-dast-pw-x", () => { Disposed = true; return ValueTask.CompletedTask; })` unless configured to return null). Confirm `FakeChatClient` can be constructed with a fixed response string returning it from `GetResponseAsync` — if the existing fake differs, adapt to its constructor.
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter DastAnalyzerTests`
+Expected: FAIL — `DastAnalyzer` does not exist (CS0246).
+
+- [ ] **Step 4: Write the analyzer**
+
+Create `src/Naudit.Infrastructure/Dast/DastAnalyzer.cs`. It wraps the global `IChatClient` in a locally-bounded `UseFunctionInvocation` (cap `MaxProbeSteps`), passes the probe tools in `ChatOptions.Tools`, and parses the JSON. The `probeToolsOverride` seam lets tests bypass the live MCP; production passes `null` and the analyzer opens a real `DastProbeSession`:
+
+```csharp
+using System.Text.Json;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
+using Naudit.Core.Abstractions;
+using Naudit.Core.Models;
+using Naudit.Infrastructure.Docker;
+
+namespace Naudit.Infrastructure.Dast;
+
+/// <summary>Dynamische Prüfung als weiterer ISastAnalyzer: baut/startet die PR-App (PR-1-Runner),
+/// treibt den Playwright-MCP-Server durch einen begrenzten agentischen Loop und mappt die
+/// JSON-Beobachtungen des Modells auf ScanFinding(Category=Dast). Reines Grounding, Verdict bleibt am
+/// Gate. Fail-open über alles; garantierter Teardown der DAST-Topologie über RunningApp.</summary>
+public sealed class DastAnalyzer(
+    IAppRunner runner,
+    DastOptions options,
+    IChatClient chatClient,
+    IDockerClient docker,
+    ILoggerFactory loggerFactory,
+    IReadOnlyList<AITool>? probeToolsOverride = null) : ISastAnalyzer
+{
+    private readonly ILogger _logger = loggerFactory.CreateLogger<DastAnalyzer>();
+
+    public string Name => "dast";
+
+    public async Task<IReadOnlyList<ScanFinding>> AnalyzeAsync(
+        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct = default)
+    {
+        if (!options.AppliesTo(workspace.ProjectId))
+            return [];
+
+        try
         {
-            Enabled = true,
-            MaxIterations = 5,
-            Servers =
+            await using var app = await runner.RunAsync(workspace, ct);
+            if (app is null) return [];   // nicht anwendbar / kam nicht hoch — Runner hat schon geloggt
+
+            DastProbeSession? session = null;
+            try
             {
-                new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp", ApiKey = "sk-1" },
-            },
-        };
-        var client = new ClaudeCodeChatClient(
-            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
-
-        await client.GetResponseAsync(Messages());
-
-        var args = stub.LastSpec!.Arguments.ToList();
-        Assert.Equal("5", args[args.IndexOf("--max-turns") + 1]);         // Loop erlaubt
-        Assert.Contains("--mcp-config", args);
-        Assert.Contains("--allowedTools", args);
-        // Allowlist enthält NUR das MCP-Tool des Servers — kein Bash/Edit/Read.
-        var allow = args[args.IndexOf("--allowedTools") + 1];
-        Assert.Contains("mcp__context7", allow);
-        Assert.DoesNotContain("Bash", allow);
-        Assert.DoesNotContain("Edit", allow);
-        Assert.DoesNotContain("Read", allow);
-        Assert.DoesNotContain("--tools", args);   // ersetzt durch die Allowlist
-    }
-
-    [Fact]
-    public async Task GetResponseAsync_mcpEnabled_mcpConfigJson_containsServerUrl()
-    {
-        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
-        var mcp = new Naudit.Infrastructure.Mcp.McpOptions
-        {
-            Enabled = true,
-            Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
-        };
-        var client = new ClaudeCodeChatClient(
-            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, mcp);
-
-        await client.GetResponseAsync(Messages());
-
-        var args = stub.LastSpec!.Arguments.ToList();
-        var json = args[args.IndexOf("--mcp-config") + 1];
-        Assert.Contains("context7", json);
-        Assert.Contains("https://mcp.context7.com/mcp", json);
-    }
-```
-
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ClaudeCodeChatClientTests"`
-Expected: BUILD FAIL — the 3-arg `ClaudeCodeChatClient` ctor does not exist.
-
-- [ ] **Step 3: Add the MCP branch to `ClaudeCodeChatClient`**
-
-In `src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs`, add the using:
-
-```csharp
-using Naudit.Infrastructure.Mcp;
-```
-
-Change the primary constructor to accept optional `McpOptions`:
-
-```csharp
-public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
-```
-
-Replace the args-building block. Current:
-
-```csharp
-        var args = new List<string>
-        {
-            "-p", "--output-format", "json", "--max-turns", "1", "--tools", "", "--model", model,
-        };
-```
-
-with:
-
-```csharp
-        // MCP an ⇒ Loop erlauben (--max-turns N), Server registrieren (--mcp-config) und AUSSCHLIESSLICH
-        // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
-        // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
-        var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
-        var args = new List<string> { "-p", "--output-format", "json", "--model", model };
-        if (mcpEnabled)
-        {
-            args.Add("--max-turns");
-            args.Add(mcp!.MaxIterations.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            args.Add("--mcp-config");
-            args.Add(BuildMcpConfigJson(mcp));
-            args.Add("--allowedTools");
-            args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
-        }
-        else
-        {
-            args.Add("--max-turns");
-            args.Add("1");
-            args.Add("--tools");
-            args.Add("");   // Tools aus (heutiges Verhalten)
-        }
-```
-
-Add the helper method (place it near `StripJsonFences`), building the Claude Code `--mcp-config` shape (`{"mcpServers":{ "<name>": { ... } }}`):
-
-```csharp
-    // Baut das Claude-Code --mcp-config-JSON aus der geteilten McpOptions-Config.
-    // http ⇒ { "type":"http", "url":..., "headers": { "Authorization":"Bearer <key>" } };
-    // stdio ⇒ { "command":..., "args":[...] }.
-    private static string BuildMcpConfigJson(McpOptions mcp)
-    {
-        var servers = new Dictionary<string, object>();
-        foreach (var s in mcp.Servers)
-        {
-            if (string.Equals(s.Transport, "stdio", StringComparison.OrdinalIgnoreCase))
-            {
-                servers[s.Name] = new Dictionary<string, object?>
+                IReadOnlyList<AITool> tools;
+                if (probeToolsOverride is not null)
                 {
-                    ["command"] = s.Command,
-                    ["args"] = s.Arguments ?? new List<string>(),
-                };
+                    tools = probeToolsOverride;   // Testnaht: kein echter MCP-Server
+                }
+                else
+                {
+                    session = await DastProbeSession.StartAsync(docker, options, app.ProbeContainerName, loggerFactory, ct);
+                    tools = session.Tools;
+                }
+
+                var raw = await RunProbeLoopAsync(app.InternalUrl, tools, ct);
+                return ParseFindings(raw);
             }
-            else
+            finally
             {
-                var entry = new Dictionary<string, object?> { ["type"] = "http", ["url"] = s.Url };
-                if (!string.IsNullOrWhiteSpace(s.ApiKey))
-                    entry["headers"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {s.ApiKey}" };
-                servers[s.Name] = entry;
+                if (session is not null) await session.DisposeAsync();
             }
         }
-        return JsonSerializer.Serialize(new Dictionary<string, object> { ["mcpServers"] = servers });
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;   // echter Aufrufer-Abbruch propagiert
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "DAST-Probing abgebrochen — Review läuft ohne dynamische Funde weiter.");
+            return [];
+        }
     }
+
+    private async Task<string> RunProbeLoopAsync(string appUrl, IReadOnlyList<AITool> tools, CancellationToken ct)
+    {
+        var client = tools.Count > 0
+            ? chatClient.AsBuilder().UseFunctionInvocation(loggerFactory,
+                c => c.MaximumIterationsPerRequest = Math.Max(1, options.MaxProbeSteps)).Build()
+            : chatClient;
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.System, DastProbePrompt.System(appUrl, options.MaxProbeSteps)),
+            new(ChatRole.User, $"Probe the app at {appUrl} now and return the findings JSON."),
+        };
+        var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
+        if (tools.Count > 0) chatOptions.Tools = [.. tools];
+        var response = await client.GetResponseAsync(messages, chatOptions, ct);
+        return response.Text;
+    }
+
+    /// <summary>Non-JSON / Schema-Fehler ⇒ leere Liste (Grounding-Schritt, nicht fail-closed).</summary>
+    private IReadOnlyList<ScanFinding> ParseFindings(string text)
+    {
+        try
+        {
+            var doc = JsonSerializer.Deserialize<ProbeResult>(text, JsonOpts);
+            if (doc?.Findings is not { Count: > 0 }) return [];
+            return doc.Findings
+                .Where(f => f is not null)
+                .Select(f => new ScanFinding("dast", FindingCategory.Dast, MapSeverity(f!.Severity),
+                    $"{f.Summary} ({f.Endpoint})"))
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            _logger.LogInformation("DAST: Probing-Antwort war kein gültiges JSON — keine dynamischen Funde.");
+            return [];
+        }
+    }
+
+    private static FindingSeverity MapSeverity(string? s) => s?.ToLowerInvariant() switch
+    {
+        "high" => FindingSeverity.High,
+        "medium" => FindingSeverity.Medium,
+        _ => FindingSeverity.Low,
+    };
+
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+    private sealed record ProbeResult(List<ProbeFinding?>? Findings);
+    private sealed record ProbeFinding(string? Severity, string? Endpoint, string? Summary);
+}
 ```
 
-- [ ] **Step 4: Thread `McpOptions` through `AiClientFactory`**
+> **Implementer note on `FindingSeverity`:** use the enum values that already exist in `src/Naudit.Core/Models/` (the SAST findings use it). If the members are named differently (e.g. `Info`/`Critical`), map accordingly and keep three tiers.
 
-In `src/Naudit.Infrastructure/Ai/AiClientFactory.cs`, add the using:
+- [ ] **Step 5: Run test to verify it passes**
 
-```csharp
-using Naudit.Infrastructure.Mcp;
-```
+Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter DastAnalyzerTests`
+Expected: PASS (2).
 
-Change the signature and the ClaudeCode case:
+- [ ] **Step 6: Full suite**
 
-```csharp
-    public static IChatClient Create(AiOptions options, McpOptions? mcp = null)
-```
-
-```csharp
-            case AiProvider.ClaudeCode:
-                // Kein RequireApiKey: die CLI authentifiziert über die Umgebung (Abo statt Key).
-                // MCP-Config wird an den CLI-Client durchgereicht (CLI-natives MCP, nicht ChatOptions.Tools).
-                return new ClaudeCodeChatClient(options, new SystemProcessRunner(), mcp);
-```
-
-- [ ] **Step 5: Pass `mcpOptions` at the DI call site**
-
-In `src/Naudit.Infrastructure/DependencyInjection.cs`, `mcpOptions` is already bound just above this registration (Task 3, Step 4). Change the `IChatClient` registration from:
-
-```csharp
-        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions));
-```
-
-to:
-
-```csharp
-        services.AddSingleton<IChatClient>(_ => AiClientFactory.Create(aiOptions, mcpOptions));
-```
-
-(Task 6 replaces this lambda again to add the function-invocation wrapper.)
-
-- [ ] **Step 6: Run tests to verify they pass**
-
-Run: `dotnet test Naudit.slnx --filter "FullyQualifiedName~ClaudeCodeChatClientTests"`
-Expected: PASS (existing arg tests still green because MCP defaults to off; three new tests pass).
+Run: `DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test Naudit.slnx`
+Expected: PASS — 706.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/Naudit.Infrastructure/Ai/ClaudeCode/ClaudeCodeChatClient.cs src/Naudit.Infrastructure/Ai/AiClientFactory.cs \
-        src/Naudit.Infrastructure/DependencyInjection.cs tests/Naudit.Tests/ClaudeCodeChatClientTests.cs
-git commit -m "feat(mcp): ClaudeCode-CLI-Pfad — --mcp-config + MCP-only-Allowlist + --max-turns"
+git add src/Naudit.Infrastructure/Dast/DastProbePrompt.cs src/Naudit.Infrastructure/Dast/DastAnalyzer.cs tests/Naudit.Tests
+git commit -m "feat(dast): DastAnalyzer — Runner + Probing-Loop + JSON→ScanFinding(Dast)"
 ```
 
 ---
