@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { ClaudeSessionCard } from "@/components/ClaudeSessionCard";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonPanel, SkeletonRows } from "@/components/ui/Skeleton";
 
 // Skeleton: Profil-Kopf + Token-Chart + zwei Kennzahl-Panels + Per-Projekt-Balken.
@@ -10,7 +11,7 @@ const barHeights = ["h-20", "h-28", "h-16", "h-32", "h-24", "h-[110px]"];
 
 function ProfileSkeleton() {
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
+    <div className="flex flex-col gap-3.5">
       <div className="flex items-center gap-5">
         <Skeleton className="size-16 shrink-0 rounded-full" />
         <div className="flex-1">
@@ -66,25 +67,27 @@ export function ProfilePage() {
   const total = data.monthly.reduce((s, m) => s + m.tokens, 0);
 
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
-      <div className="flex items-center gap-5">
-        <span className="grid size-16 place-items-center rounded-full border border-border bg-elev font-mono text-2xl font-bold text-acc">
+    <div className="flex flex-col gap-3.5">
+      <div className="mb-1 flex items-center gap-4">
+        <span className="grid size-14 shrink-0 place-items-center rounded-full bg-acc/12 text-2xl font-bold text-acc">
           {me.username?.slice(0, 1).toUpperCase()}
         </span>
-        <div className="flex-1">
-          <div className="font-mono text-xl font-bold">{me.username}</div>
-          {me.isAdmin && <div className="mt-1 font-mono text-[11px] tracking-widest text-teal uppercase">admin</div>}
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[20px] font-semibold tracking-[-.015em] text-ink">{me.username}</h1>
+          <p className="mt-1 text-[12.5px] text-ink3">{me.isAdmin ? "Administrator" : "Reviewer"}</p>
         </div>
-        <Pill kind="ok">✓ active</Pill>
+        <Pill kind="ok" dot>
+          active
+        </Pill>
       </div>
 
       {gitHubApp.data && gitHubApp.data.accounts.length > 0 && (
         <Panel title="GitHub App">
           {gitHubApp.data.accounts.map((a) => (
-            <div key={a.login} className="flex items-center gap-4 border-b border-hairline px-5 py-3.5 last:border-b-0">
+            <div key={a.login} className="flex items-center gap-4 border-b border-seam px-4 py-3.5 last:border-b-0">
               <span className="flex-1 truncate font-mono text-[13px]">{a.login}</span>
-              {a.installed === true && <Pill kind="ok">✓ installed</Pill>}
-              {a.installed === null && <Pill kind="warn">● unknown</Pill>}
+              {a.installed === true && <Pill kind="ok" dot>installed</Pill>}
+              {a.installed === null && <Pill kind="warn" dot>unknown</Pill>}
               {a.installed === false &&
                 (gitHubApp.data!.installUrl ? (
                   <a
@@ -96,7 +99,7 @@ export function ProfilePage() {
                     Install
                   </a>
                 ) : (
-                  <Pill kind="warn">● not installed</Pill>
+                  <Pill kind="warn" dot>not installed</Pill>
                 ))}
             </div>
           ))}
@@ -136,9 +139,9 @@ export function ProfilePage() {
       </div>
 
       <Panel title={`Per project · ${new Date().toLocaleDateString("en", { month: "long" })}`}>
-        {data.perProject.length === 0 && <div className="px-5 py-5 font-mono text-xs text-ink3">No usage this month.</div>}
+        {data.perProject.length === 0 && <EmptyState>No usage this month.</EmptyState>}
         {data.perProject.map((p) => (
-          <div key={p.name} className="flex items-center gap-4 border-b border-hairline px-5 py-3.5 last:border-b-0">
+          <div key={p.name} className="flex items-center gap-4 border-b border-seam px-4 py-3.5 last:border-b-0">
             <span className="w-[160px] shrink-0 truncate font-mono text-[13px]">{p.name}</span>
             <div className="h-2 flex-1 overflow-hidden rounded-full bg-elev">
               <div className="h-full bg-acc" style={{ width: `${(p.tokens / maxProject) * 100}%` }} />

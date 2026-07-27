@@ -1,12 +1,23 @@
 import { useState } from "react";
 import { useDashboard, useProjectGuidelines, useProjectMemory } from "@/hooks/queries";
 import { useCreateConvention, useRedistillGuidelines, useSaveGuidelines, useToggleMemoryEntry } from "@/hooks/mutations";
+import { Button } from "@/components/ui/Button";
+import { Panel } from "@/components/ui/Panel";
+import { SevTag } from "@/components/ui/Pill";
+import { Input, Select, Textarea } from "@/components/ui/Input";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 const kindPill: Record<string, string> = {
   FalsePositive: "text-warn bg-warn/12",
   Convention: "text-teal bg-teal/12",
 };
+
+/** Die Panel-Aktionen sind kleiner als der Standard-Button — nur die Groesse wird
+ *  ueberschrieben, Varianten und Fokusring kommen vom geteilten <Button>. */
+const quietSize = "shrink-0 px-2.5 py-1 text-[11.5px]";
+const accentSize = "shrink-0 px-4 py-2 text-[12.5px]";
 
 /** Projekt-Gedächtnis: FP-Markierungen + Konventionen je Projekt einsehen und pflegen. */
 export function MemoryPage() {
@@ -19,96 +30,118 @@ export function MemoryPage() {
   const [text, setText] = useState("");
   const [file, setFile] = useState("");
 
-  if (isLoading) return <div className="p-7"><Skeleton className="h-4 w-64" /></div>;
+  if (isLoading) return <Skeleton className="h-4 w-64" />;
   if (!dash || dash.projects.length === 0)
-    return <div className="p-7 font-mono text-[13px] text-ink3">No reviewed projects yet — memory entries attach to projects.</div>;
+    return (
+      <div className="font-mono text-[13px] text-ink3">
+        No reviewed projects yet — memory entries attach to projects.
+      </div>
+    );
 
   const submit = () => {
     // Enter umgeht den disabled-Button — hier erneut gegen Doppel-Submit sichern.
     if (create.isPending) return;
     const t = text.trim();
     if (!t) return;
-    create.mutate({ text: t, file: file.trim() || undefined }, { onSuccess: () => { setText(""); setFile(""); } });
+    create.mutate(
+      { text: t, file: file.trim() || undefined },
+      {
+        onSuccess: () => {
+          setText("");
+          setFile("");
+        },
+      },
+    );
   };
 
+  const active = memory?.entries.filter((m) => m.active).length ?? 0;
+  const retired = (memory?.entries.length ?? 0) - active;
+
   return (
-    <div className="flex flex-col gap-5 p-7">
-      <div className="flex items-center gap-3">
-        <h1 className="text-[15px] font-semibold text-ink">Project memory</h1>
-        <select
-          className="rounded-lg border border-border bg-elev px-2.5 py-1.5 font-mono text-[12.5px] text-ink"
-          value={selected ?? undefined}
-          onChange={(e) => setProjectId(Number(e.target.value))}
-        >
+    <>
+      <PageHeader
+        title="Project memory"
+        subtitle="What Naudit has learned about this codebase — and stopped flagging."
+      >
+        <Select aria-label="Project" value={selected ?? undefined} onChange={(e) => setProjectId(Number(e.target.value))}>
           {dash.projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
           ))}
-        </select>
-      </div>
+        </Select>
+      </PageHeader>
 
-      {/* Architektur-Profil (destillierte Guidelines) */}
-      {/* key erzwingt Remount je Projekt: editing/draft dürfen einen Projektwechsel nicht
-          überleben — sonst überschreibt "Save" das NEUE Projekt mit dem alten Entwurf. */}
-      <GuidelinesCard key={selected ?? "none"} projectId={selected} />
+      <div className="flex flex-col gap-3.5">
+        {/* Architektur-Profil (destillierte Guidelines) */}
+        {/* key erzwingt Remount je Projekt: editing/draft dürfen einen Projektwechsel nicht
+            überleben — sonst überschreibt "Save" das NEUE Projekt mit dem alten Entwurf. */}
+        <GuidelinesCard key={selected ?? "none"} projectId={selected} />
 
-      {/* Konvention anlegen */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="min-w-[32ch] flex-1 rounded-lg border border-border bg-elev px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink3"
-          placeholder="New convention — e.g. “German code comments are intentional”"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-        <input
-          className="w-[24ch] rounded-lg border border-border bg-elev px-2.5 py-1.5 font-mono text-[12px] text-ink placeholder:text-ink3"
-          placeholder="file scope (optional)"
-          value={file}
-          onChange={(e) => setFile(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
-        <button
-          className="rounded-lg bg-acc/12 px-3 py-1.5 text-[13px] font-semibold text-acc disabled:opacity-50"
-          disabled={!text.trim() || create.isPending}
-          onClick={submit}
-        >
-          Add
-        </button>
-      </div>
-
-      {/* Einträge */}
-      {memLoading && <Skeleton className="h-3 w-full max-w-[70ch]" />}
-      {memory && memory.entries.length === 0 && (
-        <div className="font-mono text-[12.5px] text-ink3">No memory entries yet. Mark a finding as false positive or add a convention.</div>
-      )}
-      {memory && memory.entries.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {memory.entries.map((m) => (
-            <div key={m.id} className={`flex items-start gap-2.5 ${m.active ? "" : "opacity-50"}`}>
-              <span className={`mt-px shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${kindPill[m.kind]}`}>
-                {m.kind === "FalsePositive" ? "FP" : "convention"}
-              </span>
-              <div className="min-w-0 flex-1 text-[12.5px] leading-snug text-ink2">
-                {m.file && <span className="font-mono text-ink3">{m.file} — </span>}
-                {m.text}
-                {m.reason && <span className="text-ink3"> · {m.reason}</span>}
-                <span className="ml-1.5 font-mono text-[10.5px] text-ink3">
-                  {m.createdBy} · {new Date(m.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-              <button
-                className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink disabled:opacity-50"
-                title={m.active ? "Deactivate (kept for audit)" : "Reactivate"}
-                disabled={toggle.isPending}
-                onClick={() => toggle.mutate({ id: m.id, active: !m.active })}
-              >
-                {m.active ? "deactivate" : "activate"}
-              </button>
-            </div>
-          ))}
+        {/* Konvention anlegen */}
+        <div className="flex flex-wrap gap-2">
+          <Input
+            className="min-w-0 flex-[1_1_340px]"
+            placeholder="New convention — e.g. “German code comments are intentional”"
+            aria-label="New convention"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          <Input
+            className="flex-[0_1_200px] font-mono text-[11.5px]"
+            placeholder="File scope (optional)"
+            aria-label="File scope"
+            value={file}
+            onChange={(e) => setFile(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          <Button className={accentSize} disabled={!text.trim()} loading={create.isPending} onClick={submit}>
+            Add
+          </Button>
         </div>
-      )}
-    </div>
+
+        {memLoading && <Skeleton className="h-3 w-full max-w-[70ch]" />}
+
+        {memory && (
+          <Panel title="Memory entries" extra={`${active} active · ${retired} retired`}>
+            {memory.entries.length === 0 && (
+              <EmptyState>
+                No memory entries yet. Mark a finding as false positive or add a convention above.
+              </EmptyState>
+            )}
+            {memory.entries.map((m) => (
+              <div
+                key={m.id}
+                className={`flex flex-wrap items-start gap-2.5 border-b border-seam px-4 py-3 transition-[opacity,background] duration-200
+                            last:border-b-0 hover:bg-elev ${m.active ? "" : "opacity-45"}`}
+              >
+                <SevTag className={kindPill[m.kind] ?? kindPill.Convention}>
+                  {m.kind === "FalsePositive" ? "false positive" : "convention"}
+                </SevTag>
+                <div className="min-w-[20ch] flex-1 text-[12.5px] leading-snug text-ink2">
+                  {m.file && <span className="font-mono text-[11px] text-ink3">{m.file} — </span>}
+                  {m.text}
+                  {m.reason && <span className="text-ink3"> · {m.reason}</span>}
+                  <span className="ml-2 text-[10.5px] text-ink4">
+                    {m.createdBy} · {new Date(m.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <Button
+                  variant="secondary"
+                  className={quietSize}
+                  title={m.active ? "Deactivate (kept for audit)" : "Reactivate"}
+                  disabled={toggle.isPending}
+                  onClick={() => toggle.mutate({ id: m.id, active: !m.active })}
+                >
+                  {m.active ? "Retire" : "Restore"}
+                </Button>
+              </div>
+            ))}
+          </Panel>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -122,67 +155,83 @@ function GuidelinesCard({ projectId }: { projectId: number | null }) {
 
   if (isLoading || !data) return null;
 
-  const startEdit = () => { setDraft(data.markdown ?? ""); setEditing(true); };
+  const startEdit = () => {
+    setDraft(data.markdown ?? "");
+    setEditing(true);
+  };
   const submit = () => {
     const t = draft.trim();
     if (!t || save.isPending) return;
     save.mutate({ markdown: t }, { onSuccess: () => setEditing(false) });
   };
 
+  const meta = data.markdown
+    ? data.pending
+      ? "re-distills on the next review — showing the previous profile"
+      : `${data.manuallyEdited ? "Curated" : "Distilled"} · ${data.updatedBy ?? ""}${
+          data.distilledAt ? ` · ${new Date(data.distilledAt).toLocaleDateString()}` : ""
+        }`
+    : "distills from the repo's docs on the next review";
+
   return (
-    <div className="rounded-xl border border-border bg-elev p-4">
-      <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-[13.5px] font-semibold text-ink">Architecture profile</h2>
-        <span className="font-mono text-[10.5px] text-ink3">
-          {data.markdown
-            ? data.pending
-              ? "re-distills on the next review — showing the previous profile"
-              : `${data.manuallyEdited ? "curated" : "distilled"} · ${data.updatedBy ?? ""}${data.distilledAt ? ` · ${new Date(data.distilledAt).toLocaleDateString()}` : ""}`
-            : "distills from the repo's docs on the next review"}
-        </span>
-        <div className="ml-auto flex gap-2">
-          {!editing && data.markdown && (
-            <button className="rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink" onClick={startEdit}>edit</button>
-          )}
-          {!editing && (
-            <button
-              className="rounded px-1.5 py-0.5 font-mono text-[10px] text-ink3 hover:text-ink disabled:opacity-50"
+    <Panel
+      title="Architecture profile"
+      extra={meta}
+      actions={
+        !editing && (
+          <>
+            {data.markdown && (
+              <Button variant="secondary" className={quietSize} onClick={startEdit}>
+                Edit
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              className={quietSize}
               disabled={redistill.isPending}
               title="Discards manual edits; the profile is re-distilled on the next review."
-              onClick={() => { if (window.confirm("Re-distill from repository docs on the next review? Manual edits are discarded.")) redistill.mutate(); }}
+              onClick={() => {
+                if (window.confirm("Re-distill from repository docs on the next review? Manual edits are discarded."))
+                  redistill.mutate();
+              }}
             >
-              re-distill
-            </button>
-          )}
-        </div>
-      </div>
+              Re-distill
+            </Button>
+          </>
+        )
+      }
+    >
       {data.sourcesChangedAt && (
-        <div className="mb-2 font-mono text-[11px] text-warn">
-          Repository docs changed since this profile was curated — “re-distill” to rebuild it.
+        <div className="border-b border-seam px-4 py-2.5 font-mono text-[11px] text-warn">
+          Repository docs changed since this profile was curated — “Re-distill” to rebuild it.
         </div>
       )}
-      {!editing && data.markdown && (
-        <pre className="whitespace-pre-wrap font-mono text-[12px] leading-snug text-ink2">{data.markdown}</pre>
-      )}
+      {!editing &&
+        (data.markdown ? (
+          <pre className="m-0 p-4 font-mono text-[11.5px] leading-[1.75] whitespace-pre-wrap text-ink2">
+            {data.markdown}
+          </pre>
+        ) : (
+          <EmptyState>No profile yet.</EmptyState>
+        ))}
       {editing && (
-        <div className="flex flex-col gap-2">
-          <textarea
-            className="min-h-[10rem] rounded-lg border border-border bg-elev p-2.5 font-mono text-[12px] text-ink"
+        <div className="flex flex-col gap-2.5 p-4">
+          <Textarea
+            className="min-h-40 w-full text-[11.5px]"
+            aria-label="Architecture profile"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
           <div className="flex gap-2">
-            <button
-              className="rounded-lg bg-acc/12 px-3 py-1.5 text-[13px] font-semibold text-acc disabled:opacity-50"
-              disabled={!draft.trim() || save.isPending}
-              onClick={submit}
-            >
+            <Button className={accentSize} disabled={!draft.trim()} loading={save.isPending} onClick={submit}>
               Save
-            </button>
-            <button className="rounded-lg px-3 py-1.5 text-[13px] text-ink3 hover:text-ink" onClick={() => setEditing(false)}>Cancel</button>
+            </Button>
+            <Button variant="secondary" className={quietSize} onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
           </div>
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

@@ -1,15 +1,20 @@
 @import "tailwindcss";
 
-/* Design-Tokens aus "Naudit WebUI.dc.html" (Claude Design) — dark-only. */
+/* Design-Tokens aus "Naudit UI Refresh.dc.html" (Claude Design) — dark-only. */
 @theme {
   --color-bg: #0d1117;
+  --color-sunken: #0f151c;
+  --color-nav: #0b0f14;
   --color-surface: #141a22;
   --color-elev: #1a222c;
+  --color-input: #10161d;
   --color-border: #242d38;
   --color-hairline: #1b232d;
+  --color-seam: #161d26;
   --color-ink: #e6edf3;
   --color-ink2: #98a5b3;
   --color-ink3: #5f6b78;
+  --color-ink4: #4a5561;
   --color-acc: #4ade80;
   --color-acc2: #22c55e;
   --color-accink: #06170c;
@@ -18,20 +23,94 @@
   --color-danger: #f47067;
   --font-sans: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "Space Mono", ui-monospace, monospace;
+
+  /* Eine gemeinsame Ease für alle Bewegung — daher kommt das ruhige Gefühl des Entwurfs. */
+  --ease-swift: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --animate-pagein: naudit-pagein 0.4s var(--ease-swift) both;
+  --animate-swipeup: naudit-swipeup 0.22s cubic-bezier(0.3, 0.8, 0.4, 1) both;
+  --animate-swipedown: naudit-swipedown 0.22s cubic-bezier(0.3, 0.8, 0.4, 1) both;
+  --animate-risein: naudit-risein 0.5s var(--ease-swift) both;
+  --animate-expandrow: naudit-expandrow 0.32s var(--ease-swift) both;
+  --animate-panelin: naudit-panelin 0.34s var(--ease-swift) both;
+  --animate-veil: naudit-veil 0.26s ease both;
+  --animate-popin: naudit-popin 0.24s var(--ease-swift) both;
+  --animate-draw: naudit-draw 1.1s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  --animate-barfill: naudit-barfill 0.8s var(--ease-swift) both;
+  --animate-shimmer: naudit-shimmer 1.4s ease-in-out infinite;
+  --animate-livedot: naudit-livedot 2.4s ease-in-out infinite;
 }
 
-/* Dezente Transitions fuer den Settings-Redesign — respektieren prefers-reduced-motion. */
-@keyframes naudit-fadein {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes naudit-pagein {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
 }
-@keyframes naudit-modalin {
-  from { opacity: 0; transform: scale(.97); }
-  to   { opacity: 1; transform: scale(1); }
+@keyframes naudit-swipeup {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
+@keyframes naudit-swipedown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes naudit-risein {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+/* 0fr → 1fr: die Zeile klappt auf ihre echte Inhaltshöhe auf, ohne feste max-height. */
+@keyframes naudit-expandrow {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to   { grid-template-rows: 1fr; opacity: 1; }
+}
+@keyframes naudit-panelin {
+  from { opacity: 0; transform: translateX(34px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes naudit-veil {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes naudit-popin {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+/* Linie zeichnet sich; setzt pathLength="1" + stroke-dasharray="1" am <path> voraus. */
+@keyframes naudit-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes naudit-barfill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes naudit-shimmer {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.95; }
+}
+@keyframes naudit-livedot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.8); }
+}
+
+/* Legacy-Klassen des Settings-Redesigns — bleiben, damit Wizard/Modal unverändert laufen. */
 @media (prefers-reduced-motion: no-preference) {
-  .anim-fadein  { animation: naudit-fadein .15s ease both; }
-  .anim-modalin { animation: naudit-modalin .15s ease both; }
+  .anim-fadein  { animation: naudit-swipeup 0.15s ease both; }
+  .anim-modalin { animation: naudit-popin 0.15s ease both; }
+}
+
+/* Eine Regel für die gesamte Bewegung: wer sie abbestellt hat, bekommt den Endzustand sofort. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    /* Verzögerungen müssen mit weg: die Severity-Balken tragen ihren Versatz inline,
+       sonst stünden sie trotz gekappter Dauer noch auf scaleX(0). */
+    animation-delay: 0ms !important;
+    transition-delay: 0ms !important;
+  }
 }
 
 html,
@@ -43,4 +122,23 @@ body {
   background-color: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(74 222 128 / 0.22);
+}
+
+/* Scrollbars im Panel-Look statt im Browser-Grau (WebKit/Blink; Firefox ignoriert das still). */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 6px;
+  border: 3px solid var(--color-bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }

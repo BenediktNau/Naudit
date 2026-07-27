@@ -12,14 +12,15 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { Input } from "@/components/ui/Input";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Collapse } from "@/components/ui/Collapse";
 import { Skeleton, SkeletonPanel, SkeletonRows } from "@/components/ui/Skeleton";
-
-const inputCls =
-  "w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-[13px] text-ink outline-none placeholder:text-ink3 focus:border-acc";
 
 function Avatar({ name }: { name: string }) {
   return (
-    <span className="grid size-8 shrink-0 place-items-center rounded-full border border-border bg-elev text-xs font-bold text-acc">
+    <span className="grid size-8 shrink-0 place-items-center rounded-full bg-acc/12 text-xs font-bold text-acc">
       {name.slice(0, 1).toUpperCase()}
     </span>
   );
@@ -42,11 +43,7 @@ function AccountRow({ account }: { account: AccountDto }) {
   const noLink = account.provider !== "GitHub" && account.gitHubLogins.length === 0;
 
   // Aktion feuern; Erfolg aktualisiert die Liste via invalidateQueries (im Hook), Fehler landet inline.
-  function run<V>(
-    m: { mutate: (vars: V, opts?: { onError?: () => void }) => void },
-    vars: V,
-    label: string,
-  ) {
+  function run<V>(m: { mutate: (vars: V, opts?: { onError?: () => void }) => void }, vars: V, label: string) {
     setErr(null);
     m.mutate(vars, { onError: () => setErr(`${label} failed — try again.`) });
   }
@@ -62,57 +59,62 @@ function AccountRow({ account }: { account: AccountDto }) {
   }
 
   return (
-    <div className="flex items-center gap-3.5 border-b border-hairline px-5 py-4 last:border-b-0">
+    <div className="flex flex-wrap items-center gap-3 border-b border-seam px-4 py-3.5 transition-colors duration-200 last:border-b-0 hover:bg-elev">
       <Avatar name={account.username} />
-      <div className="min-w-0 flex-1">
-        <div className="font-mono text-[13.5px]">{account.username}</div>
-        <div className="mt-0.5 text-[11.5px] text-ink3">
+      <div className="min-w-[16ch] flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-medium text-ink">{account.username}</span>
+          {account.isAdmin && (
+            <span className="rounded-full border border-teal/40 px-1.5 py-px text-[10px] font-semibold tracking-[.07em] text-teal uppercase">
+              admin
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 text-[11px] text-ink3">
           <span className="font-mono">{meta.join(" · ")}</span>
           {noLink && <span className="text-warn"> · no GitHub link</span>}
           {err && <span className="text-danger"> · {err}</span>}
         </div>
       </div>
-      {account.isAdmin && <Pill kind="neutral">admin</Pill>}
       {pending ? (
         <>
-          <Pill kind="warn">● pending</Pill>
-          <Button
-            className="px-3 py-1.5 text-xs"
-            loading={approve.isPending}
-            onClick={() => run(approve, account.id, "Approve")}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="ghost"
-            className="px-3 py-1.5 text-xs"
-            loading={reject.isPending}
-            onClick={() => run(reject, account.id, "Reject")}
-          >
-            Reject
-          </Button>
+          <Pill kind="warn" dot>
+            pending
+          </Pill>
+          <div className="flex shrink-0 gap-1.5">
+            <Button className="px-3.5 py-1.5 text-xs" loading={approve.isPending} onClick={() => run(approve, account.id, "Approve")}>
+              Approve
+            </Button>
+            <Button
+              variant="secondary"
+              className="px-3.5 py-1.5 text-xs"
+              loading={reject.isPending}
+              onClick={() => run(reject, account.id, "Reject")}
+            >
+              Reject
+            </Button>
+          </div>
         </>
       ) : (
         <>
-          <Pill kind="ok">✓ active</Pill>
-          <Button
-            variant="ghost"
-            className="px-3 py-1.5 text-xs"
-            loading={links.isPending}
-            onClick={editLinks}
-          >
-            Links
-          </Button>
-          {!account.isAdmin && (
-            <Button
-              variant="dangerGhost"
-              className="px-3 py-1.5 text-xs"
-              loading={revoke.isPending}
-              onClick={() => run(revoke, account.id, "Revoke")}
-            >
-              Revoke
+          <Pill kind="ok" dot>
+            active
+          </Pill>
+          <div className="flex shrink-0 gap-1.5">
+            <Button variant="secondary" className="px-3 py-1.5 text-xs" loading={links.isPending} onClick={editLinks}>
+              Links
             </Button>
-          )}
+            {!account.isAdmin && (
+              <Button
+                variant="secondary"
+                className="px-3 py-1.5 text-xs hover:border-danger hover:text-danger"
+                loading={revoke.isPending}
+                onClick={() => run(revoke, account.id, "Revoke")}
+              >
+                Revoke
+              </Button>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -136,7 +138,7 @@ function AccountRowSkeleton() {
 
 function ApprovalsSkeleton() {
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
+    <div className="flex flex-col gap-3.5">
       <div className="flex items-center justify-between">
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-8 w-24 rounded-lg" />
@@ -192,56 +194,71 @@ export function ApprovalsPage() {
   if (isLoading || !data) return <ApprovalsSkeleton />;
 
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
-      <div className="flex items-center justify-between">
-        <h2 className="font-mono text-lg font-bold">
-          Approvals <span className="ml-2 text-[13px] font-normal text-ink3">{data.pending.length} open</span>
-        </h2>
-        <Button className="text-[13px]" onClick={() => setShowForm(!showForm)}>
+    <>
+      <PageHeader
+        title="Access"
+        subtitle={
+          data.pending.length === 0
+            ? "No accounts waiting for approval."
+            : `${data.pending.length} ${data.pending.length === 1 ? "account" : "accounts"} waiting for approval.`
+        }
+      >
+        <Button onClick={() => setShowForm(!showForm)} aria-expanded={showForm} className="text-[12.5px]">
           + Add user
         </Button>
+      </PageHeader>
+
+      <div className="flex flex-col gap-3.5">
+        {showForm && (
+          <Collapse>
+            <form
+              onSubmit={submit}
+              className="flex flex-wrap items-center gap-2 rounded-[14px] border border-hairline bg-surface p-4"
+            >
+              <Input
+                className="min-w-0 flex-[1_1_180px]"
+                placeholder="Username"
+                aria-label="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+              <Input
+                className="min-w-0 flex-[1_1_180px]"
+                type="password"
+                placeholder="Password (min 8 chars)"
+                aria-label="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <Input
+                className="min-w-0 flex-[1_1_180px]"
+                placeholder="GitHub owners (comma-separated)"
+                aria-label="GitHub owners"
+                value={logins}
+                onChange={(e) => setLogins(e.target.value)}
+              />
+              <Button type="submit" loading={create.isPending} disabled={!username || password.length < 8} className="shrink-0">
+                Create
+              </Button>
+              {error && <div className="font-mono text-xs text-danger">{error}</div>}
+            </form>
+          </Collapse>
+        )}
+
+        <Panel title="Awaiting approval" extra={`${data.pending.length} open`}>
+          {data.pending.length === 0 && <EmptyState>Nothing pending.</EmptyState>}
+          {data.pending.map((a) => (
+            <AccountRow key={a.id} account={a} />
+          ))}
+        </Panel>
+
+        <Panel title="Active accounts" extra={`${data.approved.length} accounts`}>
+          {data.approved.length === 0 && <EmptyState>No active accounts.</EmptyState>}
+          {data.approved.map((a) => (
+            <AccountRow key={a.id} account={a} />
+          ))}
+        </Panel>
       </div>
-
-      {showForm && (
-        <form onSubmit={submit} className="flex flex-col gap-3 rounded-xl border border-hairline bg-surface p-5 md:flex-row md:items-start">
-          <input className={inputCls} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <input
-            className={inputCls}
-            type="password"
-            placeholder="Password (min 8 chars)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <input
-            className={inputCls}
-            placeholder="GitHub owners (comma-separated)"
-            value={logins}
-            onChange={(e) => setLogins(e.target.value)}
-          />
-          <Button
-            type="submit"
-            loading={create.isPending}
-            disabled={!username || password.length < 8}
-            className="shrink-0"
-          >
-            Create
-          </Button>
-          {error && <div className="font-mono text-xs text-danger md:self-center">{error}</div>}
-        </form>
-      )}
-
-      <Panel title="Awaiting approval">
-        {data.pending.length === 0 && <div className="px-5 py-5 font-mono text-xs text-ink3">Nothing pending.</div>}
-        {data.pending.map((a) => (
-          <AccountRow key={a.id} account={a} />
-        ))}
-      </Panel>
-
-      <Panel title="Approved" extra={`${data.approved.length} accounts`}>
-        {data.approved.map((a) => (
-          <AccountRow key={a.id} account={a} />
-        ))}
-      </Panel>
-    </div>
+    </>
   );
 }

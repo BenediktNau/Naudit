@@ -27,8 +27,10 @@ export function useReviewDetail(id: number | null) {
   });
 }
 
-export function useAccounts() {
-  return useQuery({ queryKey: ["accounts"], queryFn: () => api<AccountsDto>("/api/accounts") });
+/** Konten-Liste. `enabled` schaltet sie für Nicht-Admins ab (die Route antwortet dort 403),
+ *  damit die Sidebar den Pending-Zähler ohne Sonderfall abfragen kann. */
+export function useAccounts(enabled = true) {
+  return useQuery({ queryKey: ["accounts"], queryFn: () => api<AccountsDto>("/api/accounts"), enabled });
 }
 
 export function useSettings() {

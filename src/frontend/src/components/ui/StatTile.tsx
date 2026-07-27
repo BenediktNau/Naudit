@@ -15,12 +15,15 @@ export function StatTile({
   spark?: number[];
 }) {
   return (
-    <div className="relative min-h-[132px] overflow-hidden rounded-xl border border-hairline bg-surface px-5 py-4">
+    <div
+      className="group relative min-h-[128px] overflow-hidden rounded-[14px] border border-hairline bg-surface px-4.5 py-4
+                 transition-[border-color,transform] duration-200 ease-swift hover:-translate-y-0.5 hover:border-[#2b3542]"
+    >
       {spark && <Sparkline values={spark} />}
       <div className="relative">
-        <div className="font-mono text-[11px] tracking-[.14em] text-ink3 uppercase">{label}</div>
-        <div className="mt-2.5 font-mono text-[32px] leading-none font-bold tracking-tight tabular-nums">{value}</div>
-        {sub && <div className={`mt-2 text-[12.5px] ${subAccent ? "text-acc" : "text-ink2"}`}>{sub}</div>}
+        <div className="text-[11px] font-semibold tracking-[.09em] text-ink3 uppercase">{label}</div>
+        <div className="mt-3.5 font-mono text-[30px] leading-none font-bold tracking-[-.02em] tabular-nums">{value}</div>
+        {sub && <div className={`mt-2.5 text-[12px] ${subAccent ? "text-acc" : "text-ink2"}`}>{sub}</div>}
       </div>
     </div>
   );
