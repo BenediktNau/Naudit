@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
@@ -14,10 +13,6 @@ using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
 using Naudit.Infrastructure.Setup;
 using Naudit.Infrastructure.Ui;
-
-// Nur für StartupReport.FormatVersion: reine Formatierungslogik testbar machen, ohne sie public
-// zu exponieren (die Klasse hat sonst nur BuildLines/BuildWarnings/Log als bewusste Oberfläche).
-[assembly: InternalsVisibleTo("Naudit.Tests")]
 
 namespace Naudit.Web;
 
