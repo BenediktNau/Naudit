@@ -12,10 +12,14 @@ COPY src/Naudit.Web/Naudit.Web.csproj src/Naudit.Web/
 RUN dotnet restore src/Naudit.Web/Naudit.Web.csproj
 
 # Restlichen Quellcode kopieren und Release publishen (zieht Infrastructure+Core mit).
-# VERSION reicht release.yml durch, damit der Startup-Report die echte Release-Version zeigt;
-# lokal bleibt der Default und der Report kennzeichnet den Lauf als (dev).
-ARG VERSION=0.0.0
+# ARG VERSION erst NACH dem COPY deklarieren: ein ARG invalidiert seinen eigenen und jeden
+# nachfolgenden Layer, aber nicht die davor -- vor dem COPY stuende jede Versionsaenderung
+# faelschlich auch den Quellcode-Copy-Layer neu.
 COPY src/ src/
+# VERSION reicht release.yml durch, damit der Startup-Report die echte Release-Version zeigt;
+# lokal (Dockerfile-Default) bleibt "0.0.0-dev" -- der Startup-Report kennzeichnet nur ein
+# "-dev"-Suffix (oder ein fehlendes Attribut) als (dev), niemals eine echte SemVer wie 1.0.0.
+ARG VERSION=0.0.0-dev
 RUN dotnet publish src/Naudit.Web/Naudit.Web.csproj -c Release -o /app/publish --no-restore /p:Version=${VERSION}
 
 # --- Frontend-Build: SPA (Vite/React) fuer wwwroot ---

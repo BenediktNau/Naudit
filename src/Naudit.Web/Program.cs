@@ -230,7 +230,9 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
 
     // Konfigurations-Überblick ins Log — noch vor den Kestrel-Zeilen, und bei JEDEM Durchlauf der
     // Hostschleife: nach einem Settings-Restart zeigt der Block die dann geltenden Werte.
-    StartupReport.Log(app.Logger, builder.Configuration, setup, configError?.Message);
+    // app.Configuration statt builder.Configuration: nach Build() ist es dieselbe ConfigurationManager-
+    // Instanz (verifiziert), aber der idiomatische Post-Build-Zugriffspunkt.
+    StartupReport.Log(app.Logger, app.Configuration, setup, configError?.Message);
 
     // Reverse-Proxy: Coolify/Traefik (und nginx) terminieren TLS und reichen plain HTTP weiter.
     // X-Forwarded-Proto übernehmen, damit Request.Scheme wieder "https" ist — sonst baut der

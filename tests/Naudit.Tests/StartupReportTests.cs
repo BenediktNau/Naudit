@@ -128,15 +128,108 @@ public class StartupReportTests
     }
 
     [Fact]
+    public void BuildLines_aiLine_reflectsAllConfiguredFields()
+    {
+        // Nicht-Default-Werte auf jedem Feld der AI-Zeile: eine vertauschte Sektion (z. B. ein
+        // Memory- statt Guidelines-Feld) fällt nur so auf — ein Default-Wert wäre auch bei
+        // falschem Pfad zufällig korrekt.
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:Ai:Provider", "Anthropic"),
+            ("Naudit:Ai:Model", "some-model"),
+            ("Naudit:Ai:SessionRouting", "Author"),
+            ("Naudit:Ai:SessionSandbox", "Docker"),
+            ("Naudit:Review:Mcp:Enabled", "true"),
+            ("Naudit:Ai:Logging:Enabled", "true")), Ready, null);
+
+        var ai = Line(lines, "AI:");
+        Assert.Contains("Anthropic", ai);
+        Assert.Contains("some-model", ai);
+        Assert.Contains("Routing: Author", ai);
+        Assert.Contains("Sandbox: Docker", ai);
+        Assert.Contains("MCP: AN", ai);
+        Assert.Contains("Logging: AN", ai);
+    }
+
+    [Fact]
+    public void BuildLines_aiLine_noModelConfigured_showsFallback()
+    {
+        var lines = StartupReport.BuildLines(Config(), Ready, null);
+
+        Assert.Contains("(kein Modell)", Line(lines, "AI:"));
+    }
+
+    [Fact]
+    public void BuildLines_promptLine_reflectsAllConfiguredFields()
+    {
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:Review:Context:Enabled", "false"),
+            ("Naudit:Review:Memory:MaxEntries", "7"),
+            ("Naudit:Review:Guidelines:Enabled", "false"),
+            ("Naudit:Redaction:Enabled", "false")), Ready, null);
+
+        var prompt = Line(lines, "Prompt:");
+        Assert.Contains("Kontext aus", prompt);
+        Assert.Contains("(max 7)", prompt);
+        Assert.Contains("Guidelines aus", prompt);
+        Assert.Contains("Redaction aus", prompt);
+    }
+
+    [Fact]
+    public void BuildLines_reviewLine_reflectsAllConfiguredFields()
+    {
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:Review:Gate:MinSeverity", "Critical"),
+            ("Naudit:Review:MaxRoundtrips", "9"),
+            ("Naudit:Review:Resolution:Enabled", "false")), Ready, null);
+
+        var review = Line(lines, "Review:");
+        Assert.Contains("Gate ab Critical", review);
+        Assert.Contains("MaxRoundtrips 9", review);
+        Assert.Contains("Resolution aus", review);
+    }
+
+    [Fact]
+    public void BuildLines_zugangLine_reflectsAllConfiguredFields()
+    {
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:AccessGate:Mode", "Registered"),
+            ("Naudit:Db:Provider", "Postgres")), Ready, null);
+
+        var zugang = Line(lines, "Zugang:");
+        Assert.Contains("AccessGate Registered", zugang);
+        Assert.Contains("DB Postgres", zugang);
+    }
+
+    // Schlüssel, die geheimwertig sind, aber NICHT im SettingsCatalog als IsSecret geführt werden —
+    // der Katalog allein würde das Secret-Leak-Invariant also nur unvollständig prüfen:
+    //  - Naudit:Ai:Endpoint ist im Katalog bewusst IsSecret:false (siehe SettingsCatalog), das
+    //    Design schließt es aus dem Report aus, weil manche OpenAI-kompatiblen Dienste den
+    //    API-Key im URL-Pfad tragen statt in einem eigenen Feld.
+    //  - ProjectTokens (GitHub/GitLab) sind env-only (kein Katalogeintrag, siehe IGitTokenProvider),
+    //    tragen den Token aber im Wert einer Listen-Entry — Bind-Form ":0:Token".
+    //  - Mcp:Servers:*:ApiKey ist ebenfalls kein Katalogeintrag (Server ist eine Liste, kein
+    //    einzelner Key) und trägt den Key im ApiKey-Feld — Bind-Form ":0:ApiKey".
+    private static readonly string[] ExtraSecretBearingKeys =
+    [
+        "Naudit:Ai:Endpoint",
+        "Naudit:GitHub:ProjectTokens:0:Token",
+        "Naudit:GitLab:ProjectTokens:0:Token",
+        "Naudit:Review:Mcp:Servers:0:ApiKey",
+    ];
+
+    [Fact]
     public void BuildLines_neverLeaksAnySecretValue()
     {
-        // Jeden IsSecret-Katalogschlüssel mit einem eindeutigen Sentinel belegen und danach
-        // prüfen, dass keiner davon im Block auftaucht — der Report ist ein Log, das in
-        // Coolify/Docker landet und potenziell weitergereicht wird.
-        var secrets = SettingsCatalog.All.Where(d => d.IsSecret).ToList();
-        Assert.NotEmpty(secrets);
-        var values = secrets
-            .Select((d, i) => (d.Key, Value: $"SENTINEL-SECRET-{i}"))
+        // Jeden IsSecret-Katalogschlüssel PLUS die geheimwertigen Nicht-Katalog-Schlüssel oben mit
+        // einem eindeutigen Sentinel belegen und danach prüfen, dass keiner davon im Block
+        // auftaucht — der Report ist ein Log, das in Coolify/Docker landet und potenziell
+        // weitergereicht wird.
+        var secretKeys = SettingsCatalog.All.Where(d => d.IsSecret).Select(d => d.Key)
+            .Concat(ExtraSecretBearingKeys)
+            .ToList();
+        Assert.NotEmpty(secretKeys);
+        var values = secretKeys
+            .Select((key, i) => (Key: key, Value: $"SENTINEL-SECRET-{i}"))
             .ToArray();
 
         var lines = StartupReport.BuildLines(Config(values), Ready, null);
@@ -205,6 +298,24 @@ public class StartupReportTests
     {
         // Frische Installation ohne Zutun: SAST/DAST aus, Routing Single, MaxRoundtrips 3.
         Assert.Empty(StartupReport.BuildWarnings(Config()));
+    }
+
+    [Theory]
+    [InlineData(null, "v0.0.0 (dev)")]
+    [InlineData("", "v0.0.0 (dev)")]
+    [InlineData("   ", "v0.0.0 (dev)")]
+    // Dockerfile-Default (kein --build-arg VERSION): unstempelt, (dev) markiert.
+    [InlineData("0.0.0-dev", "v0.0.0 (dev)")]
+    // SourceLink hängt den Commit-Sha an — muss vor der -dev-Prüfung abgeschnitten werden.
+    [InlineData("0.0.0-dev+abc1234", "v0.0.0 (dev)")]
+    // Ein echtes v1.0.0-Release darf NIE als (dev) markiert werden (der alte Bug).
+    [InlineData("1.0.0", "v1.0.0")]
+    [InlineData("1.0.0+abc1234", "v1.0.0")]
+    [InlineData("1.2.3", "v1.2.3")]
+    [InlineData("2.4.7-dev", "v2.4.7 (dev)")]
+    public void FormatVersion_rendersDevMarkerOnlyForMissingOrDevSuffix(string? raw, string expected)
+    {
+        Assert.Equal(expected, StartupReport.FormatVersion(raw));
     }
 
     private sealed class RecordingLogger : ILogger

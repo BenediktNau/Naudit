@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
@@ -13,6 +14,10 @@ using Naudit.Infrastructure.Redaction;
 using Naudit.Infrastructure.Sast;
 using Naudit.Infrastructure.Setup;
 using Naudit.Infrastructure.Ui;
+
+// Nur für StartupReport.FormatVersion: reine Formatierungslogik testbar machen, ohne sie public
+// zu exponieren (die Klasse hat sonst nur BuildLines/BuildWarnings/Log als bewusste Oberfläche).
+[assembly: InternalsVisibleTo("Naudit.Tests")]
 
 namespace Naudit.Web;
 
@@ -46,7 +51,7 @@ public static class StartupReport
 
         var lines = new List<string>
         {
-            $"{Rule}",
+            Rule,
             $"  Naudit {Version()}",
             $"  Modus:      {mode}",
             git.Platform == GitPlatformKind.GitHub
@@ -85,19 +90,31 @@ public static class StartupReport
     private static string List(IReadOnlyCollection<string> items) =>
         items.Count == 0 ? "(leer)" : string.Join(", ", items);
 
-    /// <summary>Version aus dem Assembly-Stempel (Dockerfile/release.yml reichen /p:Version durch).
-    /// Ungestempelt meldet .NET 1.0.0 — das als (dev) kennzeichnen, damit im Log nie eine
-    /// erfundene Release-Version steht.</summary>
-    private static string Version()
+    private static string Version() => FormatVersion(
+        typeof(StartupReport).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+
+    /// <summary>Reine Formatierungslogik, getrennt von der Assembly-Reflection in <see cref="Version"/> —
+    /// so lässt sie sich mit synthetischen Rohwerten testen, ohne dass das Testassembly selbst
+    /// gestempelt sein müsste. Zwei Fälle gelten als "ungestempelt" und werden (dev) markiert:
+    /// das Attribut fehlt ganz (kein /p:Version gesetzt), oder die Version trägt das
+    /// Dockerfile-Default-Suffix "-dev" (ARG VERSION=0.0.0-dev, wenn niemand
+    /// --build-arg VERSION=... übergibt) — beides ohne den alten "StartsWith 1.0.0"-Trick, der ein
+    /// echtes v1.0.0-Release fälschlich als (dev) markiert hätte. Ein ungestempelter lokaler
+    /// `dotnet run` meldet dagegen .NETs eigenen Default "1.0.0" OHNE "-dev"-Suffix — von einem
+    /// echten v1.0.0-Release ist das auf dieser Ebene nicht zu unterscheiden, deshalb erscheint hier
+    /// schlicht "v1.0.0" ohne Marker (lokale Dev-Läufe sind nicht die Zielgruppe dieses Signals;
+    /// Docker/Release sind es, und die sind sauber erkennbar).</summary>
+    internal static string FormatVersion(string? raw)
     {
-        var raw = typeof(StartupReport).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        const string devSuffix = "-dev";
         if (string.IsNullOrWhiteSpace(raw))
             return "v0.0.0 (dev)";
         // SourceLink hängt "+<commit-sha>" an — für die Log-Zeile uninteressant.
         var plus = raw.IndexOf('+');
         var version = plus > 0 ? raw[..plus] : raw;
-        return version.StartsWith("1.0.0", StringComparison.Ordinal) ? $"v{version} (dev)" : $"v{version}";
+        return version.EndsWith(devSuffix, StringComparison.OrdinalIgnoreCase)
+            ? $"v{version[..^devSuffix.Length]} (dev)"
+            : $"v{version}";
     }
 
     /// <summary>Gültige, aber wirkungslose Konfigurationen — sie erzeugen keinen Fehler und fallen
