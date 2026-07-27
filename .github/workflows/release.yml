@@ -118,7 +118,7 @@ jobs:
             dotnet publish src/Naudit.Web/Naudit.Web.csproj \
               -c Release -r "$rid" --self-contained true \
               -p:PublishSingleFile=true -p:DebugType=none -p:DebugSymbols=false \
-              -p:Version="${version#v}" \
+              -p:Version="${{ steps.version.outputs.semver }}" \
               -o "$out"
             if [ "$rid" = "win-x64" ]; then
               (cd "$out" && zip -qr "$GITHUB_WORKSPACE/artifacts/naudit-$version-$rid.zip" .)

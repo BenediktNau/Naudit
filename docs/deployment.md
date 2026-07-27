@@ -287,7 +287,10 @@ kompakten Block mit der effektiv geladenen Konfiguration:
 
 Das ist der schnellste Weg zu prüfen, ob eine Settings-Änderung angekommen ist.
 Im Setup-Modus steht statt `Review aktiv` ein `SETUP …` samt der noch fehlenden
-Schlüssel, im Recovery-Modus `RECOVERY …` samt Fehlermeldung.
+Schlüssel, im Recovery-Modus `RECOVERY …` samt dem Typ der Ausnahme. Der Volltext
+der Fehlermeldung steht bewusst **nicht** im Block — er kann den auslösenden
+Konfigurationswert zitieren; Naudit loggt ihn separat als eigene Recovery-Meldung
+auf Error-Level.
 
 Zusätzlich erscheinen Warnzeilen für gültige, aber wirkungslose Kombinationen —
 etwa DAST aktiviert bei leerer `Naudit:Review:Dast:Projects`-Allowlist (dann wird

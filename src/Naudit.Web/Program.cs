@@ -232,7 +232,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     // Hostschleife: nach einem Settings-Restart zeigt der Block die dann geltenden Werte.
     // app.Configuration statt builder.Configuration: nach Build() ist es dieselbe ConfigurationManager-
     // Instanz (verifiziert), aber der idiomatische Post-Build-Zugriffspunkt.
-    StartupReport.Log(app.Logger, app.Configuration, setup, configError?.Message);
+    StartupReport.Log(app.Logger, app.Configuration, setup, configError);
 
     // Reverse-Proxy: Coolify/Traefik (und nginx) terminieren TLS und reichen plain HTTP weiter.
     // X-Forwarded-Proto übernehmen, damit Request.Scheme wieder "https" ist — sonst baut der

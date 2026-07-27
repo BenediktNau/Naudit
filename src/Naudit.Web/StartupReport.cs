@@ -30,7 +30,7 @@ public static class StartupReport
     private const string Rule = "════════════════════════════════════════════════";
 
     public static IReadOnlyList<string> BuildLines(
-        IConfiguration config, SetupStatusResult setup, string? recoveryError)
+        IConfiguration config, SetupStatusResult setup, Exception? recoveryError)
     {
         var git = config.GetSection("Naudit:Git").Get<GitOptions>() ?? new GitOptions();
         var gitHub = config.GetSection("Naudit:GitHub").Get<GitHubOptions>() ?? new GitHubOptions();
@@ -75,8 +75,11 @@ public static class StartupReport
 
         if (setup.SetupRequired && setup.MissingKeys.Count > 0)
             lines.Add($"  Fehlt:      {string.Join(", ", setup.MissingKeys)}");
+        // Bewusst nur der Ausnahmetyp, NICHT die Meldung: der Block ist als "enthält keine
+        // Secrets" dokumentiert, und eine Konfigurations-Ausnahme zitiert oft den auslösenden
+        // Wert. Den Volltext loggt Program.cs ohnehin separat als Error — dort, wo er hingehört.
         if (recoveryError is not null)
-            lines.Add($"  Fehler:     {recoveryError}");
+            lines.Add($"  Fehler:     {recoveryError.GetType().Name} — Volltext siehe Recovery-Meldung");
 
         lines.Add(Rule);
         return lines;
@@ -150,7 +153,7 @@ public static class StartupReport
     /// <summary>Block als Information, Warnzeilen als Warning. Vollständig fail-safe: ein Fehler
     /// im Report (z. B. ein un-parsebarer Enum-Wert in der Config) darf den Start nie kippen —
     /// dafür ist im Fehlerfall der Recovery-Modus zuständig, nicht das Log.</summary>
-    public static void Log(ILogger logger, IConfiguration config, SetupStatusResult setup, string? recoveryError)
+    public static void Log(ILogger logger, IConfiguration config, SetupStatusResult setup, Exception? recoveryError)
     {
         try
         {

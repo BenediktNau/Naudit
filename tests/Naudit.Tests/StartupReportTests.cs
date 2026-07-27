@@ -20,7 +20,7 @@ public class StartupReportTests
 
     // Die Blockzeilen sind eingerückt — vor dem Präfix-Vergleich trimmen.
     private static string Line(IReadOnlyList<string> lines, string prefix)
-        => Assert.Single(lines.Where(l => l.TrimStart().StartsWith(prefix, StringComparison.Ordinal)));
+        => Assert.Single(lines, l => l.TrimStart().StartsWith(prefix, StringComparison.Ordinal));
 
     [Fact]
     public void BuildLines_gitHubWithAppAuth_showsPlatformAndAuth()
@@ -113,10 +113,15 @@ public class StartupReportTests
     [Fact]
     public void BuildLines_recoveryMode_showsModeAndError()
     {
-        var lines = StartupReport.BuildLines(Config(), Ready, "PrivateKey fehlt");
+        var lines = StartupReport.BuildLines(
+            Config(), Ready, new InvalidOperationException("PrivateKey fehlt: /etc/keys/app.pem"));
 
         Assert.Contains("RECOVERY", Line(lines, "Modus:"));
-        Assert.Contains("PrivateKey fehlt", string.Join("\n", lines));
+        var joined = string.Join("\n", lines);
+        Assert.Contains(nameof(InvalidOperationException), joined);
+        // Die Ausnahme-MELDUNG darf nicht in den Block: sie zitiert oft den auslösenden
+        // Konfigurationswert, und der Block ist als secret-frei dokumentiert.
+        Assert.DoesNotContain("PrivateKey fehlt", joined);
     }
 
     [Fact]
