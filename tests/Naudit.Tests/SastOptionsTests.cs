@@ -25,4 +25,23 @@ public class SastOptionsTests
             new[] { "/opt/opengrep-rules", "/opt/naudit-rules", "/opt/company-rules" },
             rules);
     }
+
+    [Fact]
+    public void ResolveAnalyzers_withEmptyConfig_usesDefaultPair()
+    {
+        var analyzers = SastOptions.ResolveAnalyzers([]);
+
+        // Ohne Konfiguration greift derselbe Default wie in der DI-Registrierung.
+        Assert.Equal(new[] { "opengrep", "trivy" }, analyzers);
+    }
+
+    [Fact]
+    public void ResolveAnalyzers_withConfiguredList_returnsItUnchanged()
+    {
+        var analyzers = SastOptions.ResolveAnalyzers(["trivy", "osv-scanner"]);
+
+        // Konfiguriert heißt konfiguriert — der Default ersetzt nichts und ergänzt nichts
+        // (anders als ResolveOpengrepRules, wo das Overlay immer mitlaufen MUSS).
+        Assert.Equal(new[] { "trivy", "osv-scanner" }, analyzers);
+    }
 }

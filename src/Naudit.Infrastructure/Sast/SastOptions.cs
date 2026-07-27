@@ -9,6 +9,18 @@ public sealed class SastOptions
     /// Leer im Objekt, damit Config-Binding eine Liste nicht verdoppelt; Standard-Fallback in DI.</summary>
     public List<string> Analyzers { get; set; } = new();
 
+    /// <summary>Analyzer-Default, wenn nichts konfiguriert ist. Bewusst hier statt in der
+    /// DI-Registrierung: der Startup-Report muss denselben Wert anzeigen, den DI registriert.</summary>
+    public static readonly IReadOnlyList<string> DefaultAnalyzers = ["opengrep", "trivy"];
+
+    /// <summary>Effektive Analyzer-Liste: konfigurierte Namen, sonst <see cref="DefaultAnalyzers"/>.
+    /// Anders als bei den OpenGrep-Regeln NICHT additiv — wer Analyzer wählt, wählt sie abschließend.</summary>
+    public static List<string> ResolveAnalyzers(IEnumerable<string> configured)
+    {
+        var list = configured.ToList();
+        return list.Count > 0 ? list : DefaultAnalyzers.ToList();
+    }
+
     /// <summary>Zusätzliche Regelquellen für OpenGrep (je Eintrag ein `--config`-Pfad). Additiv: die
     /// Defaults (<see cref="DefaultOpengrepRules"/>) laufen IMMER mit (siehe <see cref="ResolveOpengrepRules"/>).
     /// Bewusst kein "auto": das zöge die lizenzbelasteten Registry-Regeln + Telemetrie.</summary>

@@ -297,8 +297,7 @@ public static class DependencyInjection
         // SAST/SCA-Grounding: immer die Infrastruktur-Naht registrieren (harmlos wenn ungenutzt),
         // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.
         var sastOptions = configuration.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
-        if (sastOptions.Analyzers.Count == 0)
-            sastOptions.Analyzers = new() { "opengrep", "trivy" };
+        sastOptions.Analyzers = SastOptions.ResolveAnalyzers(sastOptions.Analyzers);
         // Voller gepinnter Regelbaum (alle Sprachen) + Overlay laufen IMMER; konfigurierte Pfade
         // kommen additiv dazu. So fällt das Overlay nie versehentlich weg, wenn jemand einen
         // eigenen Regelpfad ergänzt (statt die Defaults still zu ersetzen).
