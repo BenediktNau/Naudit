@@ -105,6 +105,9 @@ export function Sidebar({
       <div className="ml-auto flex shrink-0 items-center gap-2.5 md:mt-auto md:ml-0 md:flex-col md:items-stretch md:gap-1 md:pt-3">
         <button
           onClick={onOpenPalette}
+          // Die Beschriftung wird unterhalb von lg ausgeblendet — ohne aria-label bliebe
+          // dem Screenreader dort nur "⌘K".
+          aria-label="Search"
           className="flex items-center gap-2 rounded-[9px] border border-hairline bg-input px-2.5 py-1.5 text-[12.5px] text-ink3
                      transition-colors duration-200 hover:border-border hover:text-ink2 md:w-full md:py-2"
         >

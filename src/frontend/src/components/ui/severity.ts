@@ -21,7 +21,9 @@ const BAR: Record<SevKey, string> = {
 
 function key(severity: string): SevKey {
   const k = severity.toLowerCase();
-  return k in PILL ? (k as SevKey) : "info";
+  // Eigene Eigenschaft prüfen, nicht `in`: sonst gälten geerbte Namen wie "constructor"
+  // als bekannte Severity und lieferten statt einer Klasse eine Funktion.
+  return Object.hasOwn(PILL, k) ? (k as SevKey) : "info";
 }
 
 /** Klassen für das Severity-Label an einem Finding. */

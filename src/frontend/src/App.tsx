@@ -27,6 +27,10 @@ function Shell() {
   const nonce = useRef(0);
 
   const navigate = useCallback((next: AppPage) => {
+    // Fokus bei JEDEM Wechsel löschen: das Dashboard hängt an key={page} und wird beim
+    // Zurückkehren neu gemountet — ein liegengebliebener Treffer würde sonst bei jedem
+    // Besuch erneut aufklappen. runTarget setzt ihn danach im selben Batch wieder.
+    setFocus(null);
     setPage((current) => {
       setDown(ORDER.indexOf(next) < ORDER.indexOf(current));
       return next;

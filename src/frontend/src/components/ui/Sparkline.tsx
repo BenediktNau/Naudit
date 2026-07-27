@@ -10,8 +10,10 @@ export function Sparkline({ values, band = 0.34 }: { values: number[]; band?: nu
 
   // Zwischen Minimum und Maximum skalieren statt ab Null: sonst verschwindet der Verlauf
   // bei Reihen, die durchweg hoch liegen (z. B. 94, 96, 98), in einer geraden Linie.
-  const max = Math.max(...values, 1);
+  const max = Math.max(...values);
   const lo = Math.min(...values);
+  // `|| 1` fängt die konstante Reihe ab (max === lo); eine Untergrenze auf dem Maximum
+  // wäre falsch — sie würde Reihen unterhalb von 1 stauchen.
   const span = max - lo || 1;
   const pts = values.map((v, i) => ({
     x: (i / (values.length - 1)) * 300,

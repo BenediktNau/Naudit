@@ -106,6 +106,10 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    /* Verzögerungen müssen mit weg: die Severity-Balken tragen ihren Versatz inline,
+       sonst stünden sie trotz gekappter Dauer noch auf scaleX(0). */
+    animation-delay: 0ms !important;
+    transition-delay: 0ms !important;
   }
 }
 

@@ -16,6 +16,7 @@ export function CommandPalette({ onClose, onRun }: { onClose: () => void; onRun:
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const all = useMemo<Entry[]>(() => {
     const pages: Entry[] = [
@@ -74,6 +75,22 @@ export function CommandPalette({ onClose, onRun }: { onClose: () => void; onRun:
         e.preventDefault();
         const hit = results[active];
         if (hit) onRun(hit);
+        return;
+      }
+      // Fokusfalle: Tab darf nicht hinter den Schleier wandern, solange der Dialog offen ist.
+      if (e.key === "Tab") {
+        const focusable = dialogRef.current?.querySelectorAll<HTMLElement>("input, button");
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const on = document.activeElement;
+        if (e.shiftKey && (on === first || !dialogRef.current?.contains(on))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && (on === last || !dialogRef.current?.contains(on))) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -94,6 +111,7 @@ export function CommandPalette({ onClose, onRun }: { onClose: () => void; onRun:
         style={{ animationDuration: ".2s" }}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Jump to"

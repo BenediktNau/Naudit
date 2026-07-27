@@ -65,7 +65,9 @@ export function SettingsPage() {
     [drafts, byKey],
   );
 
-  const dirtyCount = Object.keys(drafts).length;
+  // Nur echte Abweichungen zählen: getippt-und-wieder-zurückgesetzt ist keine Änderung.
+  // (Secrets tragen per Kontrakt einen leeren Wert — dort greift dieselbe Regel richtig.)
+  const dirtyCount = Object.entries(drafts).filter(([k, v]) => v !== (byKey.get(k)?.value ?? "")).length;
   const toggleRaw = (v: boolean) => {
     setRawMode(v);
     localStorage.setItem("naudit.settings.rawMode", v ? "1" : "0");

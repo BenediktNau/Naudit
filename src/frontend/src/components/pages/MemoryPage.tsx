@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useDashboard, useProjectGuidelines, useProjectMemory } from "@/hooks/queries";
 import { useCreateConvention, useRedistillGuidelines, useSaveGuidelines, useToggleMemoryEntry } from "@/hooks/mutations";
+import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { SevTag } from "@/components/ui/Pill";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -13,13 +14,10 @@ const kindPill: Record<string, string> = {
   Convention: "text-teal bg-teal/12",
 };
 
-const quietBtn =
-  "shrink-0 rounded-lg border border-border px-2.5 py-1 text-[11.5px] font-medium text-ink2 transition-colors duration-200 " +
-  "hover:border-ink3 hover:text-ink disabled:opacity-50";
-
-const accentBtn =
-  "shrink-0 rounded-[10px] bg-acc px-4 py-2 text-[12.5px] font-semibold text-accink transition-[background,transform] " +
-  "duration-200 hover:bg-acc2 active:scale-[.97] disabled:opacity-50 disabled:active:scale-100";
+/** Die Panel-Aktionen sind kleiner als der Standard-Button — nur die Groesse wird
+ *  ueberschrieben, Varianten und Fokusring kommen vom geteilten <Button>. */
+const quietSize = "shrink-0 px-2.5 py-1 text-[11.5px]";
+const accentSize = "shrink-0 px-4 py-2 text-[12.5px]";
 
 /** Projekt-Gedächtnis: FP-Markierungen + Konventionen je Projekt einsehen und pflegen. */
 export function MemoryPage() {
@@ -98,9 +96,9 @@ export function MemoryPage() {
             onChange={(e) => setFile(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
-          <button className={accentBtn} disabled={!text.trim() || create.isPending} onClick={submit}>
+          <Button className={accentSize} disabled={!text.trim()} loading={create.isPending} onClick={submit}>
             Add
-          </button>
+          </Button>
         </div>
 
         {memLoading && <Skeleton className="h-3 w-full max-w-[70ch]" />}
@@ -129,14 +127,15 @@ export function MemoryPage() {
                     {m.createdBy} · {new Date(m.createdAt).toLocaleDateString()}
                   </span>
                 </div>
-                <button
-                  className={quietBtn}
+                <Button
+                  variant="secondary"
+                  className={quietSize}
                   title={m.active ? "Deactivate (kept for audit)" : "Reactivate"}
                   disabled={toggle.isPending}
                   onClick={() => toggle.mutate({ id: m.id, active: !m.active })}
                 >
                   {m.active ? "Retire" : "Restore"}
-                </button>
+                </Button>
               </div>
             ))}
           </Panel>
@@ -182,12 +181,13 @@ function GuidelinesCard({ projectId }: { projectId: number | null }) {
         !editing && (
           <>
             {data.markdown && (
-              <button className={quietBtn} onClick={startEdit}>
+              <Button variant="secondary" className={quietSize} onClick={startEdit}>
                 Edit
-              </button>
+              </Button>
             )}
-            <button
-              className={quietBtn}
+            <Button
+              variant="secondary"
+              className={quietSize}
               disabled={redistill.isPending}
               title="Discards manual edits; the profile is re-distilled on the next review."
               onClick={() => {
@@ -196,7 +196,7 @@ function GuidelinesCard({ projectId }: { projectId: number | null }) {
               }}
             >
               Re-distill
-            </button>
+            </Button>
           </>
         )
       }
@@ -223,12 +223,12 @@ function GuidelinesCard({ projectId }: { projectId: number | null }) {
             onChange={(e) => setDraft(e.target.value)}
           />
           <div className="flex gap-2">
-            <button className={accentBtn} disabled={!draft.trim() || save.isPending} onClick={submit}>
+            <Button className={accentSize} disabled={!draft.trim()} loading={save.isPending} onClick={submit}>
               Save
-            </button>
-            <button className={quietBtn} onClick={() => setEditing(false)}>
+            </Button>
+            <Button variant="secondary" className={quietSize} onClick={() => setEditing(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
