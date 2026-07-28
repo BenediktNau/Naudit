@@ -42,6 +42,24 @@ public class DastOrphanSweeperTests
         await sweeper.StartAsync(CancellationToken.None); // fail-quiet: Host startet trotzdem
     }
 
+    /// <summary>Ist der Socket nicht nutzbar (kein Mount / falsche group_add-GID ⇒ Ping false),
+    /// wird der Sweep knapp und ohne Stacktrace übersprungen — kein Listing, kein Entfernen.</summary>
+    [Fact]
+    public async Task Start_socketUnreachable_skipsSweepWithoutTouchingResources()
+    {
+        var docker = new FakeDockerClient
+        {
+            PingResult = false,
+            Containers = { ["naudit-dast-app-abc123"] = true },
+        };
+        var sweeper = new DastOrphanSweeper(docker, NullLogger<DastOrphanSweeper>.Instance);
+
+        await sweeper.StartAsync(CancellationToken.None);
+
+        Assert.Equal(["naudit-dast-app-abc123"], docker.Containers.Keys.Order()); // unangetastet
+        Assert.DoesNotContain(docker.Calls, c => c.StartsWith("rm:", StringComparison.Ordinal));
+    }
+
     /// <summary>Ein einzelner fehlschlagender Container-Abbau darf Netz- und Image-Aufräumen nicht
     /// verhindern — jeder Schritt ist einzeln fail-quiet (per-item, nicht der ganze Sweep).</summary>
     [Fact]

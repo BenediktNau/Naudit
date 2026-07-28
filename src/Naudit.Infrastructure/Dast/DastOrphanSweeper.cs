@@ -11,6 +11,19 @@ public sealed class DastOrphanSweeper(IDockerClient docker, ILogger<DastOrphanSw
 {
     public async Task StartAsync(CancellationToken ct)
     {
+        // Socket zuerst sondieren (wie SandboxSweeperService.PingAndReportAsync): ist er nicht
+        // nutzbar — kein Mount, oder als non-root die falsche group_add-GID (Permission denied) —
+        // dann EINE knappe, umsetzbare Warnung statt dreier voller DockerUnavailableException-
+        // Stacktraces (je Listing von Container/Netzen/Images einer). Der Host startet ohnehin
+        // fail-open weiter; DAST bleibt schlicht inaktiv, bis der Socket erreichbar ist.
+        if (!await docker.PingAsync(ct))
+        {
+            logger.LogWarning("DAST: docker.sock nicht erreichbar/nutzbar — verwaiste DAST-Ressourcen " +
+                "werden nicht aufgeräumt und DAST-Reviews bleiben inaktiv. Socket-Mount + group_add-GID " +
+                "prüfen (stat -c '%g' /var/run/docker.sock auf dem Host), siehe docs/docker-socket.md.");
+            return;
+        }
+
         // Jeder Listing-/Entfernen-Schritt einzeln fail-quiet (SafeAsync-Muster wie
         // DockerAppRunner.TearDownAsync): eine fehlgeschlagene Container-Entfernung darf das
         // Aufräumen von Netzen und Images nicht verhindern. OperationCanceledException bricht
