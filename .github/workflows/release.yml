@@ -46,6 +46,8 @@ jobs:
           version="$(bash .github/scripts/next-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          # /p:Version verlangt reines SemVer — das Tag-Praefix "v" muss weg.
+          echo "semver=${version#v}" >> "$GITHUB_OUTPUT"
           echo "Next version: $version"
 
       # --- Image bauen und nach ghcr pushen ---
@@ -64,6 +66,8 @@ jobs:
           file: ./Dockerfile
           load: true
           push: false
+          build-args: |
+            VERSION=${{ steps.version.outputs.semver }}
           tags: |
             ghcr.io/benediktnau/naudit:${{ steps.version.outputs.version }}
             ghcr.io/benediktnau/naudit:latest
@@ -114,6 +118,7 @@ jobs:
             dotnet publish src/Naudit.Web/Naudit.Web.csproj \
               -c Release -r "$rid" --self-contained true \
               -p:PublishSingleFile=true -p:DebugType=none -p:DebugSymbols=false \
+              -p:Version="${{ steps.version.outputs.semver }}" \
               -o "$out"
             if [ "$rid" = "win-x64" ]; then
               (cd "$out" && zip -qr "$GITHUB_WORKSPACE/artifacts/naudit-$version-$rid.zip" .)

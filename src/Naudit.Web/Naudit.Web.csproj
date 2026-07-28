@@ -9,6 +9,13 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Nur für StartupReport.FormatVersion: reine Formatierungslogik testbar machen, ohne sie
+         public zu exponieren. Gehört hierher und nicht in eine Feature-Datei — das Attribut gilt
+         assembly-weit und wäre dort beim Umbenennen/Löschen der Datei leicht zu übersehen. -->
+    <InternalsVisibleTo Include="Naudit.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
