@@ -66,7 +66,7 @@ Either way, configure:
 | **Permissions → Pull requests** | Read and write |
 | **Permissions → Contents** | Read-only |
 | **Permissions → Metadata** | Read-only (mandatory default) |
-| **Subscribe to events** | `Pull request` |
+| **Subscribe to events** | `Pull request` **and** `Pull request review comment` |
 | **Setup URL** (optional) | `https://<your-host>/` — after "Install app", GitHub sends the user back to the Naudit dashboard; the install banner clears itself once the fresh state is read (cached a few minutes — see below) |
 
 Then **generate a private key** for the app (app settings page, "Private keys" section) and
@@ -74,6 +74,14 @@ download the `.pem` file — this becomes `Naudit:GitHub:App:PrivateKey`.
 
 Note the numeric **App ID** shown at the top of the app's settings page — this becomes
 `Naudit:GitHub:App:AppId`.
+
+> **Upgrading an app that already exists:** GitHub never adds events to an existing app
+> retroactively — not on an update, not on a re-install. An app created before Naudit
+> subscribed to `pull_request_review_comment` keeps its original event list, and the only
+> symptom is silence: `@naudit fp` / `@naudit ok` replies are never delivered, so nothing is
+> logged and no confirmation appears in the thread. Check **Subscribe to events** on the app's
+> settings page and tick `Pull request review comment` if it is missing. There is no API for
+> this — the event list can only be changed in the browser.
 
 ## 2. Configure Naudit
 

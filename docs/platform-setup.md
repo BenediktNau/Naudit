@@ -15,7 +15,10 @@ In real operation GitLab delivers the event itself:
 2. In the target project → **Settings → Webhooks**:
    - **URL:** `https://<id>.ngrok.io/webhook/gitlab`
    - **Secret Token:** the same value as `Naudit:GitLab:WebhookSecret`
-   - **Trigger:** only **Merge request events**
+   - **Trigger:** **Merge request events** and **Comments** — nothing else. The
+     comment trigger (`note_events`) carries replies to Naudit's inline comments;
+     without it the [`@naudit fp` / `@naudit ok` reply commands](review-memory.md#reply-command-naudit-fp-pr-2b)
+     silently never fire.
 3. *Add webhook*, then *Test → Merge request events* (or open a real MR).
 
 > **Bot identity:** by default Naudit comments under whatever account owns `Naudit:GitLab:Token`.
@@ -75,7 +78,10 @@ Naudit reviews every repo that has a webhook configured and that the PAT can acc
    - **Payload URL:** `https://<your-host>/webhook/github`
    - **Content type:** `application/json`
    - **Secret:** the same value as `Naudit:GitHub:WebhookSecret`
-   - **Events:** enable only **Pull requests**
+   - **Events:** **Pull requests** and **Pull request review comments** — nothing else.
+     The second one carries replies to Naudit's inline comments; without it the
+     [`@naudit fp` / `@naudit ok` reply commands](review-memory.md#reply-command-naudit-fp-pr-2b)
+     silently never fire.
 2. *Add webhook*. GitHub sends a ping — the bot answers `200`.
 
 Naudit verifies the `X-Hub-Signature-256` signature (HMAC-SHA256 over the raw body) **fail-closed**: an empty or missing secret rejects every request with `401`.
