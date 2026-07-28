@@ -144,16 +144,32 @@ public class GitLabCommentEventProbeTests
     public async Task CheckAsync_capsAtMaxProjects_newestFirst()
     {
         using var db = NewDb();
-        SeedProjects(db, Enumerable.Range(1, 25).Select(i => i.ToString()).ToArray());
+        // Einfügung und LastReviewedAt entkoppeln: erst Reverse-Reihenfolge einfügen,
+        // dann LastReviewedAt unabhängig vom Index setzen. So testet man, dass die
+        // Implementierung wirklich nach LastReviewedAt sortiert und nicht nach Id/Einfügung.
+        var t = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (int i = 25; i >= 1; i--)
+        {
+            db.Projects.Add(new ProjectEntity
+            {
+                PlatformProjectId = i.ToString(),
+                FirstReviewedAt = t,
+                LastReviewedAt = t.AddMinutes(i),  // Projekt 1 = älteste (t+1), Projekt 25 = jüngste (t+25)
+            });
+        }
+        db.SaveChanges();
+
         var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.OK,
             $$"""[{"url":"{{HookUrl}}","note_events":true}]"""));
 
         await Probe(db, stub).CheckAsync();
 
         Assert.Equal(GitLabCommentEventProbe.MaxProjects, stub.Calls.Count);
-        // Jüngstes zuerst: Projekt 25 wurde zuletzt reviewt, Projekt 5 fällt gerade noch rein,
-        // Projekt 1 (ältestes) darf gar nicht abgefragt werden.
+        // Prüfung: die 20 jüngsten Projekte (25-6) müssen abgefragt sein.
+        // Projekt 6 ist das älteste der 20 gewählten (t+6), Projekt 5 (t+5) fällt gerade außerhalb.
         Assert.Contains(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/25/"));
+        Assert.Contains(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/6/"));
+        Assert.DoesNotContain(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/5/"));
         Assert.DoesNotContain(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/1/hooks"));
     }
 
