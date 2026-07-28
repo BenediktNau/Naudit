@@ -103,8 +103,9 @@ auf die Audit-Findings (`PlatformCommentId`-Erfassung, Review-Memory PR 2a) unve
 ### 3. Konfiguration
 
 `ReviewResolutionOptions.RenderHint` (`bool`, Default `true`) neben `RenderCheckbox`, plus
-`new("Naudit:Review:Resolution:RenderHint", false)` im `SettingsCatalog` ⇒ DB-verwaltet und in
-der WebUI unter Settings → Review rules abschaltbar. Der Hinweis geht in *jeden* Kommentar jedes
+`new("Naudit:Review:Resolution:RenderHint", false)` im `SettingsCatalog` ⇒ DB-verwaltet und in der
+WebUI über die Raw-keys-Ansicht editierbar — genau wie die übrigen `Resolution:*`-Schalter, für die
+es (noch) kein eigenes Panel unter Review rules gibt. Der Hinweis geht in *jeden* Kommentar jedes
 Reviews — das will man abschalten können, ohne das Resolution-Tracking zu opfern.
 
 ## Fehlerverhalten
