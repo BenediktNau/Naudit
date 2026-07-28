@@ -80,6 +80,7 @@ public sealed class ReviewResolutionOptions
     public bool Enabled { get; set; } = true;
     public bool LlmClassification { get; set; } = true;   // Freitext-Klassifikation (PR 4)
     public bool RenderCheckbox { get; set; } = true;       // GitHub-Checkbox-Footer (PR 4)
+    public bool RenderHint { get; set; } = true;           // Hinweis auf @naudit fp/ok am Kommentar
 }
 
 /// <summary>Architektur-Profil. Default AN; Enabled=false ⇒ NullReviewGuidelines (heutiges Verhalten).</summary>

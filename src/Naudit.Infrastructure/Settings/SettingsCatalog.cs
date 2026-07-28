@@ -81,6 +81,7 @@ public static class SettingsCatalog
         new("Naudit:Review:Resolution:Enabled", false),
         new("Naudit:Review:Resolution:LlmClassification", false),
         new("Naudit:Review:Resolution:RenderCheckbox", false),
+        new("Naudit:Review:Resolution:RenderHint", false),
         new("Naudit:Review:Guidelines:Enabled", false),
         new("Naudit:Review:Guidelines:MaxSourceChars", false),
         new("Naudit:Review:Guidelines:MaxProfileChars", false),
