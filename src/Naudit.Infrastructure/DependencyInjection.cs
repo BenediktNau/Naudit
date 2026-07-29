@@ -245,6 +245,14 @@ public static class DependencyInjection
                         sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
                         appJwt,
                         sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppInstallationChecker>()));
+
+                    // Kommentar-Event-Prüfung: gleicher named Client und geteiltes App-JWT.
+                    services.AddScoped<Naudit.Infrastructure.Setup.ICommentEventProbe>(sp =>
+                        new Naudit.Infrastructure.Setup.GitHubAppCommentEventProbe(
+                            sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
+                            appJwt,
+                            sp.GetRequiredService<ILoggerFactory>()
+                                .CreateLogger<Naudit.Infrastructure.Setup.GitHubAppCommentEventProbe>()));
                 }
                 else
                 {
@@ -288,11 +296,28 @@ public static class DependencyInjection
                     var opt = sp.GetRequiredService<IOptions<GitLabOptions>>().Value;
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                 });
+
+                // Kommentar-Event-Prüfung: eigener named Client auf denselben GitLab-Host.
+                services.AddHttpClient("gitlab-hooks", http =>
+                    http.BaseAddress = new Uri(gitLabOptions.BaseUrl.TrimEnd('/') + "/"));
+                var publicBaseUrl = configuration["Naudit:PublicBaseUrl"] ?? "";
+                services.AddScoped<Naudit.Infrastructure.Setup.ICommentEventProbe>(sp =>
+                    new Naudit.Infrastructure.Setup.GitLabCommentEventProbe(
+                        sp.GetRequiredService<IHttpClientFactory>().CreateClient("gitlab-hooks"),
+                        sp.GetRequiredService<IGitTokenProvider>(),
+                        sp.GetRequiredService<NauditDbContext>(),
+                        publicBaseUrl,
+                        sp.GetRequiredService<ILoggerFactory>()
+                            .CreateLogger<Naudit.Infrastructure.Setup.GitLabCommentEventProbe>()));
                 break;
         }
 
         // FP-Antwort-Kommando-Orchestrator (scoped — nutzt DbContext + den plattform-spezifischen Responder).
         services.AddScoped<Naudit.Infrastructure.Memory.ReviewCommentCommandService>();
+
+        // Prüft einmal nach dem Start, ob die Plattform Antworten auf Inline-Kommentare zustellt.
+        // Unbedingt registriert: ohne passenden ICommentEventProbe (GitHub im PAT-Modus) tut er nichts.
+        services.AddHostedService<Naudit.Infrastructure.Setup.CommentEventCheckService>();
 
         // SAST/SCA-Grounding: immer die Infrastruktur-Naht registrieren (harmlos wenn ungenutzt),
         // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.

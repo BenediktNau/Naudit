@@ -235,3 +235,36 @@ created with `note_events: true`, the GitHub App manifest lists
 
 No new configuration key and no migration — the anchor columns
 (`PlatformCommentId`/`PlatformNoteId`) already exist from PR 2a.
+
+### Startup check: is the event even subscribed?
+
+The reply command depends on the platform delivering the reply to Naudit at all —
+GitHub via the `pull_request_review_comment` event, GitLab via the Note Hook
+(`note_events`, the **Comments** trigger in the UI). If that subscription is
+missing, the feature fails **silently**: no error, no log line, no confirmation in
+the thread.
+
+The setup wizard subscribes to both, but GitHub never adds events to an *existing*
+app retroactively, and a hook created by hand from an older revision of the docs
+never had the trigger. Naudit therefore checks once, shortly after startup, and
+logs a warning naming the exact fix:
+
+```text
+warn: Antwort-Kommandos sind wirkungslos — die GitHub-App ist nicht auf
+      'pull_request_review_comment' abonniert. […] Beheben:
+      https://github.com/settings/apps/<slug>/permissions → "Subscribe to events" →
+      "Pull request review comment" anhaken → Save.
+```
+
+The check only ever *reports* — it never changes a hook or an app. On GitHub the
+event list cannot be changed through the API at all; on GitLab it could, but the
+same read-only rule is applied deliberately.
+
+It stays quiet unless the gap is proven. An API error, missing permissions, or a
+GitLab **group** hook (which never appears in a project's own hook list) all yield
+"cannot tell" rather than a warning — a check that cries wolf gets ignored.
+
+The GitLab side inspects the projects Naudit has already reviewed, newest first,
+capped at 20. A fresh install has none, so the warning first appears after the
+first review — which is soon enough, since `merge_requests_events` and
+`note_events` are independent.
