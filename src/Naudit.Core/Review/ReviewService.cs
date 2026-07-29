@@ -123,7 +123,17 @@ public sealed class ReviewService(
         var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
         var lastRoundtrip = priorReviews >= 0 && priorReviews + 1 == options.MaxRoundtrips;
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans, lastRoundtrip);
-        var posted = await gitPlatform.PostReviewAsync(request, summary, inline, verdict, ct);
+
+        // Der Kommando-Hinweis haengt NUR an der geposteten Kopie: Audit-Bodies (und damit
+        // WebUI-Review-Detail, Analytics und der spaetere LLM-Klassifikator) bleiben sauber.
+        // postInline bleibt index-gleich zu inline, damit das Zippen der PostedComments traegt.
+        var hint = ReviewCommandHint.Inline(options.Resolution);
+        IReadOnlyList<InlineComment> postInline = hint.Length == 0
+            ? inline
+            : inline.Select(c => c with { Body = c.Body + hint }).ToList();
+        var postSummary = summary + ReviewCommandHint.Summary(options.Resolution);
+
+        var posted = await gitPlatform.PostReviewAsync(request, postSummary, postInline, verdict, ct);
         await RecordAuditAsync(request, verdict, summary, inline, orphans, posted, response, selection.UsedSessionAccountId(), ct);
         return new ReviewResult(summary, verdict);
     }
