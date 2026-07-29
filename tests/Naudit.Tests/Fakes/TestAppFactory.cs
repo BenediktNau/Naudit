@@ -25,6 +25,14 @@ public sealed class TestAppFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // Kein Config-Reload im Test: sonst legt JEDER Host je einen FileSystemWatcher auf
+        // appsettings.json/appsettings.{Env}.json an — also je eine inotify-Instanz, die so lange
+        // lebt wie die Factory. Bei ~19 Klassen-Fixtures plus den Per-Methode-Factories in
+        // SetupEndpointTests sprengt das parallel das benutzerweite Limit
+        // (fs.inotify.max_user_instances, default 128), und die WAF-Tests scheitern reihenweise
+        // schon im HostApplicationBuilder — mit von Lauf zu Lauf schwankender Trefferzahl.
+        builder.UseSetting("hostBuilder:reloadConfigOnChange", "false");
+
         builder.UseSetting("Naudit:Db:ConnectionString", $"Data Source={Path.Combine(_dbDir, "naudit.db")}");
 
         // Baseline: Minimal-Config, mit der SetupStatus BEIDE Plattformen als "konfiguriert" sieht —
