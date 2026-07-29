@@ -93,7 +93,9 @@ public sealed class GitLabCommentEventProbe(
         try
         {
             // per_page=100: die API paginiert standardmäßig bei 20 — der Naudit-Hook darf nicht
-            // auf einer zweiten Seite verschwinden.
+            // auf einer zweiten Seite verschwinden. 100 ist das API-Maximum; ein Projekt mit mehr
+            // Hooks bliebe unerkannt. Bewusst nicht paginiert: die Fehlerrichtung ist still
+            // (kein Treffer ⇒ null ⇒ "nicht ermittelbar"), nie eine falsche Warnung.
             using var req = new HttpRequestMessage(HttpMethod.Get,
                 $"api/v4/projects/{Uri.EscapeDataString(projectId)}/hooks?per_page=100");
             req.Headers.Add("PRIVATE-TOKEN", await tokens.ResolveTokenAsync(projectId, ct));
