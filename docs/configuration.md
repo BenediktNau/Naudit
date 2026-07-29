@@ -148,6 +148,7 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Review:Dast:Enabled` / `:Projects` | Dynamic testing on/off plus the per-project allowlist (**list-shaped**, empty ⇒ no project runs). Both switches must agree — DAST builds and runs untrusted PR code (see [DAST](dast.md)) |
 | `Naudit:Review:Memory:Enabled` | Inject per-project maintainer guidance (false positives + conventions) as a read-only prompt section — **default `true`** (see [Review memory](review-memory.md)) |
 | `Naudit:Review:Memory:MaxEntries` | Cap on memory entries injected per review — conventions first, then false positives, newest-first (default `50`) |
+| `Naudit:Review:Resolution:RenderHint` | Advertise the `@naudit fp` / `@naudit ok` reply commands in every posted review — hidden HTML comment inline, collapsed `<details>` on the summary. **Default `true`** (see [Review memory](review-memory.md)) |
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |

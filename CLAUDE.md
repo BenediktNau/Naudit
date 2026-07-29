@@ -371,6 +371,11 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   aggregates totals/acceptance+FP rate/severity breakdown/ISO-weekly trend/memory impact,
   rendered by the SPA's "Auswertung" nav page (`AnalyticsPage.tsx`). See
   `docs/review-analytics.md`.
+  Beide Kommandos werden in jedem geposteten Review beworben (`ReviewCommandHint`,
+  Core): unsichtbarer HTML-Kommentar an jedem Inline-Kommentar (für API-Leser/AI-Agents)
+  plus zugeklappter `<details>`-Block an der Summary; angehängt **nur** an die gepostete
+  Kopie, die Audit-Zeilen bleiben sauber. Schalter `Naudit:Review:Resolution:RenderHint`
+  (Default `true`).
 
 ### CI/CD & container
 

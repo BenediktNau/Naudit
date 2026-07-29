@@ -64,6 +64,10 @@ Positive gemerkt."` for `fp`, `"Als angenommen vermerkt."` for `ok` — exactly
 once per real transition (redelivery of an already-applied command produces
 no second reply).
 
+Both commands are advertised in every posted review — hidden in an HTML comment on
+each inline comment (for API readers and AI agents) and in a collapsed `<details>`
+block on the summary; see [Review memory › Discoverability](review-memory.md#reply-command-naudit-fp-pr-2b).
+
 ### WebUI Accept/Reject buttons
 
 The review detail page (`ReviewDetail.tsx`) shows an **accept** and a
