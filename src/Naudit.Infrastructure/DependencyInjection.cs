@@ -297,9 +297,14 @@ public static class DependencyInjection
                     http.BaseAddress = new Uri(opt.BaseUrl.TrimEnd('/') + "/");
                 });
 
-                // Kommentar-Event-Prüfung: eigener named Client auf denselben GitLab-Host.
+                // Kommentar-Event-Prüfung: eigener named Client auf denselben GitLab-Host. Kurzes
+                // Timeout statt der 100s-Vorgabe: bis zu 20 Projekte sequenziell, ein blackholendes
+                // GitLab hielte die Prüfung sonst ~33 Minuten am Leben.
                 services.AddHttpClient("gitlab-hooks", http =>
-                    http.BaseAddress = new Uri(gitLabOptions.BaseUrl.TrimEnd('/') + "/"));
+                {
+                    http.BaseAddress = new Uri(gitLabOptions.BaseUrl.TrimEnd('/') + "/");
+                    http.Timeout = TimeSpan.FromSeconds(10);
+                });
                 var publicBaseUrl = configuration["Naudit:PublicBaseUrl"] ?? "";
                 services.AddScoped<Naudit.Infrastructure.Setup.ICommentEventProbe>(sp =>
                     new Naudit.Infrastructure.Setup.GitLabCommentEventProbe(

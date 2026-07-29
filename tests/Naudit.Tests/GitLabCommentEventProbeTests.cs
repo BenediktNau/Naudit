@@ -75,8 +75,24 @@ public class GitLabCommentEventProbeTests
 
         Assert.Equal(CommentEventState.Missing, status.State);
         var detail = Assert.Single(status.Details);
-        Assert.Contains("42", detail);
+        Assert.Contains("GitLab-Projekt 42 ", detail);
         Assert.Contains("Comments", detail);
+    }
+
+    [Fact]
+    public async Task CheckAsync_matchingHookWithoutNoteEventsField_isUnknown_notMissing()
+    {
+        // Finding 1: ein passender Hook, dessen JSON note_events schlicht nicht enthält, darf
+        // NICHT als "false" (und damit Missing) gewertet werden — das wäre ein Fehlalarm.
+        using var db = NewDb();
+        SeedProjects(db, "42");
+        var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.OK,
+            $$"""[{"url":"{{HookUrl}}"}]"""));
+
+        var status = await Probe(db, stub).CheckAsync();
+
+        Assert.Equal(CommentEventState.Unknown, status.State);
+        Assert.Empty(status.Details);
     }
 
     [Fact]
@@ -89,6 +105,33 @@ public class GitLabCommentEventProbeTests
             """[{"url":"https://other.example.com/hook","note_events":false}]"""));
 
         Assert.Equal(CommentEventState.Unknown, (await Probe(db, stub).CheckAsync()).State);
+    }
+
+    [Fact]
+    public async Task CheckAsync_twoMatchingHooks_anyWithNoteEvents_isOk()
+    {
+        // Cheap fix: FirstOrDefault -> "irgendein passender Hook hat note_events". Ein veralteter
+        // Hook ohne das Feld steht hier VOR dem korrekten, damit ein FirstOrDefault-Rest bestehen bliebe.
+        using var db = NewDb();
+        SeedProjects(db, "42");
+        var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.OK,
+            $$"""[{"url":"{{HookUrl}}"},{"url":"{{HookUrl}}","note_events":true}]"""));
+
+        Assert.Equal(CommentEventState.Ok, (await Probe(db, stub).CheckAsync()).State);
+    }
+
+    [Fact]
+    public async Task CheckAsync_hooksPagesWithPerPage100()
+    {
+        using var db = NewDb();
+        SeedProjects(db, "42");
+        var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.OK,
+            $$"""[{"url":"{{HookUrl}}","note_events":true}]"""));
+
+        await Probe(db, stub).CheckAsync();
+
+        var req = Assert.Single(stub.Requests);
+        Assert.Equal("per_page=100", req.RequestUri!.Query.TrimStart('?'));
     }
 
     [Fact]
@@ -137,7 +180,8 @@ public class GitLabCommentEventProbeTests
         var status = await Probe(db, stub).CheckAsync();
 
         Assert.Equal(CommentEventState.Missing, status.State);
-        Assert.Contains("2", Assert.Single(status.Details));
+        // Volles Fragment statt bloß "2" pinnen — sonst passt der Assert auch auf "22" o. Ä.
+        Assert.Contains("GitLab-Projekt 2 ", Assert.Single(status.Details));
     }
 
     [Fact]
@@ -171,6 +215,34 @@ public class GitLabCommentEventProbeTests
         Assert.Contains(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/6/"));
         Assert.DoesNotContain(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/5/"));
         Assert.DoesNotContain(stub.Calls, c => c.Uri!.AbsolutePath.Contains("/projects/1/hooks"));
+    }
+
+    [Fact]
+    public async Task CheckAsync_ok_summaryNamesCheckedAndUnknownCounts()
+    {
+        using var db = NewDb();
+        SeedProjects(db, "1", "2");
+        var stub = new StubHttpMessageHandler(req => Json(
+            req.RequestUri!.AbsolutePath.Contains("/projects/2/") ? HttpStatusCode.Forbidden : HttpStatusCode.OK,
+            $$"""[{"url":"{{HookUrl}}","note_events":true}]"""));
+
+        var status = await Probe(db, stub).CheckAsync();
+
+        Assert.Equal(CommentEventState.Ok, status.State);
+        Assert.Contains("1 Projekte geprüft", status.Summary);
+        Assert.Contains("1 nicht ermittelbar", status.Summary);
+    }
+
+    [Fact]
+    public async Task CheckAsync_emptyPublicBaseUrl_summaryNamesReason()
+    {
+        using var db = NewDb();
+        SeedProjects(db, "42");
+        var stub = new StubHttpMessageHandler(_ => Json(HttpStatusCode.OK, "[]"));
+
+        var status = await Probe(db, stub, publicBaseUrl: "").CheckAsync();
+
+        Assert.Contains("PublicBaseUrl", status.Summary);
     }
 
     [Fact]

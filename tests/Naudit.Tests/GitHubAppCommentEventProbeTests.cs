@@ -36,6 +36,7 @@ public class GitHubAppCommentEventProbeTests
 
         Assert.Equal(CommentEventState.Ok, status.State);
         Assert.Empty(status.Details);
+        Assert.Equal("Ereignisliste der GitHub-App gelesen.", status.Summary);
     }
 
     [Fact]
@@ -50,6 +51,50 @@ public class GitHubAppCommentEventProbeTests
         // Die Meldung MUSS handlungsleitend sein: Link auf die App-Settings + der Ereignisname.
         Assert.Contains("https://github.com/settings/apps/naudit/permissions", detail);
         Assert.Contains("pull_request_review_comment", detail);
+        // Auch bei Missing bleibt die Info-Zeile eine neutrale Feststellung, kein zweiter Alarm.
+        Assert.Equal("Ereignisliste der GitHub-App gelesen.", status.Summary);
+    }
+
+    [Fact]
+    public async Task CheckAsync_eventMissing_orgOwnedApp_usesOrganizationsDeepLink()
+    {
+        // Finding 2: GET /app liefert owner.type == "Organization" -> der User-Pfad
+        // (/settings/apps/…) 404et für org-owned Apps, der richtige Pfad ist /organizations/{org}/….
+        var probe = Probe(App(HttpStatusCode.OK, """
+            {"slug":"naudit","events":["pull_request"],"owner":{"login":"acme-corp","type":"Organization"}}
+            """));
+
+        var status = await probe.CheckAsync();
+
+        Assert.Equal(CommentEventState.Missing, status.State);
+        var detail = Assert.Single(status.Details);
+        Assert.Contains("https://github.com/organizations/acme-corp/settings/apps/naudit/permissions", detail);
+        Assert.DoesNotContain("https://github.com/settings/apps/naudit/permissions", detail);
+    }
+
+    [Fact]
+    public async Task CheckAsync_eventMissing_userOwnedApp_keepsUserDeepLink()
+    {
+        var probe = Probe(App(HttpStatusCode.OK, """
+            {"slug":"naudit","events":["pull_request"],"owner":{"login":"bnau","type":"User"}}
+            """));
+
+        var status = await probe.CheckAsync();
+
+        var detail = Assert.Single(status.Details);
+        Assert.Contains("https://github.com/settings/apps/naudit/permissions", detail);
+    }
+
+    [Fact]
+    public async Task CheckAsync_nonStringEventArrayElement_isHandledIntentionally_notThroughOuterCatch()
+    {
+        // Finding (cheap fix): ein Nicht-String-Element darf nicht "zufällig" von der äußeren
+        // catch-Klausel gerettet werden — die Antwortform ist unerwartet, kein Transportfehler.
+        var probe = Probe(App(HttpStatusCode.OK, """{"slug":"naudit","events":[42,"pull_request"]}"""));
+
+        var status = await probe.CheckAsync();
+
+        Assert.Equal(CommentEventState.Missing, status.State);
     }
 
     [Fact]
@@ -62,6 +107,19 @@ public class GitHubAppCommentEventProbeTests
         Assert.Equal(CommentEventState.Missing, status.State);
         // Ohne Slug darf kein halbfertiger Link entstehen ("…/apps//permissions").
         Assert.DoesNotContain("/apps//", Assert.Single(status.Details));
+    }
+
+    [Fact]
+    public async Task CheckAsync_httpError401_summaryNamesTheStatusCode()
+    {
+        var probe = Probe(App(HttpStatusCode.Unauthorized, "{}"));
+
+        var status = await probe.CheckAsync();
+
+        // Finding 5: "nicht ermittelbar" darf nicht stumm bleiben — Betreiber muss sehen, dass
+        // überhaupt geprüft wurde und warum nichts festgestellt werden konnte.
+        Assert.Equal(CommentEventState.Unknown, status.State);
+        Assert.Equal("nicht ermittelbar (GET /app lieferte 401).", status.Summary);
     }
 
     [Theory]

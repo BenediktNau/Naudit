@@ -26,9 +26,12 @@ public class CommentEventCheckServiceTests
     }
 
     private static async Task<RecordingLogger> RunAsync(ICommentEventProbe? probe)
+        => await RunAsync(probe is null ? [] : new[] { probe });
+
+    private static async Task<RecordingLogger> RunAsync(IReadOnlyList<ICommentEventProbe> probes)
     {
         var services = new ServiceCollection();
-        if (probe is not null) services.AddScoped<ICommentEventProbe>(_ => probe);
+        foreach (var probe in probes) services.AddScoped<ICommentEventProbe>(_ => probe);
         var logger = new RecordingLogger();
         var service = new CommentEventCheckService(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), logger);
@@ -78,7 +81,7 @@ public class CommentEventCheckServiceTests
     public async Task NoProbeRegistered_doesNothing()
     {
         // GitHub im PAT-Modus: kein Probe im Container, der Dienst muss trotzdem sauber laufen.
-        var logger = await RunAsync(null);
+        var logger = await RunAsync((ICommentEventProbe?)null);
 
         Assert.Empty(logger.Entries);
     }
@@ -89,5 +92,43 @@ public class CommentEventCheckServiceTests
         var logger = await RunAsync(new FakeProbe(() => throw new InvalidOperationException("boom")));
 
         Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task StatusWithSummary_logsExactlyOneInformationLine()
+    {
+        var logger = await RunAsync(new FakeProbe(() =>
+            new CommentEventStatus(CommentEventState.Ok, [], "12 Projekte geprüft.")));
+
+        var infos = logger.Entries.Where(e => e.Level == LogLevel.Information).ToList();
+        Assert.Single(infos);
+        Assert.Contains("12 Projekte geprüft.", infos[0].Message);
+    }
+
+    [Fact]
+    public async Task StatusWithoutSummary_logsNoInformation()
+    {
+        // Die Shorthands CommentEventStatus.Ok/.Unknown bleiben ohne Summary nutzbar (z. B. in
+        // Tests) — der Dienst darf dafür keine leere Info-Zeile erzeugen.
+        var logger = await RunAsync(new FakeProbe(() => CommentEventStatus.Ok));
+
+        Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task TwoProbesRegistered_bothRun_neitherSuppressesTheOther()
+    {
+        // GetServices statt GetService: ein zweiter Probe darf den ersten nicht verdrängen.
+        var probeA = new FakeProbe(() =>
+            new CommentEventStatus(CommentEventState.Ok, [], "Probe A: alles gelesen."));
+        var probeB = new FakeProbe(() =>
+            new CommentEventStatus(CommentEventState.Missing, ["Anweisung von Probe B"], "Probe B: Lücke gefunden."));
+
+        var logger = await RunAsync([probeA, probeB]);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("Probe A"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("Probe B"));
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("Anweisung von Probe B", warning.Message);
     }
 }
