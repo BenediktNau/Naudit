@@ -131,4 +131,19 @@ public class CommentEventCheckServiceTests
         var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
         Assert.Contains("Anweisung von Probe B", warning.Message);
     }
+
+    [Fact]
+    public async Task ThrowingProbe_doesNotSuppressTheNextProbesWarning()
+    {
+        // Fehler-Isolation je Probe: läge das try um die ganze Schleife, ginge die Warnung des
+        // zweiten Probes verloren — genau das stille Verschwinden, gegen das GetServices gewählt wurde.
+        var throwing = new FakeProbe(() => throw new InvalidOperationException("boom"));
+        var healthy = new FakeProbe(() =>
+            new CommentEventStatus(CommentEventState.Missing, ["Anweisung vom zweiten Probe"], "Zweiter Probe: Lücke gefunden."));
+
+        var logger = await RunAsync([throwing, healthy]);
+
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("Anweisung vom zweiten Probe", warning.Message);
+    }
 }

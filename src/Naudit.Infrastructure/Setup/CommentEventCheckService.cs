@@ -23,17 +23,30 @@ public sealed class CommentEventCheckService(
 
             foreach (var probe in probes)
             {
-                var status = await probe.CheckAsync(ct);
+                // Fehler-Isolation je Probe: läge das try um die ganze Schleife, würde ein
+                // werfender Probe alle nachfolgenden verschlucken — dasselbe stille Verschwinden,
+                // gegen das oben schon GetServices statt GetService gewählt wurde.
+                try
+                {
+                    var status = await probe.CheckAsync(ct);
 
-                // Genau eine Info-Zeile je Probe: was wurde tatsächlich festgestellt — auch bei
-                // Ok/Unknown. Sonst sieht ein Betreiber ohne Debug-Log nie, dass überhaupt geprüft
-                // wurde, und verwechselt "nicht ermittelbar" mit "geprüft, alles gut".
-                if (!string.IsNullOrEmpty(status.Summary))
-                    logger.LogInformation("Kommentar-Event-Prüfung: {Summary}", status.Summary);
+                    // Genau eine Info-Zeile je Probe: was wurde tatsächlich festgestellt — auch bei
+                    // Ok/Unknown. Sonst sieht ein Betreiber ohne Debug-Log nie, dass überhaupt geprüft
+                    // wurde, und verwechselt "nicht ermittelbar" mit "geprüft, alles gut".
+                    if (!string.IsNullOrEmpty(status.Summary))
+                        logger.LogInformation("Kommentar-Event-Prüfung: {Summary}", status.Summary);
 
-                if (status.State != CommentEventState.Missing) continue;
-                foreach (var detail in status.Details)
-                    logger.LogWarning("{Detail}", detail);
+                    if (status.State != CommentEventState.Missing) continue;
+                    foreach (var detail in status.Details)
+                        logger.LogWarning("{Detail}", detail);
+                }
+                catch (Exception ex)
+                {
+                    // Beim Herunterfahren die Schleife abbrechen (jeder weitere Probe würde sofort
+                    // wieder abbrechen); sonst mit dem nächsten Probe weitermachen.
+                    if (ct.IsCancellationRequested) throw;
+                    logger.LogDebug(ex, "Kommentar-Event-Prüfung eines Probes fehlgeschlagen.");
+                }
             }
         }
         catch (Exception ex)
