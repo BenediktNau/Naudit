@@ -650,4 +650,43 @@ public class ReviewServiceTests
         Assert.Equal("gh-1", finding.PlatformCommentId);
         Assert.Equal("gl-9", finding.PlatformNoteId);
     }
+
+    [Fact]
+    public async Task ReviewAsync_appendsCommandHint_toPostedCopyOnly()
+    {
+        // Der Hinweis gehoert an die gepostete Kopie — nicht in die DB: sonst schleppen
+        // WebUI-Review-Detail und Analytics den Block in jedem Finding mit.
+        var chat = new FakeChatClient(
+            """{"summary":"## Review","comments":[{"file":"src/Foo.cs","line":1,"comment":"null deref","severity":"medium","confidence":"high"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
+        var sink = new FakeReviewAuditSink();
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, auditSink: sink);
+
+        var result = await service.ReviewAsync(Request);
+
+        var inline = Assert.Single(git.PostedComments);
+        Assert.Contains("naudit:commands", inline.Body);
+        Assert.Contains("Naudit-Kommandos", git.PostedMarkdown!);
+
+        var audit = Assert.Single(sink.Recorded);
+        Assert.DoesNotContain("naudit:commands", Assert.Single(audit.Findings).Text);
+        Assert.DoesNotContain("Naudit-Kommandos", audit.Summary);
+        Assert.DoesNotContain("Naudit-Kommandos", result.Markdown);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_withRenderHintOff_postsNoHint()
+    {
+        var chat = new FakeChatClient(
+            """{"summary":"## Review","comments":[{"file":"src/Foo.cs","line":1,"comment":"null deref"}]}""");
+        var git = new FakeGitPlatform([new CodeChange("src/Foo.cs", "@@ -0,0 +1,1 @@\n+var x = foo();")]);
+        var options = new ReviewOptions { SystemPrompt = "SYS" };
+        options.Resolution.RenderHint = false;
+        var service = CreateService(chat, git, options);
+
+        await service.ReviewAsync(Request);
+
+        Assert.DoesNotContain("naudit:commands", Assert.Single(git.PostedComments).Body);
+        Assert.DoesNotContain("Naudit-Kommandos", git.PostedMarkdown!);
+    }
 }

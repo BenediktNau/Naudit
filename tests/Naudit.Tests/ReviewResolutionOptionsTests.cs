@@ -14,6 +14,7 @@ public class ReviewResolutionOptionsTests
         Assert.True(o.Enabled);
         Assert.True(o.LlmClassification);
         Assert.True(o.RenderCheckbox);
+        Assert.True(o.RenderHint);
     }
 
     [Fact]
@@ -22,9 +23,11 @@ public class ReviewResolutionOptionsTests
         var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Naudit:Review:Resolution:Enabled"] = "false",
+            ["Naudit:Review:Resolution:RenderHint"] = "false",
         }).Build();
         var opts = cfg.GetSection("Naudit:Review").Get<ReviewOptions>()!;
         Assert.False(opts.Resolution.Enabled);
+        Assert.False(opts.Resolution.RenderHint);
     }
 
     [Fact]
@@ -35,6 +38,7 @@ public class ReviewResolutionOptionsTests
             "Naudit:Review:Resolution:Enabled",
             "Naudit:Review:Resolution:LlmClassification",
             "Naudit:Review:Resolution:RenderCheckbox",
+            "Naudit:Review:Resolution:RenderHint",
         })
         {
             Assert.True(SettingsCatalog.TryGet(key, out var def), $"{key} fehlt im Katalog");
