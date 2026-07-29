@@ -253,3 +253,61 @@ Both are built by `ReviewCommandHint` (`src/Naudit.Core/Review/`) and appended b
 `@naudit ok` is omitted from the hint when `Naudit:Review:Resolution:Enabled` is
 `false` (the command would be silently dropped). Turn the hint off entirely with
 `Naudit:Review:Resolution:RenderHint=false`.
+
+### Startup check: is the event even subscribed?
+
+The reply command depends on the platform delivering the reply to Naudit at all —
+GitHub via the `pull_request_review_comment` event, GitLab via the Note Hook
+(`note_events`, the **Comments** trigger in the UI). If that subscription is
+missing, the feature fails **silently**: no error, no log line, no confirmation in
+the thread.
+
+The setup wizard subscribes to both, but GitHub never adds events to an *existing*
+app retroactively, and a hook created by hand from an older revision of the docs
+never had the trigger. Naudit therefore checks once, shortly after startup, and
+logs a warning naming the exact fix:
+
+```text
+warn: Antwort-Kommandos sind wirkungslos — die GitHub-App ist nicht auf
+      'pull_request_review_comment' abonniert. […] Beheben:
+      https://github.com/settings/apps/<slug>/permissions → "Subscribe to events" →
+      "Pull request review comment" anhaken → Save.
+```
+
+For an organization-owned App the deep link points at
+`https://github.com/organizations/<org>/settings/apps/<slug>/permissions` instead
+(the user-scoped path 404s there) — GitHub's own `GET /app` response carries the
+owner, so the check picks the right one automatically.
+
+**This check only runs when `Naudit:GitHub:Auth=App`** — the GitHub PAT setup path
+(repo webhooks instead of an App) has no event list to read and stays unchecked. A
+PAT-mode operator is not covered by this startup check and should verify their
+webhook's "Comments"/PR-review-comment triggers by hand.
+
+The check only ever *reports* — it never changes a hook or an app. On GitHub the
+event list cannot be changed through the API at all; on GitLab it could, but the
+same read-only rule is applied deliberately.
+
+It stays quiet unless the gap is proven. An API error, missing permissions, or a
+GitLab **group** hook (which never appears in a project's own hook list) all yield
+"cannot tell" rather than a warning — a check that cries wolf gets ignored.
+"Cannot tell" is not silent, though: every run — GitHub or GitLab, `Ok` or
+`Unknown` — logs exactly one neutral `LogInformation` summary line stating what
+was actually established, e.g.
+
+```text
+info: Kommentar-Event-Prüfung: 12 Projekte geprüft, 3 nicht ermittelbar (403 oder
+      kein Projekt-Hook).
+info: Kommentar-Event-Prüfung: Ereignisliste der GitHub-App gelesen.
+info: Kommentar-Event-Prüfung: nicht ermittelbar (GET /app lieferte 401).
+```
+
+so an operator who sees no warning can tell "checked, all good" apart from
+"nothing was checkable" without turning on `Debug` logging. Only the warning
+(proven absence) is reserved for an actual alarm; the summary line never reads
+like one.
+
+The GitLab side inspects the projects Naudit has already reviewed, newest first,
+capped at 20. A fresh install has none, so the warning first appears after the
+first review — which is soon enough, since `merge_requests_events` and
+`note_events` are independent.
