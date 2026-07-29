@@ -365,7 +365,12 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   fp`/PR 2b reply command with **`@naudit ok`** (aliases `angenommen`/`accepted`, same parser,
   same webhook/authorization plumbing) — `fp` writes `Rejected`/`Command` alongside its memory
   entry, `ok` writes `Accepted`/`Command`; both gated by `Naudit:Review:Resolution:Enabled`
-  (memory-entry creation from `fp` is not). The review detail's Accept/Reject buttons call
+  (memory-entry creation from `fp` is not).
+  Both commands are advertised in every posted review (`ReviewCommandHint`, Core): an invisible
+  HTML comment on each inline comment (for API readers/AI agents) plus a collapsed `<details>`
+  block on the summary; appended **only** to the posted copy, the audit rows stay clean. Switch
+  `Naudit:Review:Resolution:RenderHint` (default `true`).
+  The review detail's Accept/Reject buttons call
   `PUT /api/findings/{id}/resolution` (source `WebUi`, ungated by `Resolution:Enabled`).
   `GET /api/analytics?projectId=&days=` (always mapped, read-only, dashboard visibility rules)
   aggregates totals/acceptance+FP rate/severity breakdown/ISO-weekly trend/memory impact,

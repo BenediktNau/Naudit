@@ -233,5 +233,23 @@ to the first finding by id (and logged).
 created with `note_events: true`, the GitHub App manifest lists
 `pull_request_review_comment` in `default_events`.
 
-No new configuration key and no migration — the anchor columns
+PR 2b itself needs no new configuration key and no migration — the anchor columns
 (`PlatformCommentId`/`PlatformNoteId`) already exist from PR 2a.
+
+**Discoverability** — every posted review advertises the commands, so a human *or
+an AI agent* working the PR can use them without prior knowledge:
+
+- Each inline comment carries an HTML comment (`<!-- naudit:commands … -->`).
+  GitHub and GitLab swallow it when rendering, but it is part of the raw body the
+  APIs return (`gh api`, `gh pr view --comments`, GitLab Notes API) — invisible to
+  humans, plainly readable for an agent that reads the thread through the API.
+- The summary comment carries the same information as a collapsed
+  `<details>` block, so the feature stays discoverable for humans exactly once per
+  review.
+
+Both are built by `ReviewCommandHint` (`src/Naudit.Core/Review/`) and appended by
+`ReviewService` **only to the copy handed to `PostReviewAsync`** — the audit rows
+(`ReviewEntity.Summary`, `ReviewFindingEntity.Text`) stay free of the boilerplate.
+`@naudit ok` is omitted from the hint when `Naudit:Review:Resolution:Enabled` is
+`false` (the command would be silently dropped). Turn the hint off entirely with
+`Naudit:Review:Resolution:RenderHint=false`.
