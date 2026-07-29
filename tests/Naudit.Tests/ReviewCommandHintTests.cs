@@ -44,6 +44,7 @@ public class ReviewCommandHintTests
 
         Assert.Contains("@naudit fp", hint);
         Assert.DoesNotContain("@naudit ok", hint);
+        Assert.EndsWith("</details>", hint);
     }
 
     [Fact]

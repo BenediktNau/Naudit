@@ -233,7 +233,7 @@ to the first finding by id (and logged).
 created with `note_events: true`, the GitHub App manifest lists
 `pull_request_review_comment` in `default_events`.
 
-No new configuration key and no migration — the anchor columns
+PR 2b itself needs no new configuration key and no migration — the anchor columns
 (`PlatformCommentId`/`PlatformNoteId`) already exist from PR 2a.
 
 **Discoverability** — every posted review advertises the commands, so a human *or
@@ -249,7 +249,7 @@ an AI agent* working the PR can use them without prior knowledge:
 
 Both are built by `ReviewCommandHint` (`src/Naudit.Core/Review/`) and appended by
 `ReviewService` **only to the copy handed to `PostReviewAsync`** — the audit rows
-(`ReviewEntity.Summary`, `ReviewFindingEntity.Body`) stay free of the boilerplate.
+(`ReviewEntity.Summary`, `ReviewFindingEntity.Text`) stay free of the boilerplate.
 `@naudit ok` is omitted from the hint when `Naudit:Review:Resolution:Enabled` is
 `false` (the command would be silently dropped). Turn the hint off entirely with
 `Naudit:Review:Resolution:RenderHint=false`.
