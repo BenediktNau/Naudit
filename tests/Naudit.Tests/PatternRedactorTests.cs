@@ -171,6 +171,20 @@ public class PatternRedactorTests
     }
 
     [Fact]
+    public async Task HighEntropyKey_doesNotSwallowTheAssignmentDelimiter()
+    {
+        // Loch im ersten Anlauf dieses PRs, von CodeRabbit gefunden: `={0,2}` war als
+        // Base64-Padding gedacht, nahm aber auch den ZUWEISUNGS-Trenner mit. Ein hochentropischer
+        // SCHLUESSEL matchte damit samt '=' (`aB3d…qRs7=`) und wurde maskiert — der Trenner
+        // verschwand, und die zugesicherte Zuweisungsgrenze war genau dann unwahr, wenn sie zaehlt.
+        const string line = "ARG aB3dEf9HjKl2MnP4qRs7=publicvalue";
+        var outp = await Redact(line);
+
+        Assert.Equal(line, outp);
+        Assert.Contains("=", outp);   // Trenner ueberlebt
+    }
+
+    [Fact]
     public async Task AmbiguousCredentialsKeyword_withWordValue_isNotRedacted()
     {
         // Aus Naudits zweiter Runde zu #87: `credentials` ist im Web-Umfeld ueberwiegend KEIN

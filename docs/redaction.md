@@ -18,7 +18,7 @@ The default `PatternRedactor` masks, replacing each hit with a typed placeholder
 | --- | --- |
 | `token` | AWS access keys (`AKIA…`), GitHub PATs (`ghp_…`, `github_pat_…`), Slack tokens (`xox…`), JWTs (`eyJ….….…`) |
 | `private-key` | PEM private-key blocks (`-----BEGIN … PRIVATE KEY-----`; the base64 body is caught by the entropy pass) |
-| `secret` | `password=`/`passphrase=`/`secret=`/`credential=`/`api_key=`/`token=` assignments (only the value — the key stays readable), including prefixed keys like `DB_PASSWORD=` or `x-token:`; plus high-entropy tokens |
+| `secret` | `password=`/`passphrase=`/`secret=`/`api_key=`/`token=` assignments (only the value — the key stays readable), including prefixed keys like `DB_PASSWORD=` or `x-token:`; plus high-entropy tokens. `credential=`/`credentials=` are **conditional**: because they are usually not secrets on the web (`fetch(…, { credentials: 'include' })`, CORS `credentials: true`), the value must carry the evidence — at least 8 characters mixing a letter and a digit |
 | `ip` | IPv4 addresses (octet-validated) and full-form IPv6 |
 | `email` | e-mail addresses |
 

@@ -68,7 +68,12 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
     // die Schwelle. Ein öffentlicher 40-stelliger Commit-SHA (3.62 Bits/Zeichen, unter der Schwelle)
     // wurde so als `«redacted:secret»` maskiert, nur weil `OPENGREP_RULES_REF=` davorstand (4.44).
     // Der Wert selbst wird weiterhin auf eigene Rechnung geprüft — echte Secrets bleiben maskiert.
-    private static readonly Regex TokenLike = R(@"[A-Za-z0-9+/_-]+={0,2}");
+    // Der Lookahead trennt Base64-Padding vom Zuweisungs-Trenner: ein '=' darf nur geschluckt
+    // werden, wenn danach KEIN Token-Zeichen mehr folgt. Ohne ihn hätte `={0,2}` den Trenner
+    // mitgenommen und ein hochentropischer SCHLÜSSEL wäre samt '=' maskiert worden
+    // (`aB3d…qRs7=publicvalue` → `«redacted:secret»publicvalue`) — die oben zugesicherte
+    // Zuweisungsgrenze wäre damit genau dort unwahr gewesen, wo sie zählt.
+    private static readonly Regex TokenLike = R(@"[A-Za-z0-9+/_-]+={0,2}(?![A-Za-z0-9+/_=-])");
 
     public Task<string> RedactAsync(string text, CancellationToken ct = default)
     {
