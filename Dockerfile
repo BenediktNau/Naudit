@@ -53,7 +53,11 @@ ARG BETTERLEAKS_VERSION=1.7.3
 ARG XTEXT_VERSION=0.39.0
 # -mod=mod: der Build darf fehlende go.sum-Eintraege des Hilfsmoduls selbst nachtragen (die
 # Pruefsummen kommen weiterhin aus der Checksum-DB -- das lockert die Integritaet nicht, nur die
-# Buchfuehrung im Wegwerf-Modul).
+# Buchfuehrung im Wegwerf-Modul). Auch die Aufloesung bleibt deterministisch: BEIDE Eingaben von
+# MVS sind hier versionsgepinnt (BETTERLEAKS_VERSION + XTEXT_VERSION), der restliche Modulgraph
+# steht in betterleaks' eigener go.mod. Gleiche ARGs -> gleicher Graph, ein committetes go.sum
+# fuer das Wegwerf-Modul brauchte es nur fuer Offline-Builds -- die Stage laedt ohnehin ueber den
+# Modul-Proxy, wie die Runtime-Stage ihre Tool-Binaries ueber curl.
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS="-trimpath -mod=mod"
 WORKDIR /build
 # Umweg ueber ein Wegwerf-Hilfsmodul statt `go install pkg@version`: NUR im Modulkontext laesst sich
@@ -71,6 +75,11 @@ RUN go mod init naudit/betterleaks-build \
 # bricht der Image-Build hier ab -- statt das CVE still wieder ins Image zu lassen, wo es erst das
 # Release-Gate (und damit jedes Release) reisst. `go version -m` liest die im Binary eingebettete
 # Modulliste, also exakt die Quelle, aus der auch Trivy seine Funde ableitet.
+# Bewusst EXAKTER Match auf XTEXT_VERSION, nicht ">= 0.39.0": ein hoeheres, ebenfalls sicheres
+# x/text (weil betterleaks es spaeter selbst anhebt) laesst den Build damit auch scheitern. Das ist
+# gewollt -- der Pin oben waere dann wirkungslos geworden, ohne dass es jemand merkt. Fix in dem
+# Fall: XTEXT_VERSION auf die neue Version ziehen (oder, wenn betterleaks weit genug ist, den
+# ganzen Override samt Hilfsmodul wieder ausbauen).
 RUN go version -m /go/bin/betterleaks | grep -qE "golang\.org/x/text[[:space:]]+v${XTEXT_VERSION}"
 
 # --- Runtime-Stage: schlankes ASP.NET-Image, non-root ---
