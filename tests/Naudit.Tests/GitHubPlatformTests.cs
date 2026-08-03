@@ -284,6 +284,38 @@ public class GitHubPlatformTests
     }
 
     [Fact]
+    public async Task PostReviewAsync_leavesAllIdsNullForPath_whenPostedCountDiffers()
+    {
+        // Kern der Sicherung: zwei Kommentare auf a.cs gesendet, nur einer angekommen. Welcher der
+        // beiden das ist, lässt sich nicht belegen — also KEINE Id vergeben statt zu raten. Eine
+        // vertauschte Id wäre schlimmer als gar keine: ein späteres `@naudit fp` landete am falschen
+        // Finding und schriebe den Fehleintrag dauerhaft ins Projekt-Gedächtnis.
+        var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """[ { "id": 77, "path": "a.cs", "line": null, "position": 5 }, { "id": 78, "path": "b.cs", "line": null, "position": 9 } ]""",
+                    Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+            });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "sum",
+        [
+            new InlineComment("a.cs", 10, null, "erster"),
+            new InlineComment("a.cs", 40, null, "zweiter"),
+            new InlineComment("b.cs", 3, null, "unberührt"),
+        ], ReviewVerdict.Approve);
+
+        Assert.Null(posted[0].CommentId);       // a.cs: 1 gepostet, 2 erwartet ⇒ beide leer
+        Assert.Null(posted[1].CommentId);
+        Assert.Equal("78", posted[2].CommentId); // b.cs stimmt überein und bleibt zugeordnet
+    }
+
+    [Fact]
     public async Task PostReviewAsync_leavesIdNull_whenApiReturnsNoCommentForThatPath()
     {
         // Kein Rateschluss: fehlt zu einem Pfad ein geposteter Kommentar (z. B. von GitHub

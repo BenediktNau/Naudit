@@ -83,30 +83,40 @@ public sealed class GitHubPlatform(
             var posted = await resp.Content.ReadFromJsonAsync<List<GitHubReviewComment>>(ct) ?? [];
 
             // Zuordnung bewusst OHNE `line`: dieser Endpunkt liefert die Legacy-Repräsentation, in
-            // der `line` immer null ist (nur `position` ist gesetzt). Ein Vergleich (Pfad, Zeile)
-            // trifft deshalb nie — das ließ PlatformCommentId durchgehend null und nahm dem
-            // `@naudit fp`/`ok`-Kommando die Zuordnungsgrundlage (in Produktion gefunden, 2026-08-03).
-            // Stattdessen je Pfad der Reihe nach: GitHub legt die Kommentare in der Reihenfolge an,
-            // in der wir sie senden, aufsteigende Id = Anlagereihenfolge. Der Pfad bleibt harte
-            // Bedingung — lieber keine Id als die eines fremden Findings.
+            // der `line` immer null ist (nur `position`). Ein Vergleich (Pfad, Zeile) trifft deshalb
+            // nie. Stattdessen je Pfad der Reihe nach — GitHub vergibt die Ids in Sendereihenfolge
+            // (an echten Daten geprüft, siehe Commit-Message zu diesem Block).
             //
-            // Die Reihenfolge-Annahme steht nicht im API-Vertrag, ist aber an echten Daten geprüft
-            // (Review 4843813767 auf PR #86, drei Kommentare auf derselben Datei):
-            //   id=3703712567 position=76 | id=3703712572 position=66 | id=3703712575 position=56
-            // Die Ids steigen, während `position` FÄLLT — gesendet wurde in genau dieser Reihenfolge.
-            // GitHub sortiert also nicht nach Diff-Position um. Sollte sich das je ändern, greift die
-            // Pfad-Bedingung weiter, aber die Zuordnung innerhalb eines Pfades wäre falsch; dann
-            // braucht es einen echten Diskriminator (aus dem Hunk berechnete `position`).
-            var remaining = posted.OrderBy(p => p.Id).ToList();
-            return comments.Select(c =>
+            // Die Stückzahl je Pfad muss exakt passen. Weicht sie ab, ist die Ausrichtung innerhalb
+            // dieses Pfades nicht mehr belegbar — dann lieber KEINE Id als eine falsche: eine
+            // vertauschte Id würde ein späteres `@naudit fp` am falschen Finding vermerken und den
+            // Fehleintrag dauerhaft ins Projekt-Gedächtnis schreiben. Der Fall wird geloggt, damit
+            // er auffällt, statt still zu passieren.
+            var postedByPath = posted
+                .GroupBy(p => p.Path ?? string.Empty)
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Id).ToList());
+
+            var result = new PostedComment[comments.Count];
+            foreach (var group in comments.Select((c, i) => (Comment: c, Index: i)).GroupBy(x => x.Comment.FilePath))
             {
-                var i = remaining.FindIndex(p => p.Path == c.FilePath);
-                if (i < 0)
-                    return new PostedComment(null, null);
-                var match = remaining[i];
-                remaining.RemoveAt(i);   // jede Id nur einmal vergeben
-                return new PostedComment(match.Id.ToString(), null);
-            }).ToList();
+                var mine = group.ToList();
+                var ids = postedByPath.TryGetValue(group.Key, out var l) ? l : [];
+
+                if (ids.Count != mine.Count)
+                {
+                    _logger.LogWarning(
+                        "Comment-Id-Erfassung für {Project}#{Pr}, Datei {File}: {Posted} gepostete Kommentare, "
+                        + "{Expected} erwartet — Zuordnung nicht belegbar, Ids bleiben leer.",
+                        request.ProjectId, request.MergeRequestIid, group.Key, ids.Count, mine.Count);
+                    foreach (var (_, index) in mine)
+                        result[index] = new PostedComment(null, null);
+                    continue;
+                }
+
+                for (var k = 0; k < mine.Count; k++)
+                    result[mine[k].Index] = new PostedComment(ids[k].Id.ToString(), null);
+            }
+            return result;
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
