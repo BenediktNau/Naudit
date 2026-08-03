@@ -1,7 +1,10 @@
 # VEX-Ausnahmen fuer das Release-Image-Gate (release.yml, `trivy image`).
 # YAML-Format, damit jede Ausnahme PFAD-GESCOPET ist (paths): ein flaches .trivyignore
 # wuerde global wirken und dieselbe CVE auch in anderen Binaries/Dependencies unbemerkt
-# durchlassen. Beide Ausnahmen betreffen ausschliesslich das mitgelieferte `trivy`-Binary.
+# durchlassen. Alle Ausnahmen hier betreffen ausschliesslich das mitgelieferte `trivy`-Binary --
+# ein Fremd-Binary ohne Quell-Build. Was wir selbst bauen (betterleaks), wird echt gefixt und
+# gehoert nicht in diese Datei. Jeder Eintrag traegt Begruendung UND `expired_at`: ohne Ablauf
+# wird aus einer bewussten Ausnahme eine stille Dauer-Duldung.
 vulnerabilities:
   # CVE-2026-50151 — oras.land/oras-go/v2 v2.6.0, transitive Dependency des `trivy`-Binaries.
   # Blob-UPLOAD/Push-Pfad: oras-go leitet bei Registry-Redirects die Credentials an einen fremden
@@ -10,9 +13,12 @@ vulnerabilities:
   # Pfad liegt ausserhalb des Ausfuehrungspfades (VEX: vulnerable_code_not_in_execute_path). Die
   # eigene .NET-App nutzt oras-go gar nicht. ENTFERNEN, sobald ein Trivy-Release oras-go >= 2.6.1
   # buendelt (v0.72.0 buendelt weiterhin 2.6.0). Siehe auch docs/sast-grounding.md.
+  # expired_at nachgetragen (PR #86): dieser Eintrag war als einziger ohne Ablaufdatum -- eine
+  # Ausnahme ohne Wiedervorlage haelt sich, bis sie niemand mehr hinterfragt.
   - id: CVE-2026-50151
     paths:
       - "usr/local/bin/trivy"
+    expired_at: 2026-12-31
     statement: >-
       oras-go Blob-Upload (Push) ausserhalb des Ausfuehrungspfades; Naudit nutzt nur `trivy fs`
       (DB-Pull). Entfernen sobald ein Trivy-Release oras-go >= 2.6.1 buendelt.
@@ -49,6 +55,31 @@ vulnerabilities:
       grpc-go xDS/RBAC- und HTTP/2-Server-Pfad ausserhalb des Ausfuehrungspfades; Naudit nutzt nur
       `trivy fs` (CLI, kein server/client, kein xDS). Entfernen sobald ein Trivy-Release
       grpc >= 1.82.1 buendelt.
+
+  # CVE-2026-56852 — golang.org/x/text v0.38.0 (norm.Iter kann bei praeparierter Eingabe in eine
+  # Endlosschleife laufen -> DoS, HIGH), gefixt in x/text 0.39.0. Steckt im `trivy`-Binary v0.72.0.
+  # Nicht patchbar: v0.72.0 ist das neueste Trivy-Release und buendelt weiterhin x/text v0.38.0.
+  # ACHTUNG, andere Begruendung als die drei Eintraege oben: hier ist KEIN
+  # "ausserhalb-des-Ausfuehrungspfades"-Argument moeglich. `trivy fs` laeuft auf frisch
+  # ausgechecktem Fremd-Repo-Inhalt, die Eingabe ist also angreiferbeeinflusst. Akzeptiert wird
+  # stattdessen die eng begrenzte AUSWIRKUNG: der Analyzer ist ein Subprozess mit hartem Timeout
+  # (`Naudit:Sast:AnalyzerTimeout`, Default 5 min — SastOptions.cs), ein Haenger kostet also
+  # schlimmstenfalls EINEM Review seine SAST-Grundierung; Host und Reviewpfad laufen weiter.
+  # Der zweite Traeger derselben CVE — betterleaks — ist NICHT hier gelistet, sondern ECHT gefixt:
+  # der Quell-Build im Dockerfile hebt x/text auf 0.39.0 an. Diese Ausnahme deckt ausschliesslich
+  # das nicht selbst gebaute trivy-Binary ab.
+  # ENTFERNEN, sobald ein Trivy-Release x/text >= 0.39.0 buendelt; expired_at erzwingt spaetestens
+  # dann eine Re-Bewertung (Gate meldet die CVE danach wieder).
+  - id: CVE-2026-56852
+    paths:
+      - "usr/local/bin/trivy"
+    expired_at: 2026-12-31
+    statement: >-
+      x/text norm.Iter-Endlosschleife (DoS) im trivy-Binary v0.72.0. Die Dependency selbst IST
+      gefixt (x/text 0.39.0) -- was fehlt, ist ein Trivy-Release, das den Fix mitbringt; ohne
+      Quell-Build koennen wir das Fremd-Binary nicht selbst anheben. Auswirkung durch den harten
+      Analyzer-Timeout (Default 5 min) auf ein einzelnes Review begrenzt. Entfernen sobald ein
+      Trivy-Release x/text >= 0.39.0 buendelt.
 
 # Hinweis: Die frueheren containerd-CRI-CVEs (CVE-2026-53488/53489/53492) sind entfallen —
 # trivy v0.72.0 buendelt containerd v2.3.2 (den Fix), das Gate meldet sie nicht mehr.
