@@ -81,11 +81,42 @@ public sealed class GitHubPlatform(
                 request.ProjectId, null, ct);
             resp.EnsureSuccessStatusCode();
             var posted = await resp.Content.ReadFromJsonAsync<List<GitHubReviewComment>>(ct) ?? [];
-            return comments.Select(c =>
+
+            // Zuordnung bewusst OHNE `line`: dieser Endpunkt liefert die Legacy-Repräsentation, in
+            // der `line` immer null ist (nur `position`). Ein Vergleich (Pfad, Zeile) trifft deshalb
+            // nie. Stattdessen je Pfad der Reihe nach — GitHub vergibt die Ids in Sendereihenfolge
+            // (an echten Daten geprüft, siehe Commit-Message zu diesem Block).
+            //
+            // Die Stückzahl je Pfad muss exakt passen. Weicht sie ab, ist die Ausrichtung innerhalb
+            // dieses Pfades nicht mehr belegbar — dann lieber KEINE Id als eine falsche: eine
+            // vertauschte Id würde ein späteres `@naudit fp` am falschen Finding vermerken und den
+            // Fehleintrag dauerhaft ins Projekt-Gedächtnis schreiben. Der Fall wird geloggt, damit
+            // er auffällt, statt still zu passieren.
+            var postedByPath = posted
+                .GroupBy(p => p.Path ?? string.Empty)
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Id).ToList());
+
+            var result = new PostedComment[comments.Count];
+            foreach (var group in comments.Select((c, i) => (Comment: c, Index: i)).GroupBy(x => x.Comment.FilePath))
             {
-                var m = posted.FirstOrDefault(p => p.Path == c.FilePath && p.Line == c.NewLine);
-                return new PostedComment(m?.Id.ToString(), null);
-            }).ToList();
+                var mine = group.ToList();
+                var ids = postedByPath.TryGetValue(group.Key, out var l) ? l : [];
+
+                if (ids.Count != mine.Count)
+                {
+                    _logger.LogWarning(
+                        "Comment-Id-Erfassung für {Project}#{Pr}, Datei {File}: {Posted} gepostete Kommentare, "
+                        + "{Expected} erwartet — Zuordnung nicht belegbar, Ids bleiben leer.",
+                        request.ProjectId, request.MergeRequestIid, group.Key, ids.Count, mine.Count);
+                    foreach (var (_, index) in mine)
+                        result[index] = new PostedComment(null, null);
+                    continue;
+                }
+
+                for (var k = 0; k < mine.Count; k++)
+                    result[mine[k].Index] = new PostedComment(ids[k].Id.ToString(), null);
+            }
+            return result;
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
