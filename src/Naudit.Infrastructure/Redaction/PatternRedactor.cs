@@ -39,7 +39,15 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
         RegexOptions.IgnoreCase);
 
     // Token-artige Substrings für den Entropie-Fallback.
-    private static readonly Regex TokenLike = R(@"[A-Za-z0-9+/=_-]+");
+    // '=' ist bewusst NUR als abschließendes Base64-Padding erlaubt ({0,2}), nicht als Zeichen
+    // mitten im Token: sonst frisst der Fallback über die Zuweisungsgrenze hinweg und macht aus
+    // `KEY=wert` EIN Token. Das hatte zwei Folgen (PR #86): der Schlüsselname — genau der Kontext,
+    // an dem ein Leser ein Secret von einem harmlosen Pin unterscheidet — verschwand in der
+    // Maskierung, und die Mischung aus Schlüssel- und Wert-Alphabet hob die Entropie künstlich über
+    // die Schwelle. Ein öffentlicher 40-stelliger Commit-SHA (3.62 Bits/Zeichen, unter der Schwelle)
+    // wurde so als `«redacted:secret»` maskiert, nur weil `OPENGREP_RULES_REF=` davorstand (4.44).
+    // Der Wert selbst wird weiterhin auf eigene Rechnung geprüft — echte Secrets bleiben maskiert.
+    private static readonly Regex TokenLike = R(@"[A-Za-z0-9+/_-]+={0,2}");
 
     public Task<string> RedactAsync(string text, CancellationToken ct = default)
     {

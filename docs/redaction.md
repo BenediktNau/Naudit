@@ -52,6 +52,14 @@ comment positions stay correct.
   false positives (a long hash flagged as `secret`). The entropy pass only fires
   on long tokens that mix letters **and** digits, which keeps normal identifiers
   and version numbers safe; thresholds are tunable above.
+- **The entropy pass stops at `=`.** A token ends before an assignment's `=`
+  (trailing `=`/`==` is still consumed as base64 padding), so `KEY=value` is
+  weighed as the *value alone*, never as key-plus-value. Two reasons, both learned
+  the hard way: gluing the key on mixes two alphabets and inflates the entropy
+  over the threshold, and masking the pair destroys the key name — the very
+  context a reader needs to tell a secret from a harmless pin. A public 40-char
+  commit SHA (3.62 bits/char, below the threshold) used to be masked purely
+  because `OPENGREP_RULES_REF=` sat in front of it (4.44).
 - **Quality cost.** A masked value is less context for the model; the typed
   placeholder mitigates this.
 - **Out of scope (for now):** names and broad PII (NER / Microsoft Presidio).

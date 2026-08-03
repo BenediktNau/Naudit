@@ -103,6 +103,46 @@ public class PatternRedactorTests
     }
 
     [Fact]
+    public async Task EnvStyleAssignment_keyNameSurvives_andPublicShaStays()
+    {
+        // Regression aus PR #86: Naudit sah `ARG «redacted:secret»` und postete einen Medium-Fund
+        // ("bitte bestätigen, dass kein Credential hardcodiert ist") — auf einen ÖFFENTLICHEN
+        // Git-Commit-SHA. Ursache war nicht die Entropie-Schwelle: der SHA allein liegt bei 3.62
+        // Bits/Zeichen, also unter 4.0. Erst weil `TokenLike` das '=' mitfrisst, wurde
+        // `OPENGREP_RULES_REF=<sha>` EIN Token — Großbuchstaben + '_' + '=' + Hex heben die
+        // Entropie auf 4.44. Der Schlüsselname, also genau der Kontext zur Beurteilung, ging
+        // dabei mit verloren.
+        const string line = "ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa";
+        Assert.Equal(line, await Redact(line));
+    }
+
+    [Fact]
+    public async Task HighEntropyValue_isStillRedacted_evenBehindAnEnvStyleKey()
+    {
+        // Gegenprobe zum Test darüber: die Zuweisungsgrenze darf kein Schlupfloch werden. Der
+        // WERT wird weiterhin auf eigene Rechnung geprüft — nur der Schlüssel zählt nicht mehr mit.
+        const string secret = "XQj7KpLmN3rTvWxYz0aB4cDeFgHiJkLmNoPqRsTu";
+        var outp = await Redact($"ARG BUILD_CREDENTIAL={secret}");
+
+        Assert.DoesNotContain(secret, outp);
+        Assert.Contains("«redacted:secret»", outp);
+        Assert.Contains("BUILD_CREDENTIAL", outp);   // Schlüssel bleibt lesbar
+    }
+
+    [Fact]
+    public async Task Base64PaddedToken_isStillRedacted()
+    {
+        // '=' darf nicht komplett aus der Token-Klasse fallen: als Base64-Padding gehört es ans
+        // ENDE eines Tokens und muss weiterhin mitmaskiert werden, sonst bliebe ein '=='-Rest stehen.
+        const string blob = "aGVsbG8gd29ybGQgc2VjcmV0IHZhbHVlIDEyMzQ1Ng==";
+        var outp = await Redact($"var blob = \"{blob}\";");
+
+        Assert.DoesNotContain(blob, outp);
+        Assert.DoesNotContain("==", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
     public async Task PemPrivateKeyBlock_bodyRedacted_lineCountPreserved()
     {
         // "PRIVATE KEY" gesplittet, damit der Quelltext keinen vollständigen PEM-Header trägt
