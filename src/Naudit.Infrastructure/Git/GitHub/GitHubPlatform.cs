@@ -81,10 +81,23 @@ public sealed class GitHubPlatform(
                 request.ProjectId, null, ct);
             resp.EnsureSuccessStatusCode();
             var posted = await resp.Content.ReadFromJsonAsync<List<GitHubReviewComment>>(ct) ?? [];
+
+            // Zuordnung bewusst OHNE `line`: dieser Endpunkt liefert die Legacy-Repräsentation, in
+            // der `line` immer null ist (nur `position` ist gesetzt). Ein Vergleich (Pfad, Zeile)
+            // trifft deshalb nie — das ließ PlatformCommentId durchgehend null und nahm dem
+            // `@naudit fp`/`ok`-Kommando die Zuordnungsgrundlage (in Produktion gefunden, 2026-08-03).
+            // Stattdessen je Pfad der Reihe nach: GitHub legt die Kommentare in der Reihenfolge an,
+            // in der wir sie senden, aufsteigende Id = Anlagereihenfolge. Der Pfad bleibt harte
+            // Bedingung — lieber keine Id als die eines fremden Findings.
+            var remaining = posted.OrderBy(p => p.Id).ToList();
             return comments.Select(c =>
             {
-                var m = posted.FirstOrDefault(p => p.Path == c.FilePath && p.Line == c.NewLine);
-                return new PostedComment(m?.Id.ToString(), null);
+                var i = remaining.FindIndex(p => p.Path == c.FilePath);
+                if (i < 0)
+                    return new PostedComment(null, null);
+                var match = remaining[i];
+                remaining.RemoveAt(i);   // jede Id nur einmal vergeben
+                return new PostedComment(match.Id.ToString(), null);
             }).ToList();
         }
         catch (Exception) when (!ct.IsCancellationRequested)

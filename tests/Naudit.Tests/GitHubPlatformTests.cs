@@ -218,13 +218,18 @@ public class GitHubPlatformTests
     }
 
     [Fact]
-    public async Task PostReviewAsync_capturesReviewCommentId_matchedByPathAndLine()
+    public async Task PostReviewAsync_capturesReviewCommentId_whenApiOmitsLine()
     {
-        // Nach dem Post: Review-Id aus der Antwort lesen, dessen Kommentare holen und per (Pfad, Zeile) matchen.
+        // Regression (2026-08-03, in Produktion gefunden): der Endpunkt
+        // GET /pulls/{n}/reviews/{id}/comments liefert die LEGACY-Repräsentation — `line` ist dort
+        // immer null, es gibt nur `position`. Der alte Matcher verglich (Pfad, Zeile) und fand
+        // deshalb NIE etwas ⇒ PlatformCommentId blieb durchgehend null ⇒ `@naudit fp`/`ok` konnte
+        // kein Finding zuordnen und hat auf GitHub nie funktioniert. Der alte Test lief nur grün,
+        // weil sein Stub `line` mitschickte — die Fixture bildete die API nicht ab.
         var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
             ? new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": 1 } ]""", Encoding.UTF8, "application/json"),
+                Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": null, "position": 5 } ]""", Encoding.UTF8, "application/json"),
             }
             : new HttpResponseMessage(HttpStatusCode.Created)
             {
@@ -243,6 +248,68 @@ public class GitHubPlatformTests
     }
 
     [Fact]
+    public async Task PostReviewAsync_capturesIdsInOrder_forSeveralCommentsOnTheSameFile()
+    {
+        // Ohne `line` bleibt als Zuordnung die Reihenfolge: GitHub legt die Kommentare in der
+        // Reihenfolge an, in der wir sie senden (aufsteigende Id = Anlagereihenfolge). Innerhalb
+        // desselben Pfades muss die Zuordnung deshalb positionsgetreu sein — sonst landet ein
+        // späteres `@naudit fp` am falschen Finding, was schlimmer wäre als gar keine Id.
+        // Die Antwort ist bewusst unsortiert, damit ein Verlassen auf die Response-Reihenfolge auffällt.
+        var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    [ { "id": 91, "path": "a.cs", "line": null, "position": 40 },
+                      { "id": 88, "path": "a.cs", "line": null, "position": 12 },
+                      { "id": 95, "path": "b.cs", "line": null, "position": 3 } ]
+                    """, Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+            });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "sum",
+        [
+            new InlineComment("a.cs", 10, null, "erster Fund in a.cs"),
+            new InlineComment("b.cs", 3, null, "Fund in b.cs"),
+            new InlineComment("a.cs", 40, null, "zweiter Fund in a.cs"),
+        ], ReviewVerdict.Approve);
+
+        Assert.Equal("88", posted[0].CommentId);   // erster a.cs-Kommentar ⇒ kleinste a.cs-Id
+        Assert.Equal("95", posted[1].CommentId);   // b.cs unabhängig davon
+        Assert.Equal("91", posted[2].CommentId);   // zweiter a.cs-Kommentar ⇒ nächste a.cs-Id
+    }
+
+    [Fact]
+    public async Task PostReviewAsync_leavesIdNull_whenApiReturnsNoCommentForThatPath()
+    {
+        // Kein Rateschluss: fehlt zu einem Pfad ein geposteter Kommentar (z. B. von GitHub
+        // verworfene Position), bleibt die Id null statt fälschlich die eines anderen Findings.
+        var capture = new StubHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": null, "position": 5 } ]""", Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{ "id": 4242 }""", Encoding.UTF8, "application/json"),
+            });
+        var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        var posted = await platform.PostReviewAsync(Request, "sum",
+        [
+            new InlineComment("a.cs", 1, null, "vorhanden"),
+            new InlineComment("weg.cs", 1, null, "nicht gepostet"),
+        ], ReviewVerdict.Approve);
+
+        Assert.Equal("77", posted[0].CommentId);
+        Assert.Null(posted[1].CommentId);
+    }
+
+    [Fact]
     public async Task PostReviewAsync_verdictRejected422_capturesCommentIdFromFallbackResponse()
     {
         // Erfassung muss auch am 422→COMMENT-Fallback-Pfad laufen, nicht nur am Normalpfad.
@@ -252,7 +319,7 @@ public class GitHubPlatformTests
             if (req.Method == HttpMethod.Get)
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": 1 } ]""", Encoding.UTF8, "application/json"),
+                    Content = new StringContent("""[ { "id": 77, "path": "a.cs", "line": null, "position": 5 } ]""", Encoding.UTF8, "application/json"),
                 };
             postCalls++;
             return postCalls == 1
