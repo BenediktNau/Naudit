@@ -50,5 +50,28 @@ vulnerabilities:
       `trivy fs` (CLI, kein server/client, kein xDS). Entfernen sobald ein Trivy-Release
       grpc >= 1.82.1 buendelt.
 
+  # CVE-2026-56852 — golang.org/x/text v0.38.0 (norm.Iter kann bei praeparierter Eingabe in eine
+  # Endlosschleife laufen -> DoS, HIGH), gefixt in x/text 0.39.0. Steckt im `trivy`-Binary v0.72.0.
+  # Nicht patchbar: v0.72.0 ist das neueste Trivy-Release und buendelt weiterhin x/text v0.38.0.
+  # ACHTUNG, andere Begruendung als die drei Eintraege oben: hier ist KEIN
+  # "ausserhalb-des-Ausfuehrungspfades"-Argument moeglich. `trivy fs` laeuft auf frisch
+  # ausgechecktem Fremd-Repo-Inhalt, die Eingabe ist also angreiferbeeinflusst. Akzeptiert wird
+  # stattdessen die eng begrenzte AUSWIRKUNG: der Analyzer ist ein Subprozess mit hartem Timeout
+  # (`Naudit:Sast:AnalyzerTimeout`, Default 5 min — SastOptions.cs), ein Haenger kostet also
+  # schlimmstenfalls EINEM Review seine SAST-Grundierung; Host und Reviewpfad laufen weiter.
+  # Der zweite Traeger derselben CVE — betterleaks — ist NICHT hier gelistet, sondern ECHT gefixt:
+  # der Quell-Build im Dockerfile hebt x/text auf 0.39.0 an. Diese Ausnahme deckt ausschliesslich
+  # das nicht selbst gebaute trivy-Binary ab.
+  # ENTFERNEN, sobald ein Trivy-Release x/text >= 0.39.0 buendelt; expired_at erzwingt spaetestens
+  # dann eine Re-Bewertung (Gate meldet die CVE danach wieder).
+  - id: CVE-2026-56852
+    paths:
+      - "usr/local/bin/trivy"
+    expired_at: 2026-12-31
+    statement: >-
+      x/text norm.Iter-Endlosschleife (DoS) im trivy-Binary v0.72.0; kein Upstream-Fix verfuegbar.
+      Auswirkung durch den harten Analyzer-Timeout (Default 5 min) auf ein einzelnes Review
+      begrenzt. Entfernen sobald ein Trivy-Release x/text >= 0.39.0 buendelt.
+
 # Hinweis: Die frueheren containerd-CRI-CVEs (CVE-2026-53488/53489/53492) sind entfallen —
 # trivy v0.72.0 buendelt containerd v2.3.2 (den Fix), das Gate meldet sie nicht mehr.
