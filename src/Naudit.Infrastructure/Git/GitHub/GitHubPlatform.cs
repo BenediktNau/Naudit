@@ -89,6 +89,14 @@ public sealed class GitHubPlatform(
             // Stattdessen je Pfad der Reihe nach: GitHub legt die Kommentare in der Reihenfolge an,
             // in der wir sie senden, aufsteigende Id = Anlagereihenfolge. Der Pfad bleibt harte
             // Bedingung — lieber keine Id als die eines fremden Findings.
+            //
+            // Die Reihenfolge-Annahme steht nicht im API-Vertrag, ist aber an echten Daten geprüft
+            // (Review 4843813767 auf PR #86, drei Kommentare auf derselben Datei):
+            //   id=3703712567 position=76 | id=3703712572 position=66 | id=3703712575 position=56
+            // Die Ids steigen, während `position` FÄLLT — gesendet wurde in genau dieser Reihenfolge.
+            // GitHub sortiert also nicht nach Diff-Position um. Sollte sich das je ändern, greift die
+            // Pfad-Bedingung weiter, aber die Zuordnung innerhalb eines Pfades wäre falsch; dann
+            // braucht es einen echten Diskriminator (aus dem Hunk berechnete `position`).
             var remaining = posted.OrderBy(p => p.Id).ToList();
             return comments.Select(c =>
             {
