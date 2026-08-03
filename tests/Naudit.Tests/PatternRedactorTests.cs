@@ -171,6 +171,56 @@ public class PatternRedactorTests
     }
 
     [Fact]
+    public async Task AmbiguousCredentialsKeyword_withWordValue_isNotRedacted()
+    {
+        // Aus Naudits zweiter Runde zu #87: `credentials` ist im Web-Umfeld ueberwiegend KEIN
+        // Secret-Schluessel. Ein Wort-Wert ("include", true) ist nie ein Secret — hier zu maskieren
+        // waere genau die Ueber-Maskierung, die dieser PR abstellt.
+        const string js = "fetch(url, { credentials: 'include' })";
+        const string cors = "app.use(cors({ credentials: true }))";
+
+        Assert.Equal(js, await Redact(js));
+        Assert.Equal(cors, await Redact(cors));
+    }
+
+    [Fact]
+    public async Task AmbiguousCredentialsKeyword_withSecretLikeValue_isStillRedacted()
+    {
+        // Gegenprobe: sieht der Wert nach Secret aus (Ziffern UND Buchstaben, lang genug),
+        // bleibt `credential` ein Treffer — sonst waere die Abdeckung aus f5b55b9 wieder weg.
+        var outp = await Redact("ARG MY_DB_CREDENTIAL=n7Bq9Km2");
+
+        Assert.DoesNotContain("n7Bq9Km2", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task InlineCodeInProse_isNotSwallowed()
+    {
+        // Der Wert darf nicht ueber den schliessenden Backtick hinauslaufen: sonst frisst die Regel
+        // in Doku/Prosa den Code-Span und hinterlaesst unbalancierte Backticks. Aufgefallen, weil
+        // Naudit genau das an docs/redaction.md meldete — im Quelltext war die Zeile korrekt, in der
+        // REDIGIERTEN Fassung nicht mehr.
+        const string prose = "prefixed keys like `DB_PASSWORD=` or `x-token:` are covered";
+        var outp = await Redact(prose);
+
+        Assert.Equal(prose, outp);
+        Assert.Equal(4, outp.Count(c => c == '`'));   // beide Code-Spans intakt
+    }
+
+    [Fact]
+    public async Task RealHeaderValue_isStillRedacted_despiteBacktickGuard()
+    {
+        // Die Backtick-Grenze darf kein Schlupfloch sein: ein echter Header-Wert wird weiterhin
+        // maskiert, der Schluessel bleibt lesbar.
+        var outp = await Redact("x-token: aB3dEf9HjKl");
+
+        Assert.DoesNotContain("aB3dEf9HjKl", outp);
+        Assert.Contains("x-token", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
     public async Task IdentifierEndingInKeywordButNotAssigned_isNotRedacted()
     {
         // Gegenprobe zur gelockerten Grenze: der Schluessel muss unmittelbar vor dem Trenner enden.

@@ -41,9 +41,23 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
     // (z. B. authToken) nicht fälschlich greifen; der Schlüssel muss zudem unmittelbar vor dem
     // Trenner enden, sonst bliebe `secret_flag = true` hängen.
     // (?<kq>["']?) erlaubt zitierte JSON-Keys wie "password": "…".
+    // Der Wert endet auch am Backtick: sonst frisst die Regel in Doku/Prosa den schliessenden
+    // Code-Span (`x-token:` wird zu `x-«redacted:secret») und hinterlaesst kaputtes Markdown --
+    // ausgerechnet in der Datei, die dieses Verhalten beschreibt.
     private static readonly Regex Assignment = R(
-        @"(?<![A-Za-z0-9])(?<kq>[""']?)(?<key>password|passwd|pwd|passphrase|secret|credentials?|api[-_]?key|access[-_]?key|token)(\k<kq>)(?<sep>\s*[:=]\s*)(?<q>[""']?)(?<val>[^\s""',;]+)(\k<q>)",
+        @"(?<![A-Za-z0-9])(?<kq>[""']?)(?<key>password|passwd|pwd|passphrase|secret|credentials?|api[-_]?key|access[-_]?key|token)(\k<kq>)(?<sep>\s*[:=]\s*)(?<q>[""']?)(?<val>[^\s""',;`]+)(\k<q>)",
         RegexOptions.IgnoreCase);
+
+    // Mehrdeutige Schluessel: im Web-Umfeld ist `credentials` ueberwiegend KEIN Secret
+    // (`fetch(url, {credentials: 'include'})`, CORS `credentials: true`). Fuer diese Schluessel
+    // allein reicht der Name nicht — der Wert muss selbst nach Secret aussehen. Unmittelbare
+    // Folge eines Naudit-Funds an diesem PR: die Ergaenzung um `credentials?` haette sonst in
+    // jedem React-/fetch-Diff maskiert und damit genau die Ueber-Maskierung erzeugt, die hier
+    // abgestellt wird.
+    private static readonly HashSet<string> AmbiguousKeys =
+        new(StringComparer.OrdinalIgnoreCase) { "credential", "credentials" };
+
+    private const int MinAmbiguousValueLength = 8;
 
     // Token-artige Substrings für den Entropie-Fallback.
     // '=' ist bewusst NUR als abschließendes Base64-Padding erlaubt ({0,2}), nicht als Zeichen
@@ -78,7 +92,15 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
         // 1) Generische Zuweisung: nur den Wert ersetzen, Schlüssel/Trenner/Quotes behalten
         //    (inkl. evtl. Key-Quotes kq, damit "password": "…" als "password": "«…»" erhalten bleibt).
         line = Assignment.Replace(line, m =>
-            $"{m.Groups["kq"].Value}{m.Groups["key"].Value}{m.Groups["kq"].Value}{m.Groups["sep"].Value}{m.Groups["q"].Value}«redacted:secret»{m.Groups["q"].Value}");
+        {
+            var val = m.Groups["val"].Value;
+            // Mehrdeutiger Schlüssel ⇒ der Wert muss die Beweislast tragen.
+            if (AmbiguousKeys.Contains(m.Groups["key"].Value)
+                && (val.Length < MinAmbiguousValueLength || !HasDigitAndLetter(val)))
+                return m.Value;
+
+            return $"{m.Groups["kq"].Value}{m.Groups["key"].Value}{m.Groups["kq"].Value}{m.Groups["sep"].Value}{m.Groups["q"].Value}«redacted:secret»{m.Groups["q"].Value}";
+        });
 
         // 2) Strukturierte Pattern.
         foreach (var (kind, rx) in Rules)
