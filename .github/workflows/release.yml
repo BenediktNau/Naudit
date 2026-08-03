@@ -94,9 +94,11 @@ jobs:
           # und ist versions- + sha256-gepinnt. Nur dieses eine Binary vom Scan ausnehmen -- alle
           # anderen Tools sowie OS/.NET/App (die eigentliche Angriffsflaeche) bleiben voll gescannt.
           skip-files: usr/local/bin/osv-scanner
-          # VEX-Ausnahmen (pfad-gescopet auf das trivy-Binary): oras-go-Blob-Upload-CVE + die
-          # nicht patchbare Go-stdlib-CVE im mitgelieferten trivy (Naudit nutzt nur `trivy fs` und
-          # ZIEHT nur die Vuln-DB, pusht nie). YAML-Format wegen paths-Scoping. Siehe .trivyignore.yaml.
+          # VEX-Ausnahmen, ausnahmslos pfad-gescopet auf das mitgelieferte `trivy`-Binary: CVEs, die
+          # Trivy-Upstream noch nicht gefixt hat und die wir mangels Quell-Build nicht selbst beheben
+          # koennen. Jeder Eintrag traegt seine eigene Begruendung + expired_at (Zwang zur
+          # Re-Bewertung); YAML-Format wegen des paths-Scopings. Bewusst NICHT hier aufgezaehlt --
+          # die Liste driftet sonst gegen die Datei. Siehe .trivyignore.yaml.
           trivyignores: .trivyignore.yaml
 
       # Erst nach bestandenem Scan pushen (Images wurden oben bereits gebaut/geladen).
