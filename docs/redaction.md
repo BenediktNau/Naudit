@@ -18,7 +18,7 @@ The default `PatternRedactor` masks, replacing each hit with a typed placeholder
 | --- | --- |
 | `token` | AWS access keys (`AKIA…`), GitHub PATs (`ghp_…`, `github_pat_…`), Slack tokens (`xox…`), JWTs (`eyJ….….…`) |
 | `private-key` | PEM private-key blocks (`-----BEGIN … PRIVATE KEY-----`; the base64 body is caught by the entropy pass) |
-| `secret` | `password=`/`secret=`/`api_key=`/`token=` assignments (only the value), and high-entropy tokens |
+| `secret` | `password=`/`passphrase=`/`secret=`/`credential=`/`api_key=`/`token=` assignments (only the value — the key stays readable), including prefixed keys like `DB_PASSWORD=` or `x-token:`; plus high-entropy tokens |
 | `ip` | IPv4 addresses (octet-validated) and full-form IPv6 |
 | `email` | e-mail addresses |
 
@@ -52,6 +52,13 @@ comment positions stay correct.
   false positives (a long hash flagged as `secret`). The entropy pass only fires
   on long tokens that mix letters **and** digits, which keeps normal identifiers
   and version numbers safe; thresholds are tunable above.
+- **Short secrets are the keyword rule's job, not the entropy pass's.** At the
+  default threshold of 4.0 bits/char a token shorter than 16 chars can never
+  reach it (`log2(16) = 4.0`, and only with every character distinct), so the
+  entropy pass is blind there by construction. The keyword rule therefore accepts
+  prefixed keys (`DB_PASSWORD=`, `MY_DB_CREDENTIAL=`, `x-token:`) — `_` and `-`
+  do not count as word characters on its left boundary, while a letter or digit
+  still blocks it so identifiers like `authToken` are not matched.
 - **The entropy pass stops at `=`.** A token ends before an assignment's `=`
   (trailing `=`/`==` is still consumed as base64 padding), so `KEY=value` is
   weighed as the *value alone*, never as key-plus-value. Two reasons, both learned

@@ -143,6 +143,43 @@ public class PatternRedactorTests
     }
 
     [Fact]
+    public async Task PrefixedSecretKey_isRedacted_viaAssignmentRule()
+    {
+        // Kurze Secrets kann der Entropie-Pass grundsaetzlich nicht fangen: bei einer Schwelle von
+        // 4.0 Bits/Zeichen erreicht ein Token unter 16 Zeichen sie nie (log2(16) = 4.0 bei lauter
+        // verschiedenen Zeichen). Zustaendig ist allein die Keyword-Regel — und die hatte eine
+        // Luecke: die linke Grenze (?<![\w-]) schloss '_' ein, also blieb jeder praefixierte
+        // Schluessel aussen vor. Genau die Schreibweise, die in .env/Dockerfiles ueblich ist.
+        var outp = await Redact("DB_PASSWORD=hunter2");
+
+        Assert.DoesNotContain("hunter2", outp);
+        Assert.Contains("DB_PASSWORD", outp);          // Schluessel bleibt lesbar
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task PrefixedCredentialKey_isRedacted()
+    {
+        // Aufgefallen an Naudits Fund zu diesem PR: `MY_DB_CREDENTIAL=<kurz>` war vorher nur
+        // deshalb maskiert, weil die Schluesselzeichen die Entropie hochzogen — Erkennung aus dem
+        // falschen Grund. Jetzt greift die Keyword-Regel, die den Schluessel stehen laesst.
+        var outp = await Redact("ARG MY_DB_CREDENTIAL=n7Bq9Km2");
+
+        Assert.DoesNotContain("n7Bq9Km2", outp);
+        Assert.Contains("MY_DB_CREDENTIAL", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task IdentifierEndingInKeywordButNotAssigned_isNotRedacted()
+    {
+        // Gegenprobe zur gelockerten Grenze: der Schluessel muss unmittelbar vor dem Trenner enden.
+        // `secret_flag` und ein camelCase-`authToken` duerfen weiterhin nicht greifen.
+        const string code = "var secret_flag = true; var authToken = getAuthToken();";
+        Assert.Equal(code, await Redact(code));
+    }
+
+    [Fact]
     public async Task PemPrivateKeyBlock_bodyRedacted_lineCountPreserved()
     {
         // "PRIVATE KEY" gesplittet, damit der Quelltext keinen vollständigen PEM-Header trägt

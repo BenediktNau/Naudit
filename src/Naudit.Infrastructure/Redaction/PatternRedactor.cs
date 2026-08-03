@@ -30,12 +30,19 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
         ("ip",          R(@"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b")),      // IPv6 (Vollform)
     ];
 
-    // Generische Zuweisung password|secret|api_key|… = "wert" → nur die Wertgruppe maskieren
-    // (fängt auch kurze, niedrig-entropische Passwörter, die der Entropie-Pass verfehlt).
-    // (?<![\w-]) erzwingt eine linke Grenze, damit Suffixe in normalen Bezeichnern (z. B. authToken)
-    // nicht fälschlich greifen; (?<kq>["']?) erlaubt zitierte JSON-Keys wie "password": "…".
+    // Generische Zuweisung password|secret|api_key|… = "wert" → nur die Wertgruppe maskieren.
+    // Diese Regel ist die EINZIGE, die kurze Secrets fangen kann: bei EntropyThreshold 4.0 erreicht
+    // ein Token unter 16 Zeichen die Schwelle nie (log2(16) = 4.0 bei lauter verschiedenen Zeichen),
+    // der Entropie-Pass ist dort also konstruktionsbedingt blind.
+    // Linke Grenze (?<![A-Za-z0-9]): '_' und '-' zählen bewusst NICHT als Wortzeichen, damit
+    // präfixierte Schlüssel greifen (DB_PASSWORD=, MY_DB_CREDENTIAL=, x-token:) — die in .env-,
+    // Dockerfile- und Header-Schreibweise übliche Form, die vorher komplett durchrutschte.
+    // Ein Buchstabe/eine Ziffer davor blockt weiterhin, damit Suffixe in normalen Bezeichnern
+    // (z. B. authToken) nicht fälschlich greifen; der Schlüssel muss zudem unmittelbar vor dem
+    // Trenner enden, sonst bliebe `secret_flag = true` hängen.
+    // (?<kq>["']?) erlaubt zitierte JSON-Keys wie "password": "…".
     private static readonly Regex Assignment = R(
-        @"(?<![\w-])(?<kq>[""']?)(?<key>password|passwd|pwd|secret|api[-_]?key|access[-_]?key|token)(\k<kq>)(?<sep>\s*[:=]\s*)(?<q>[""']?)(?<val>[^\s""',;]+)(\k<q>)",
+        @"(?<![A-Za-z0-9])(?<kq>[""']?)(?<key>password|passwd|pwd|passphrase|secret|credentials?|api[-_]?key|access[-_]?key|token)(\k<kq>)(?<sep>\s*[:=]\s*)(?<q>[""']?)(?<val>[^\s""',;]+)(\k<q>)",
         RegexOptions.IgnoreCase);
 
     // Token-artige Substrings für den Entropie-Fallback.
