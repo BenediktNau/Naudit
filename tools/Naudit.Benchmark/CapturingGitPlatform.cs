@@ -9,6 +9,10 @@ namespace Naudit.Benchmark;
 /// die auch gepostet würde.</summary>
 public sealed class CapturingGitPlatform(IGitPlatform inner, ReviewCapture capture) : IGitPlatform
 {
+    /// <summary>Die umhüllte, echte Plattform. Offengelegt, damit der Verdrahtungstest belegen kann,
+    /// dass hier die konfigurierte Plattform steckt und nicht irgendein Platzhalter.</summary>
+    public IGitPlatform Inner => inner;
+
     public Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
         => inner.GetChangesAsync(request, ct);
 

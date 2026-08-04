@@ -23,6 +23,9 @@ public sealed class CapturingChatClient(IChatClient inner, ReviewCapture capture
 {
     // Wörtlich aus src/Naudit.Core/Review/PromtBuilder.cs (Dateiname mit Tippfehler, Klasse heißt
     // PromptBuilder). Ändert sich dort eine Überschrift, fallen die Tests um — nicht die Zahl.
+    /// <summary>Der umhüllte, echte Client — für den Verdrahtungstest.</summary>
+    public IChatClient Inner => inner;
+
     public const string MergeRequestHeading = "# Merge Request: ";
     public const string FindingsHeading = "# Static-analysis & dependency findings";
     public const string ContextHeading = "# Repository context (read-only grounding from the checked-out repo)";
