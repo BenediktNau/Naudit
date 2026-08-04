@@ -142,6 +142,33 @@ public class DastWiringTests
         Assert.Null(resolved.ApiKey);
     }
 
+    /// <summary>Review-Finding PR #91: Enum.TryParse und der Config-Binder schlucken beide
+    /// numerische Strings ausserhalb des Enums. So ein Wert darf nicht bis in die Lazy
+    /// durchrutschen (dort kippt er mitten in einer Review), sondern muss hier scheitern.</summary>
+    [Fact]
+    public void DastAi_numericProviderOutOfRange_throwsEagerly()
+    {
+        var settings = BaseSettings();
+        settings["Naudit:Review:Dast:Ai:Provider"] = "99";
+
+        Assert.Throws<InvalidOperationException>(() => DastAiOptions.Resolve(Config(settings)));
+    }
+
+    /// <summary>Gegenprobe: ein numerischer Wert INNERHALB des Enums bleibt gueltig — das ist das
+    /// Standardverhalten des Config-Binders fuer jedes Enum in dieser App, hier wird es nicht
+    /// verschaerft. "1" ist Ollama, also ein echter Providerwechsel gegenueber ClaudeCode.</summary>
+    [Fact]
+    public void DastAi_numericProviderInRange_isAccepted()
+    {
+        var settings = BaseSettings();
+        settings["Naudit:Ai:Provider"] = "ClaudeCode";
+        settings["Naudit:Review:Dast:Ai:Provider"] = "1";
+
+        var resolved = DastAiOptions.Resolve(Config(settings));
+
+        Assert.Equal(AiProvider.Ollama, resolved.Provider);
+    }
+
     /// <summary>Die Sektion ist DB-verwaltet (Settings-Seite) — sonst waere sie auf einer
     /// Instanz mit Config-in-DB gar nicht setzbar. Der ApiKey muss als Secret gefuehrt sein,
     /// sonst stuende er im Klartext in der Settings-Tabelle.</summary>

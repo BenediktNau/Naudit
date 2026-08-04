@@ -10,7 +10,11 @@ image:
   repository: ghcr.io/benediktnau/naudit
   # Fuer den Betrieb auf eine Release-Version pinnen (z. B. "v0.1.12").
   tag: latest
-  pullPolicy: IfNotPresent
+  # Leer = automatisch: "latest" ist mutabel, dafuer Always (sonst behaelt ein Node
+  # sein zwischengespeichertes Image und ein rollout restart startet stillschweigend
+  # eine andere Version als gedacht); ein gepinntes Tag bekommt IfNotPresent.
+  # Explizit gesetzt gewinnt der Wert.
+  pullPolicy: ""
 
 # Das ghcr-Package ist per Default privat -> Pull-Secret noetig (GitHub-PAT mit
 # read:packages), z. B.:

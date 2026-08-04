@@ -25,6 +25,11 @@ helm install naudit deploy/helm/naudit \
   --set admin.initialPassword='<choose-a-strong-password>'
 ```
 
+⚠️ `--set admin.initialPassword` is fine for a throwaway install and nothing
+else: the value lands in your shell history, in the process list while `helm`
+runs, and in the release's stored values — `helm get values naudit` prints it
+back in clear text. Use the pre-created secret below for anything you keep.
+
 The chart then renders the bootstrap secret itself. For production prefer a
 pre-created secret so the password never enters the Helm release history:
 
