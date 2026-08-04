@@ -86,7 +86,8 @@ caller that turns the app runner above into an actual dynamic scan:
    hang the review forever.
 3. The discovered MCP tools (browser navigate/click/snapshot/etc.) are handed to the
    **global** `IChatClient` (never the author-session router — same rule as
-   `DistillingReviewGuidelines`) via MEAI's `UseFunctionInvocation`, with
+   `DistillingReviewGuidelines`, but overridable per
+   [`Naudit:Review:Dast:Ai`](#probing-provider)) via MEAI's `UseFunctionInvocation`, with
    `MaximumIterationsPerRequest` set to `MaxProbeSteps` (default 12). One
    `GetResponseAsync` call runs the whole bounded agentic tool-loop: the model is told the
    app's internal URL and asked to probe it and return `{"findings":[{"severity","endpoint","summary"}]}`
@@ -148,6 +149,34 @@ syntax (`Naudit__Review__Dast__Projects__0`) and locks the field in the UI — s
 | `MaxProbeSteps` | `12` | Cap on the agentic probing loop (tool calls + model turns together, via `UseFunctionInvocation`'s `MaximumIterationsPerRequest`). Token-frugal by design — DAST is grounding, not an exhaustive scan. DB-managed. |
 | `ProbeMcpArgv` | `["node", "/app/cli.js", "--headless", "--browser", "chromium", "--no-sandbox"]` | Argv that starts the Playwright-MCP server as a stdio process inside the probe container via `docker exec` (no `--port` ⇒ stdio, not HTTP). List-shaped ⇒ env/appsettings-only. |
 | `HandshakeTimeout` | `00:00:10` | How long `DastProbeSession.StartAsync` waits for the MCP handshake (`McpClient.CreateAsync` + `ListToolsAsync`) before giving up — a backstop against a dead/unreachable probe process blocking the review forever. Env/appsettings-only. |
+
+### Probing provider
+
+The probing loop is the one place in Naudit where the model must be able to **call tools**:
+`DastAnalyzer` passes the Playwright-MCP tools as `ChatOptions.Tools` and lets MEAI's
+`UseFunctionInvocation` drive the loop. Not every provider can do that — the `ClaudeCode`
+CLI client ignores `ChatOptions.Tools` entirely (it only knows CLI-native MCP via
+`--mcp-config`), so on a deployment that reviews through a Claude subscription the probe
+model would get no browser at all and DAST would quietly produce nothing.
+
+`Naudit:Review:Dast:Ai:*` therefore configures a chat client **only for the probing loop**,
+without touching the provider that writes the actual review:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Ai:Provider` | *(the global `Naudit:Ai:Provider`)* | Provider for the probe loop only. |
+| `Ai:Model` | *(inherited, see below)* | Model for the probe loop. |
+| `Ai:Endpoint` | *(inherited, see below)* | Base URL for Ollama / OpenAI-compatible endpoints. |
+| `Ai:ApiKey` | *(inherited, see below)* | Secret; stored encrypted like every other secret. |
+
+Inheritance has exactly one rule: **as long as the section keeps the global provider, unset
+keys are inherited** (set only `Ai:ApiKey` to bill probing to a different key, or only
+`Ai:Model` to probe with a bigger model). **Switching the provider inherits nothing** — a
+model name carried over from a different engine would only surface as a confusing runtime
+error. An empty section means today's behaviour: the global provider, verbatim.
+
+The section is resolved eagerly at startup, so a bad provider name lands in recovery mode
+like any other broken config value instead of failing reviews later.
 
 ### Docker socket sharing
 

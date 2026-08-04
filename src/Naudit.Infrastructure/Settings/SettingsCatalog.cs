@@ -75,6 +75,14 @@ public static class SettingsCatalog
         new("Naudit:Review:Dast:DockerSocketPath", false),
         new("Naudit:Review:Dast:ProbeImage", false),
         new("Naudit:Review:Dast:MaxProbeSteps", false),
+        // Eigener Chat-Client NUR fuer den Probe-Loop (leer ⇒ globaler Naudit:Ai-Provider).
+        // AllowedValues hier bewusst gesetzt: ein Tippfehler wuerde das Enum-Binding sprengen
+        // und die Instanz beim naechsten Start in den Recovery-Mode schicken.
+        new("Naudit:Review:Dast:Ai:Provider", false,
+            AllowedValues: ["Anthropic", "Ollama", "OpenAICompatible", "ClaudeCode"]),
+        new("Naudit:Review:Dast:Ai:Model", false),
+        new("Naudit:Review:Dast:Ai:Endpoint", false),
+        new("Naudit:Review:Dast:Ai:ApiKey", true),
         new("Naudit:Review:MaxRoundtrips", false),
         new("Naudit:Review:Memory:Enabled", false),
         new("Naudit:Review:Memory:MaxEntries", false),
