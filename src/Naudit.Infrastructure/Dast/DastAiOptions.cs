@@ -38,6 +38,19 @@ public static class DastAiOptions
 
         var options = switchesProvider ? new AiOptions() : global;
         section.Bind(options);
+
+        // Enum.TryParse oben UND der Config-Binder akzeptieren beide numerische Strings — auch
+        // ausserhalb des definierten Bereichs: "Provider=99" wird klaglos zu (AiProvider)99.
+        // Ein nicht-numerischer Unsinn ("Bogus") wirft dagegen schon in Bind(). Ohne diese
+        // Pruefung faende der numerische Fall erst in AiClientFactory.Create sein Ende — und das
+        // laeuft in der Lazy, also mitten in einer Review statt beim Start. Hier geworfen, landet
+        // er wie jeder andere Config-Fehler im Recovery-Mode.
+        if (!Enum.IsDefined(options.Provider))
+            throw new InvalidOperationException(
+                $"Ungueltiger AI-Provider fuer den DAST-Probe-Loop: '{(int)options.Provider}'. " +
+                $"Pruefe {Section}:Provider bzw. {GlobalSection}:Provider — numerische Werte " +
+                "ausserhalb des Enums kommen an TryParse und Config-Binder vorbei.");
+
         return options;
     }
 }

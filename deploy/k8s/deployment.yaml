@@ -21,9 +21,12 @@ spec:
       labels:
         app.kubernetes.io/name: naudit
     spec:
-      # Entfaellt, wenn das ghcr-Package auf public gestellt ist (Default: privat).
-      imagePullSecrets:
-        - name: ghcr-pull
+      # Nur noetig, wenn das ghcr-Package privat ist. Bewusst auskommentiert
+      # (wie das leere imagePullSecrets-Default des Helm-Charts): ein fest
+      # verdrahteter Verweis laesst den Pod nicht starten, solange das Secret
+      # fehlt — und beim public-Package legt es niemand an.
+      # imagePullSecrets:
+      #   - name: ghcr-pull
       securityContext:
         # $APP_UID des aspnet-Basisimages: macht das gemountete /data-Volume
         # fuer den non-root-User beschreibbar (das chown im Dockerfile greift
@@ -62,6 +65,15 @@ spec:
                 secretKeyRef:
                   name: naudit-bootstrap
                   key: admin-initial-password
+            # ── Vor dem Produktivbetrieb setzen ─────────────────────────────
+            # Ohne KnownNetworks vertraut Naudit den X-Forwarded-*-Headern
+            # JEDER Quelle. Wer den Ingress umgehen kann (fehlende
+            # NetworkPolicy, Service direkt im Cluster erreichbar), faelscht
+            # damit Schema und Client-IP — also HTTPS-Annahmen und die IPs im
+            # Audit-Log. Pod-Netz des Ingress-Controllers eintragen:
+            #   kubectl -n ingress-nginx get pods -o wide
+            # - name: Naudit__ForwardedHeaders__KnownNetworks__0
+            #   value: "10.42.0.0/16"
           volumeMounts:
             - name: data
               mountPath: /data

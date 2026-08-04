@@ -32,7 +32,7 @@ spec:
       containers:
         - name: naudit
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default (ternary "Always" "IfNotPresent" (eq (.Values.image.tag | toString) "latest")) }}
           ports:
             - name: http
               containerPort: 8080

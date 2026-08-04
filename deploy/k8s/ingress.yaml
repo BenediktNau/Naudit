@@ -1,6 +1,10 @@
-# TLS terminiert am Ingress; Naudit honoriert X-Forwarded-Proto von selbst
-# (leere Proxy-Allow-List = allen Quellen vertrauen — siehe docs/deployment.md,
-# einschraenkbar via Naudit__ForwardedHeaders__KnownNetworks__0).
+# TLS terminiert am Ingress; Naudit honoriert X-Forwarded-Proto von selbst.
+# ACHTUNG: die Proxy-Allow-List ist per Default LEER, Naudit vertraut den
+# Forwarded-Headern also jeder Quelle. Fuer den Produktivbetrieb das Pod-Netz
+# des Ingress-Controllers in Naudit__ForwardedHeaders__KnownNetworks__0
+# eintragen (Block liegt auskommentiert in deployment.yaml) — sonst kann jeder,
+# der den Ingress umgeht, Schema und Client-IP faelschen. Siehe
+# docs/deployment.md.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

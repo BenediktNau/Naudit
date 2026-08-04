@@ -28,9 +28,10 @@ Design choices baked into these manifests:
 ```bash
 kubectl apply -f deploy/k8s/namespace.yaml
 
-# Pull secret — the ghcr package is private by default. Use a GitHub PAT with
-# read:packages, or make the package public and delete the imagePullSecrets
-# block from deployment.yaml instead.
+# Pull secret — ONLY needed if your ghcr package is private. The manifest ships
+# with the imagePullSecrets block commented out (same as the chart's empty
+# default), so a public package works without this step; uncomment the block in
+# deployment.yaml after creating the secret.
 kubectl -n naudit create secret docker-registry ghcr-pull \
   --docker-server=ghcr.io \
   --docker-username=<github-user> \
