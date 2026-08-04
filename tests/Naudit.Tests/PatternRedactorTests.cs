@@ -103,6 +103,147 @@ public class PatternRedactorTests
     }
 
     [Fact]
+    public async Task EnvStyleAssignment_keyNameSurvives_andPublicShaStays()
+    {
+        // Regression aus PR #86: Naudit sah `ARG «redacted:secret»` und postete einen Medium-Fund
+        // ("bitte bestätigen, dass kein Credential hardcodiert ist") — auf einen ÖFFENTLICHEN
+        // Git-Commit-SHA. Ursache war nicht die Entropie-Schwelle: der SHA allein liegt bei 3.62
+        // Bits/Zeichen, also unter 4.0. Erst weil `TokenLike` das '=' mitfrisst, wurde
+        // `OPENGREP_RULES_REF=<sha>` EIN Token — Großbuchstaben + '_' + '=' + Hex heben die
+        // Entropie auf 4.44. Der Schlüsselname, also genau der Kontext zur Beurteilung, ging
+        // dabei mit verloren.
+        const string line = "ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa";
+        Assert.Equal(line, await Redact(line));
+    }
+
+    [Fact]
+    public async Task HighEntropyValue_isStillRedacted_evenBehindAnEnvStyleKey()
+    {
+        // Gegenprobe zum Test darüber: die Zuweisungsgrenze darf kein Schlupfloch werden. Der
+        // WERT wird weiterhin auf eigene Rechnung geprüft — nur der Schlüssel zählt nicht mehr mit.
+        const string secret = "XQj7KpLmN3rTvWxYz0aB4cDeFgHiJkLmNoPqRsTu";
+        var outp = await Redact($"ARG BUILD_CREDENTIAL={secret}");
+
+        Assert.DoesNotContain(secret, outp);
+        Assert.Contains("«redacted:secret»", outp);
+        Assert.Contains("BUILD_CREDENTIAL", outp);   // Schlüssel bleibt lesbar
+    }
+
+    [Fact]
+    public async Task Base64PaddedToken_isStillRedacted()
+    {
+        // '=' darf nicht komplett aus der Token-Klasse fallen: als Base64-Padding gehört es ans
+        // ENDE eines Tokens und muss weiterhin mitmaskiert werden, sonst bliebe ein '=='-Rest stehen.
+        const string blob = "aGVsbG8gd29ybGQgc2VjcmV0IHZhbHVlIDEyMzQ1Ng==";
+        var outp = await Redact($"var blob = \"{blob}\";");
+
+        Assert.DoesNotContain(blob, outp);
+        Assert.DoesNotContain("==", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task PrefixedSecretKey_isRedacted_viaAssignmentRule()
+    {
+        // Kurze Secrets kann der Entropie-Pass grundsaetzlich nicht fangen: bei einer Schwelle von
+        // 4.0 Bits/Zeichen erreicht ein Token unter 16 Zeichen sie nie (log2(16) = 4.0 bei lauter
+        // verschiedenen Zeichen). Zustaendig ist allein die Keyword-Regel — und die hatte eine
+        // Luecke: die linke Grenze (?<![\w-]) schloss '_' ein, also blieb jeder praefixierte
+        // Schluessel aussen vor. Genau die Schreibweise, die in .env/Dockerfiles ueblich ist.
+        var outp = await Redact("DB_PASSWORD=hunter2");
+
+        Assert.DoesNotContain("hunter2", outp);
+        Assert.Contains("DB_PASSWORD", outp);          // Schluessel bleibt lesbar
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task PrefixedCredentialKey_isRedacted()
+    {
+        // Aufgefallen an Naudits Fund zu diesem PR: `MY_DB_CREDENTIAL=<kurz>` war vorher nur
+        // deshalb maskiert, weil die Schluesselzeichen die Entropie hochzogen — Erkennung aus dem
+        // falschen Grund. Jetzt greift die Keyword-Regel, die den Schluessel stehen laesst.
+        var outp = await Redact("ARG MY_DB_CREDENTIAL=n7Bq9Km2");
+
+        Assert.DoesNotContain("n7Bq9Km2", outp);
+        Assert.Contains("MY_DB_CREDENTIAL", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task HighEntropyKey_doesNotSwallowTheAssignmentDelimiter()
+    {
+        // Loch im ersten Anlauf dieses PRs, von CodeRabbit gefunden: `={0,2}` war als
+        // Base64-Padding gedacht, nahm aber auch den ZUWEISUNGS-Trenner mit. Ein hochentropischer
+        // SCHLUESSEL matchte damit samt '=' (`aB3d…qRs7=`) und wurde maskiert — der Trenner
+        // verschwand, und die zugesicherte Zuweisungsgrenze war genau dann unwahr, wenn sie zaehlt.
+        const string line = "ARG aB3dEf9HjKl2MnP4qRs7=publicvalue";
+        var outp = await Redact(line);
+
+        Assert.Equal(line, outp);
+        Assert.Contains("=", outp);   // Trenner ueberlebt
+    }
+
+    [Fact]
+    public async Task AmbiguousCredentialsKeyword_withWordValue_isNotRedacted()
+    {
+        // Aus Naudits zweiter Runde zu #87: `credentials` ist im Web-Umfeld ueberwiegend KEIN
+        // Secret-Schluessel. Ein Wort-Wert ("include", true) ist nie ein Secret — hier zu maskieren
+        // waere genau die Ueber-Maskierung, die dieser PR abstellt.
+        const string js = "fetch(url, { credentials: 'include' })";
+        const string cors = "app.use(cors({ credentials: true }))";
+
+        Assert.Equal(js, await Redact(js));
+        Assert.Equal(cors, await Redact(cors));
+    }
+
+    [Fact]
+    public async Task AmbiguousCredentialsKeyword_withSecretLikeValue_isStillRedacted()
+    {
+        // Gegenprobe: sieht der Wert nach Secret aus (Ziffern UND Buchstaben, lang genug),
+        // bleibt `credential` ein Treffer — sonst waere die Abdeckung aus f5b55b9 wieder weg.
+        var outp = await Redact("ARG MY_DB_CREDENTIAL=n7Bq9Km2");
+
+        Assert.DoesNotContain("n7Bq9Km2", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task InlineCodeInProse_isNotSwallowed()
+    {
+        // Der Wert darf nicht ueber den schliessenden Backtick hinauslaufen: sonst frisst die Regel
+        // in Doku/Prosa den Code-Span und hinterlaesst unbalancierte Backticks. Aufgefallen, weil
+        // Naudit genau das an docs/redaction.md meldete — im Quelltext war die Zeile korrekt, in der
+        // REDIGIERTEN Fassung nicht mehr.
+        const string prose = "prefixed keys like `DB_PASSWORD=` or `x-token:` are covered";
+        var outp = await Redact(prose);
+
+        Assert.Equal(prose, outp);
+        Assert.Equal(4, outp.Count(c => c == '`'));   // beide Code-Spans intakt
+    }
+
+    [Fact]
+    public async Task RealHeaderValue_isStillRedacted_despiteBacktickGuard()
+    {
+        // Die Backtick-Grenze darf kein Schlupfloch sein: ein echter Header-Wert wird weiterhin
+        // maskiert, der Schluessel bleibt lesbar.
+        var outp = await Redact("x-token: aB3dEf9HjKl");
+
+        Assert.DoesNotContain("aB3dEf9HjKl", outp);
+        Assert.Contains("x-token", outp);
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Fact]
+    public async Task IdentifierEndingInKeywordButNotAssigned_isNotRedacted()
+    {
+        // Gegenprobe zur gelockerten Grenze: der Schluessel muss unmittelbar vor dem Trenner enden.
+        // `secret_flag` und ein camelCase-`authToken` duerfen weiterhin nicht greifen.
+        const string code = "var secret_flag = true; var authToken = getAuthToken();";
+        Assert.Equal(code, await Redact(code));
+    }
+
+    [Fact]
     public async Task PemPrivateKeyBlock_bodyRedacted_lineCountPreserved()
     {
         // "PRIVATE KEY" gesplittet, damit der Quelltext keinen vollständigen PEM-Header trägt
