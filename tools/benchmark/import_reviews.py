@@ -53,7 +53,35 @@ def degradation_reason(diag: dict) -> str | None:
     return None
 
 
-def merge(data: dict, records: list[dict], force: bool) -> dict:
+def check_complete(data: dict, records: list[dict], allow_partial: bool) -> None:
+    """Bricht ab, solange nicht jeder Schlüssel der Zieldatei einen Datensatz hat.
+
+    Der Benchmark rechnet Recall je Tool über ALLE PRs der Zieldatei. Werden 30 statt 50
+    importiert, rechnet die Auswertung Naudit nur über die importierten, die 41 Vergleichstools
+    aber über alle 50 — und die fehlenden wären ausgerechnet die schweren. Naudit sähe damit
+    besser aus, als es ist. Übersteuerbar mit --allow-partial, dann aber laut.
+    """
+    vorhanden = {record["url"] for record in records}
+    fehlend = [url for url in data if url not in vorhanden]
+    if not fehlend:
+        return
+    if not allow_partial:
+        sys.exit(
+            f"Abbruch: unvollständiger Lauf — {len(fehlend)} von {len(data)} PRs der Zieldatei "
+            f"haben keinen Datensatz. Der Benchmark rechnet Recall über alle PRs; ein Teilimport "
+            f"macht Naudit besser, als es ist. Erst zu Ende laufen lassen (oder --allow-partial "
+            f"setzen und wissen, was die Zahl dann bedeutet).\nFehlend: "
+            + "\n  ".join([""] + fehlend))
+    print(
+        f"WARNUNG: Teilimport — nur {len(data) - len(fehlend)} von {len(data)} PRs der Zieldatei "
+        f"haben einen Datensatz. Precision/Recall sind mit den 41 Vergleichstools NICHT "
+        f"vergleichbar: die rechnen über alle {len(data)} PRs, Naudit nur über die importierten.",
+        file=sys.stderr)
+
+
+def merge(data: dict, records: list[dict], force: bool, allow_partial: bool = False) -> dict:
+    check_complete(data, records, allow_partial)
+
     for record in records:
         reason = degradation_reason(record.get("diagnostics") or {})
         if reason:
@@ -80,6 +108,9 @@ def main() -> None:
     parser.add_argument("--reviews", required=True, help="naudit-reviews.json aus dem Runner")
     parser.add_argument("--benchmark-data", required=True, help="results/benchmark_data.json")
     parser.add_argument("--force", action="store_true", help="vorhandene naudit-Einträge ersetzen")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="unvollständigen Lauf importieren — die Zahl ist dann NICHT mit den "
+                             "übrigen Tools vergleichbar")
     args = parser.parse_args()
 
     with open(args.reviews, encoding="utf-8") as f:
@@ -88,7 +119,7 @@ def main() -> None:
         data = json.load(f)
 
     before = sum(len(e.get("reviews", [])) for e in data.values())
-    merged = merge(data, records, args.force)
+    merged = merge(data, records, args.force, args.allow_partial)
     after = sum(len(e.get("reviews", [])) for e in merged.values())
 
     # Atomares Schreiben: in Temp-Datei schreiben, dann ersetzen.

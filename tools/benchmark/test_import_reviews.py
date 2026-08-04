@@ -130,3 +130,41 @@ def test_merge_meldet_unbekannte_url():
     data = {}
     with pytest.raises(SystemExit):
         merge(data, [record("https://github.com/unbekannt/repo/pull/9")], force=False)
+
+
+def zieldatei(*urls):
+    return {url: {"golden_comments": [], "reviews": []} for url in urls}
+
+
+def test_merge_verweigert_unvollstaendigen_lauf():
+    # Der Benchmark rechnet Recall über ALLE PRs der Zieldatei. Fehlen Datensätze, rechnet die
+    # Auswertung Naudit nur über die importierten, die 41 Vergleichstools aber über alle —
+    # und die fehlenden wären ausgerechnet die schweren. Naudit sähe besser aus, als es ist.
+    data = zieldatei("https://github.com/getsentry/sentry/pull/1",
+                     "https://github.com/getsentry/sentry/pull/2")
+    with pytest.raises(SystemExit) as excinfo:
+        merge(data, [record()], force=False)
+    assert "pull/2" in str(excinfo.value)
+
+
+def test_merge_laesst_teilimport_nur_mit_allow_partial_und_warnt_laut(capsys):
+    data = zieldatei("https://github.com/getsentry/sentry/pull/1",
+                     "https://github.com/getsentry/sentry/pull/2")
+
+    merged = merge(data, [record()], force=False, allow_partial=True)
+
+    assert [r["tool"] for r in merged["https://github.com/getsentry/sentry/pull/1"]["reviews"]] == ["naudit"]
+    assert merged["https://github.com/getsentry/sentry/pull/2"]["reviews"] == []
+    ausgabe = capsys.readouterr()
+    assert "WARNUNG" in ausgabe.out + ausgabe.err
+
+
+def test_merge_akzeptiert_den_vollstaendigen_lauf_ohne_schalter():
+    data = zieldatei("https://github.com/getsentry/sentry/pull/1",
+                     "https://github.com/getsentry/sentry/pull/2")
+    records = [record("https://github.com/getsentry/sentry/pull/1"),
+               record("https://github.com/getsentry/sentry/pull/2")]
+
+    merged = merge(data, records, force=False)
+
+    assert all(len(pr["reviews"]) == 1 for pr in merged.values())
