@@ -495,6 +495,15 @@ unterbrechbar sein. Zusätzlich braucht er eine Diagnose, weil Naudits Pipeline 
 ist: ein Review ohne Checkout oder ohne Architektur-Profil ist stumm schlechter und darf nicht
 unbemerkt in die Auswertung.
 
+> **Nachtrag aus dem Review (Commit `89289f3`):** Der unten ausgeschriebene `ResultStore` war an
+> zwei Stellen zu naiv für seinen eigenen Zweck. `File.WriteAllText` ist nicht atomar — ein
+> Abbruch mitten im Schreiben hinterlässt abgeschnittenes JSON, und der Konstruktor ließ die
+> daraus folgende `JsonException` durch, womit ein Absturz **alle** erledigten Einträge unlesbar
+> machte. Ausserdem hängte `RemoveAll` + `Add` einen wiederholten Eintrag hinten an, statt ihn an
+> Ort und Stelle zu ersetzen. Der umgesetzte Stand schreibt über eine temporäre Datei plus
+> `File.Move(overwrite: true)`, legt eine korrupte Datei als `.corrupt` beiseite und startet leer,
+> und ersetzt positionserhaltend. Maßgeblich ist der Code im Repo, nicht der Block hier.
+
 **Files:**
 - Create: `tools/Naudit.Benchmark/ResultStore.cs`
 - Test: `tests/Naudit.Tests/BenchmarkResultStoreTests.cs`
