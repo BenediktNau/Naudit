@@ -43,8 +43,11 @@ services.AddBenchmarkCapture();
 using var provider = services.BuildServiceProvider();
 
 // Schema anlegen. Im Web-Host erledigt das der DbSettingsLoader vor dem Host-Bau; hier gibt es
-// ihn nicht. Ohne Migration scheitert die Audit-Senke nach JEDEM Review — fail-open, aber sie
-// loggt dabei, und dann meldet die Diagnose alle 50 Reviews als auffällig.
+// ihn nicht. Ohne Migration scheiterte JEDER DB-Zugriff der Pipeline. Die Audit-Senke bliebe dabei
+// stumm (ReviewService.RecordAuditAsync schluckt ohne Log, EfReviewAuditSink loggt nur den
+// Erfolgsfall) — sichtbar würde es über die DB-Pfade von Review-Gedächtnis (DbReviewMemory) und
+// Architektur-Profil (DistillingReviewGuidelines), die ihre Fehler beide als Warning loggen und
+// damit über den WarningCollector alle 50 Reviews als auffällig melden.
 using (var migrationScope = provider.CreateScope())
     await migrationScope.ServiceProvider.GetRequiredService<NauditDbContext>().Database.MigrateAsync();
 

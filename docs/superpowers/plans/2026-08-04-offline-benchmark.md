@@ -836,10 +836,17 @@ using Microsoft.Extensions.Logging;
 
 namespace Naudit.Benchmark;
 
-/// <summary>Sammelt Warnings/Errors der Review-Pipeline. Das ist der belastbare Weg, Naudits
-/// fail-open-Pfade sichtbar zu machen: GitWorkspaceProvider, Guidelines-Destillation und die
-/// Analyzer schlucken ihre Fehler, loggen sie aber. Ohne diesen Sammler liefe ein Review ohne
-/// Repo-Kontext stumm durch und sähe im Ergebnis nur wie ein schwächeres Review aus.</summary>
+/// <summary>Sammelt Warnings/Errors der Review-Pipeline — einer von drei Wegen, Naudits fail-open-
+/// Pfade sichtbar zu machen. Er deckt die Stellen ab, die ihre Fehler zwar schlucken, aber loggen:
+/// die git-Unterprozesse des GitWorkspaceProvider, die Guidelines-Destillation, das Review-
+/// Gedächtnis und die SAST-Analyzer.
+///
+/// <para>Er deckt bewusst NICHT alles ab, und das ist der Grund für die übrigen Diagnosewerte:
+/// GitHubPlatform.GetCheckoutAsync wirft ungeloggt (⇒ CheckoutFailed am IGitPlatform-Dekorator),
+/// der WorkspaceContextCollector hat nicht einmal einen Logger (⇒ ContextInPrompt am
+/// IChatClient-Dekorator), und die Audit-Senke meldet Fehler überhaupt nicht —
+/// ReviewService.RecordAuditAsync schluckt ohne Log, EfReviewAuditSink loggt nur den
+/// Erfolgsfall.</para></summary>
 public sealed class WarningCollector
 {
     private readonly List<string> _messages = [];
@@ -933,8 +940,11 @@ services.AddBenchmarkCapture();
 using var provider = services.BuildServiceProvider();
 
 // Schema anlegen. Im Web-Host erledigt das der DbSettingsLoader vor dem Host-Bau; hier gibt es
-// ihn nicht. Ohne Migration scheitert die Audit-Senke nach JEDEM Review — fail-open, aber sie
-// loggt dabei, und dann meldet die Diagnose alle 50 Reviews als auffällig.
+// ihn nicht. Ohne Migration scheiterte JEDER DB-Zugriff der Pipeline. Die Audit-Senke bliebe dabei
+// stumm (ReviewService.RecordAuditAsync schluckt ohne Log, EfReviewAuditSink loggt nur den
+// Erfolgsfall) — sichtbar würde es über die DB-Pfade von Review-Gedächtnis (DbReviewMemory) und
+// Architektur-Profil (DistillingReviewGuidelines), die ihre Fehler beide als Warning loggen und
+// damit über den WarningCollector alle 50 Reviews als auffällig melden.
 using (var migrationScope = provider.CreateScope())
     await migrationScope.ServiceProvider.GetRequiredService<NauditDbContext>().Database.MigrateAsync();
 
