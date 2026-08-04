@@ -27,6 +27,12 @@ keine Migration, keine Frontend-Änderung.
   Datei unter `src/` anfasst, ist ein Fehler im Task.
 - Core-Regel bleibt gewahrt: das neue Projekt referenziert `Naudit.Core` und
   `Naudit.Infrastructure`, aber Core selbst bekommt keine neue Abhängigkeit.
+- **Keine neuen NuGet-Pakete — mit einer benannten Ausnahme.** In `tools/Naudit.Benchmark` ist
+  `Microsoft.Extensions.Configuration.EnvironmentVariables` erlaubt (Erstanbieter, gehört zum
+  Framework, geht nicht ins Container-Image). Grund: das Konsolen-SDK bringt es anders als das
+  Web-SDK nicht mit, und der handgebaute Ersatz war fragil — zwei Umgebungsvariablen, die sich
+  nur in der Groß-/Kleinschreibung unterscheiden, hätten das Werkzeug beim Start abstürzen
+  lassen. Entschieden am 2026-08-04. Für `src/` gilt die Regel unverändert.
 - `tools/Naudit.Benchmark` wird **nicht** ins `Dockerfile` aufgenommen — das Image baut weiter
   nur `src/Naudit.Web`.
 - Volle Testsuite immer mit `DOTNET_USE_POLLING_FILE_WATCHER=1` laufen lassen (sonst kippen

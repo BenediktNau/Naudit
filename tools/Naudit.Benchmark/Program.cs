@@ -19,18 +19,9 @@ var limit = int.TryParse(Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_LI
 var pause = TimeSpan.FromSeconds(
     int.TryParse(Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_PAUSE_SECONDS"), out var p) ? p : 20);
 
-// AddEnvironmentVariables() braucht das Paket Microsoft.Extensions.Configuration.EnvironmentVariables,
-// das hier (Konsolen-Sdk statt Web-Sdk) nicht transitiv verfügbar ist und laut Vorgabe nicht neu
-// hinzugefügt werden darf. Gleichwertiger Ersatz ohne neues Paket: die Umgebungsvariablen selbst
-// einlesen und "__" wie die offizielle Implementierung in ":" übersetzen (Naudit__Git__Platform ⇒
-// Naudit:Git:Platform), dann als In-Memory-Quelle einhängen — Microsoft.Extensions.Configuration
-// (mit AddInMemoryCollection) ist bereits über Naudit.Infrastructure transitiv vorhanden.
 var config = new ConfigurationBuilder()
     .AddJsonFile("benchmark.appsettings.json", optional: true)
-    .AddInMemoryCollection(Environment.GetEnvironmentVariables()
-        .Cast<System.Collections.DictionaryEntry>()
-        .Select(e => new KeyValuePair<string, string?>(
-            ((string)e.Key).Replace("__", ConfigurationPath.KeyDelimiter), (string?)e.Value)))
+    .AddEnvironmentVariables()
     .Build();
 
 var warnings = new WarningCollector();
