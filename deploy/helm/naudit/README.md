@@ -147,6 +147,10 @@ kubectl -n naudit exec deploy/naudit -c dind -- docker pull mcr.microsoft.com/pl
 helm upgrade naudit deploy/helm/naudit -n naudit --reuse-values --set image.tag=v0.1.13
 ```
 
+Chart changes that alter runtime behaviour are listed in
+[`CHANGELOG.md`](CHANGELOG.md) and carry a `Chart.yaml: version` bump — read it
+before upgrading across versions.
+
 All knobs (persistence size/class, resources, extraEnv overrides, TLS,
 nodeSelector/tolerations/affinity) are documented inline in
 [`values.yaml`](values.yaml). `replicas` is deliberately fixed at 1 — SQLite is
