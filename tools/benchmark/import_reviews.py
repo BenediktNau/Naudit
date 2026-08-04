@@ -8,6 +8,7 @@ sonst zählte ein fehlgeschlagener Lauf als "nichts gefunden".
 
 import argparse
 import json
+import os
 import sys
 
 
@@ -75,8 +76,18 @@ def main() -> None:
     merged = merge(data, records, args.force)
     after = sum(len(e.get("reviews", [])) for e in merged.values())
 
-    with open(args.benchmark_data, "w", encoding="utf-8") as f:
-        json.dump(merged, f, indent=2)
+    # Atomares Schreiben: in Temp-Datei schreiben, dann ersetzen.
+    # So bleibt die Original unverändert, falls der Prozess abbricht.
+    tmp_path = f"{args.benchmark_data}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2)
+        os.replace(tmp_path, args.benchmark_data)
+    except Exception:
+        # Im Fehlerfall: Temp-Datei löschen, Original unangetastet.
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
     print(f"{len(records)} Reviews importiert. Review-Einträge gesamt: {before} → {after}")
 
