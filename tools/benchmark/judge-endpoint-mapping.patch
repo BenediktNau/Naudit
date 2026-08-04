@@ -1,0 +1,51 @@
+diff --git a/offline/code_review_benchmark/step2_5_dedup_candidates.py b/offline/code_review_benchmark/step2_5_dedup_candidates.py
+index 1eb8c5a..f428ddd 100644
+--- a/offline/code_review_benchmark/step2_5_dedup_candidates.py
++++ b/offline/code_review_benchmark/step2_5_dedup_candidates.py
+@@ -142,7 +142,11 @@ class DedupLLM:
+         if not api_key:
+             raise ValueError("MARTIAN_API_KEY environment variable required")
+         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+-        self.model = os.environ.get("MARTIAN_MODEL", "openai/gpt-4o-mini")
++        # Verzeichnisname (MARTIAN_MODEL) und Endpunkt-Modellname können auseinanderfallen:
++        # OpenRouter führt dieselben Modelle unter anderen Ids als der Router der Autoren.
++        # get_model_dir() liest weiterhin MARTIAN_MODEL — die Ergebnisse landen also dort,
++        # wo die übrigen Tools bereits bewertet sind.
++        self.model = os.environ.get("MARTIAN_MODEL_ENDPOINT") or os.environ.get("MARTIAN_MODEL", "openai/gpt-4o-mini")
+         print(f"Dedup model: {self.model}")
+         print(f"Base URL: {base_url}")
+ 
+diff --git a/offline/code_review_benchmark/step2_extract_comments.py b/offline/code_review_benchmark/step2_extract_comments.py
+index 3d3ec9b..9a821fe 100644
+--- a/offline/code_review_benchmark/step2_extract_comments.py
++++ b/offline/code_review_benchmark/step2_extract_comments.py
+@@ -85,7 +85,11 @@ class CandidateExtractor:
+             raise ValueError("MARTIAN_API_KEY environment variable required")
+ 
+         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+-        self.model = os.environ.get("MARTIAN_MODEL", "openai/gpt-4o-mini")
++        # Verzeichnisname (MARTIAN_MODEL) und Endpunkt-Modellname können auseinanderfallen:
++        # OpenRouter führt dieselben Modelle unter anderen Ids als der Router der Autoren.
++        # get_model_dir() liest weiterhin MARTIAN_MODEL — die Ergebnisse landen also dort,
++        # wo die übrigen Tools bereits bewertet sind.
++        self.model = os.environ.get("MARTIAN_MODEL_ENDPOINT") or os.environ.get("MARTIAN_MODEL", "openai/gpt-4o-mini")
+ 
+         print(f"Model: {self.model}")
+         print(f"Base URL: {base_url}")
+diff --git a/offline/code_review_benchmark/step3_judge_comments.py b/offline/code_review_benchmark/step3_judge_comments.py
+index 03172f4..9bbd6e6 100644
+--- a/offline/code_review_benchmark/step3_judge_comments.py
++++ b/offline/code_review_benchmark/step3_judge_comments.py
+@@ -109,7 +109,11 @@ class LLMJudge:
+             raise ValueError("MARTIAN_API_KEY environment variable required")
+ 
+         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+-        self.model = os.environ.get("MARTIAN_MODEL", "openai/gpt-4o-mini")
++        # Verzeichnisname (MARTIAN_MODEL) und Endpunkt-Modellname können auseinanderfallen:
++        # OpenRouter führt dieselben Modelle unter anderen Ids als der Router der Autoren.
++        # get_model_dir() liest weiterhin MARTIAN_MODEL — die Ergebnisse landen also dort,
++        # wo die übrigen Tools bereits bewertet sind.
++        self.model = os.environ.get("MARTIAN_MODEL_ENDPOINT") or os.environ.get("MARTIAN_MODEL", "openai/gpt-4o-mini")
+         self.structured_output = structured_output
+ 
+         print(f"Judge model: {self.model}")
