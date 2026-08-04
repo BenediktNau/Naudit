@@ -1,0 +1,9 @@
+apiVersion: v2
+name: naudit
+description: Self-hosted AI code-review bot for GitLab/GitHub (webhook -> LLM review -> inline comments)
+type: application
+# Chart-Version (Struktur der Templates), unabhaengig von der App-Version.
+version: 0.1.0
+# Nominell; das Image-Tag kommt aus values.yaml (image.tag), nicht von hier.
+appVersion: "latest"
+home: https://github.com/benediktnau/naudit

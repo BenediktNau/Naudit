@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: naudit
+  namespace: naudit
+  labels:
+    app.kubernetes.io/name: naudit
+spec:
+  # Genau EINE Instanz: SQLite ist Single-Writer, die ReviewQueue ist in-memory,
+  # und der Settings-Restart-Loop wirkt pro Prozess. Nicht hochskalieren.
+  replicas: 1
+  strategy:
+    # RWO-Volume + SQLite: alte Instanz muss beendet sein, bevor die neue startet
+    # (kurze Downtime beim Update ist fuer den internen Betrieb ok).
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: naudit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: naudit
+    spec:
+      # Entfaellt, wenn das ghcr-Package auf public gestellt ist (Default: privat).
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        # $APP_UID des aspnet-Basisimages: macht das gemountete /data-Volume
+        # fuer den non-root-User beschreibbar (das chown im Dockerfile greift
+        # nicht auf ein daruebergelegtes Volume).
+        fsGroup: 1654
+      containers:
+        - name: naudit
+          # Besser auf eine konkrete Version pinnen (z. B. :v0.1.12) und Updates
+          # bewusst per Tag-Bump einspielen.
+          image: ghcr.io/benediktnau/naudit:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # ── Bootstrap (env-only, wird VOR der DB gelesen) ────────────────
+            # Alles Weitere (Plattform, Tokens, AI-Provider, Webhook-Secret …)
+            # konfiguriert der Admin nach dem ersten Start auf der Settings-
+            # Seite — die Werte liegen dann in der DB.
+            - name: Naudit__Db__Provider
+              value: Sqlite
+            - name: Naudit__Db__ConnectionString
+              value: "Data Source=/data/naudit.db"
+            # Postgres statt SQLite: Provider=Postgres, ConnectionString aus
+            # einem Secret, PVC/VolumeMount unten entfernen.
+            # - name: Naudit__Db__Provider
+            #   value: Postgres
+            # - name: Naudit__Db__ConnectionString
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: naudit-bootstrap
+            #       key: db-connection-string
+            - name: Naudit__Ui__Admin__Username
+              value: admin
+            - name: Naudit__Ui__Admin__InitialPassword
+              valueFrom:
+                secretKeyRef:
+                  name: naudit-bootstrap
+                  key: admin-initial-password
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          # Erster Start migriert die DB, bevor der Host lauscht — der
+          # Startup-Probe gibt dafuer bis zu ~2,5 Minuten.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: naudit-data

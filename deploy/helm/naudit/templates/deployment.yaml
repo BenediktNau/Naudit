@@ -1,0 +1,189 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "naudit.fullname" . }}
+  labels:
+    {{- include "naudit.labels" . | nindent 4 }}
+spec:
+  # Fest 1 Replica (bewusst kein values-Schalter): SQLite ist Single-Writer,
+  # die ReviewQueue ist in-memory, der Settings-Restart-Loop wirkt pro Prozess.
+  replicas: 1
+  strategy:
+    # RWO-Volume + SQLite: alte Instanz muss beendet sein, bevor die neue startet.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "naudit.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "naudit.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: naudit
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Bootstrap (env-only, wird VOR der DB gelesen) — alles Weitere
+            # konfiguriert der Admin auf der Settings-Seite (liegt in der DB).
+            - name: Naudit__Db__Provider
+              value: {{ .Values.db.provider | quote }}
+            {{- if eq .Values.db.provider "Sqlite" }}
+            - name: Naudit__Db__ConnectionString
+              value: "Data Source=/data/naudit.db"
+            {{- else }}
+            - name: Naudit__Db__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "naudit.bootstrapSecretName" . }}
+                  key: db-connection-string
+            {{- end }}
+            - name: Naudit__Ui__Admin__Username
+              value: {{ .Values.admin.username | quote }}
+            - name: Naudit__Ui__Admin__InitialPassword
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "naudit.bootstrapSecretName" . }}
+                  key: admin-initial-password
+            {{- if .Values.dind.enabled }}
+            # Engine-Socket des Sidecars. BEIDE Keys, obwohl heute nur DAST ihn
+            # liest: es gibt prozessweit nur einen IDockerClient, und sobald
+            # Naudit:Ai:SessionSandbox=Docker gesetzt wird, gewinnt dessen Pfad
+            # ueber den von DAST. Gleicher Wert => kein Weg, das falsch zu haben.
+            - name: Naudit__Review__Dast__DockerSocketPath
+              value: {{ printf "%s/docker.sock" .Values.dind.socketDir | quote }}
+            - name: Naudit__Ai__Sandbox__DockerSocketPath
+              value: {{ printf "%s/docker.sock" .Values.dind.socketDir | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if or (eq .Values.db.provider "Sqlite") .Values.dind.enabled }}
+          volumeMounts:
+            {{- if eq .Values.db.provider "Sqlite" }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+            {{- if .Values.dind.enabled }}
+            # Bewusst nicht readOnly: connect() auf einen Unix-Socket verlangt
+            # Schreibrecht am Socket-Inode.
+            - name: docker-socket
+              mountPath: {{ .Values.dind.socketDir }}
+            {{- end }}
+          {{- end }}
+          # Erster Start migriert die DB, bevor der Host lauscht.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+        {{- if .Values.dind.enabled }}
+        # Docker-Engine fuer DAST (siehe values.yaml: warum Sidecar statt
+        # Host-Socket). Laeuft als root und privilegiert — der Naudit-Container
+        # daneben bleibt unveraendert non-root mit cap-drop ALL.
+        - name: dind
+          image: {{ .Values.dind.image | quote }}
+          # Erstes Argument "dockerd" statt einer "-"-Option: nur dann
+          # ueberspringt dockerd-entrypoint.sh seinen Default-Args-Zweig, der
+          # sonst IMMER ein --host=tcp://0.0.0.0:2375 (bzw. :2376) anhaengt —
+          # ein clusterweit erreichbarer Root-Daemon. Der dind-Wrapper
+          # (cgroups, iptables-Module, docker-init als PID 1) haengt dagegen an
+          # $1 == "dockerd" und laeuft weiter. Ein command:-Override wuerde
+          # genau diesen Wrapper aushebeln — deshalb args, nicht command.
+          args:
+            - dockerd
+            - --host=unix://{{ .Values.dind.socketDir }}/docker.sock
+            # Ohne --group gehoert der Socket root:docker (0660) und der
+            # non-root-Naudit-Prozess kommt nicht an die Engine.
+            - --group={{ .Values.dind.socketGid }}
+          securityContext:
+            # Unvermeidbar fuer einen echten Daemon: cgroup-Mounts, overlayfs,
+            # iptables. Entspricht Root auf dem Node — deshalb ist DAST
+            # zusaetzlich hinter einer Projekt-Allowlist verriegelt.
+            privileged: true
+          volumeMounts:
+            - name: docker-socket
+              mountPath: {{ .Values.dind.socketDir }}
+            - name: dind-storage
+              mountPath: /var/lib/docker
+          livenessProbe:
+            exec:
+              command:
+                - docker
+                - --host=unix://{{ .Values.dind.socketDir }}/docker.sock
+                - info
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.dind.resources | nindent 12 }}
+        {{- end }}
+      {{- if or (eq .Values.db.provider "Sqlite") .Values.dind.enabled }}
+      volumes:
+        {{- if eq .Values.db.provider "Sqlite" }}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "naudit.fullname" .)) }}
+          {{- else }}
+          # Nur fuer Wegwerf-Tests: DB ist bei jedem Pod-Neustart weg.
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.dind.enabled }}
+        # Nur der Socket — winzig. fsGroup des Pods macht das Verzeichnis fuer
+        # den App-User zugaenglich, --group den Socket selbst.
+        - name: docker-socket
+          emptyDir: {}
+        - name: dind-storage
+          {{- if .Values.dind.storage.persistent }}
+          persistentVolumeClaim:
+            claimName: {{ include "naudit.fullname" . }}-dind
+          {{- else }}
+          # Node-Ephemeral: Probe-Image (~2 GB) und Build-Layer werden nach
+          # jedem Pod-Neustart neu gezogen bzw. neu gebaut.
+          emptyDir:
+            sizeLimit: {{ .Values.dind.storage.size }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

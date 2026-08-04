@@ -1,0 +1,27 @@
+Naudit ist installiert.
+
+1. Status pruefen (erster Start migriert die DB):
+     kubectl -n {{ .Release.Namespace }} get pods -w
+     kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "naudit.fullname" . }}
+
+{{- if .Values.ingress.enabled }}
+2. WebUI oeffnen: https://{{ .Values.ingress.host }}
+{{- else }}
+2. WebUI ohne Ingress erreichen:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "naudit.fullname" . }} 8080:{{ .Values.service.port }}
+   dann http://localhost:8080
+{{- end }}
+   Login: "{{ .Values.admin.username }}" mit dem Initialpasswort (danach aendern).
+
+3. Auf der Settings-Seite Plattform (GitLab/GitHub), Tokens, Webhook-Secret und
+   AI-Provider konfigurieren, dann dort den Restart ausloesen (in-process, der
+   Pod bleibt stehen).
+
+4. Plattform-Webhook auf https://<host>/webhook/gitlab bzw. /webhook/github
+   zeigen lassen — siehe docs/platform-setup.md.
+
+{{- if and (eq .Values.db.provider "Sqlite") (not .Values.persistence.enabled) }}
+
+WARNUNG: persistence.enabled=false — die SQLite-DB liegt in einem emptyDir und
+ist bei jedem Pod-Neustart WEG. Nur fuer Wegwerf-Tests geeignet.
+{{- end }}

@@ -1,0 +1,29 @@
+# TLS terminiert am Ingress; Naudit honoriert X-Forwarded-Proto von selbst
+# (leere Proxy-Allow-List = allen Quellen vertrauen — siehe docs/deployment.md,
+# einschraenkbar via Naudit__ForwardedHeaders__KnownNetworks__0).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: naudit
+  namespace: naudit
+  labels:
+    app.kubernetes.io/name: naudit
+  # annotations:
+  #   cert-manager.io/cluster-issuer: <euer-issuer>
+spec:
+  ingressClassName: nginx # an den Cluster anpassen (z. B. traefik)
+  rules:
+    - host: naudit.example.internal # anpassen!
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: naudit
+                port:
+                  name: http
+  # tls:
+  #   - hosts:
+  #       - naudit.example.internal
+  #     secretName: naudit-tls

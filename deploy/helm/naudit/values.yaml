@@ -1,0 +1,132 @@
+# Default-Werte fuer das Naudit-Chart.
+#
+# Bewusst schlank: nur der Bootstrap (DB + Admin-Seed) laeuft ueber das Chart —
+# alles Weitere (Plattform, Tokens, AI-Provider, Webhook-Secret) konfiguriert
+# der Admin nach dem ersten Start auf der Settings-Seite; die Werte liegen in
+# der DB. Env-Overrides sind trotzdem via extraEnv moeglich (env gewinnt ueber
+# die DB und sperrt den Key auf der Settings-Seite).
+
+image:
+  repository: ghcr.io/benediktnau/naudit
+  # Fuer den Betrieb auf eine Release-Version pinnen (z. B. "v0.1.12").
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Das ghcr-Package ist per Default privat -> Pull-Secret noetig (GitHub-PAT mit
+# read:packages), z. B.:
+#   kubectl -n naudit create secret docker-registry ghcr-pull \
+#     --docker-server=ghcr.io --docker-username=<user> --docker-password=<pat>
+imagePullSecrets: []
+# - name: ghcr-pull
+
+db:
+  # Sqlite (Default, braucht das /data-Volume) | Postgres (externe DB, kein Volume)
+  provider: Sqlite
+  # Nur fuer Postgres, und nur wenn bootstrap.existingSecret leer ist.
+  # Achtung: landet dann im Helm-Release-Verlauf — fuer Produktion besser
+  # bootstrap.existingSecret verwenden.
+  connectionString: ""
+
+# Ein Secret mit den Bootstrap-Werten:
+#   admin-initial-password              (immer)
+#   db-connection-string                (nur bei db.provider=Postgres)
+# Leer = das Chart rendert selbst ein Secret aus admin.initialPassword /
+# db.connectionString.
+bootstrap:
+  existingSecret: ""
+
+admin:
+  username: admin
+  # Initialpasswort des Seed-Admins (nur erster Start gegen leere DB; danach
+  # im UI aendern). Nur relevant, wenn bootstrap.existingSecret leer ist —
+  # dann Pflicht. Nicht in ein values-File einchecken; per --set setzen.
+  initialPassword: ""
+
+# Zusaetzliche Naudit__*-Env-Overrides (Liste von EnvVar-Objekten).
+extraEnv: []
+# - name: Naudit__AccessGate__Mode
+#   value: Registered
+
+# Docker-in-Docker-Sidecar — die Engine, die die dynamische Pruefung (DAST)
+# und optional die Session-Sandbox brauchen.
+#
+# Warum ueberhaupt: im Cluster gibt es keinen /var/run/docker.sock zum Mounten
+# (containerd seit K8s 1.24), und Naudits Engine-Client spricht ausschliesslich
+# Unix-Sockets — DOCKER_HOST=tcp://… ist keine Option. Also faehrt ein eigener
+# Daemon im Pod mit und teilt seinen Socket ueber ein emptyDir. Nebeneffekt: der
+# gebaute PR-Code landet in einem EIGENEN Daemon und sieht die Node-Runtime nie.
+#
+# ACHTUNG: dind braucht privileged: true (cgroup-Mounts, overlayfs, iptables) —
+# das ist effektiv Root auf dem Node. Nur einschalten, wenn DAST gebraucht wird.
+# Dieser Schalter ist nur die Verkabelung; das Feature selbst schaltet der Admin
+# in der WebUI (Naudit:Review:Dast:Enabled + Projekt-Allowlist).
+dind:
+  enabled: false
+  image: docker.io/library/docker:29-dind
+  # Mount-Pfad des geteilten Sockets — identisch in beiden Containern.
+  socketDir: /var/run/naudit-docker
+  # Gruppe, der der Socket gehoert. Muss der App-User des Naudit-Images sein
+  # ($APP_UID des aspnet-Basisimages), sonst steht Naudit vor mode 0660.
+  socketGid: 1654
+  storage:
+    # /var/lib/docker MUSS ein Volume sein: auf der containerd-Overlay-Rootfs
+    # kann overlay2 nicht arbeiten und dockerd faellt auf vfs zurueck.
+    # false = emptyDir (Node-Ephemeral; Probe-Image und Build-Cache sind nach
+    # jedem Pod-Neustart weg und werden neu gezogen).
+    persistent: false
+    size: 20Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 4Gi
+
+# Nur bei db.provider=Sqlite relevant.
+persistence:
+  # false = emptyDir: DB (Settings, Accounts, Historie) ist bei jedem
+  # Pod-Neustart WEG — nur fuer Wegwerf-Tests.
+  enabled: true
+  size: 1Gi
+  storageClassName: ""
+  # Bestehendes PVC statt eines chart-verwalteten verwenden.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  # cert-manager.io/cluster-issuer: <euer-issuer>
+  host: naudit.example.internal
+  tls: []
+  # - secretName: naudit-tls
+  #   hosts:
+  #     - naudit.example.internal
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+# fsGroup 1654 = $APP_UID des aspnet-Basisimages: macht das gemountete
+# /data-Volume fuer den non-root-User beschreibbar.
+podSecurityContext:
+  fsGroup: 1654
+
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
