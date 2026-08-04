@@ -47,6 +47,42 @@ extraEnv: []
 # - name: Naudit__AccessGate__Mode
 #   value: Registered
 
+# Docker-in-Docker-Sidecar — die Engine, die die dynamische Pruefung (DAST)
+# und optional die Session-Sandbox brauchen.
+#
+# Warum ueberhaupt: im Cluster gibt es keinen /var/run/docker.sock zum Mounten
+# (containerd seit K8s 1.24), und Naudits Engine-Client spricht ausschliesslich
+# Unix-Sockets — DOCKER_HOST=tcp://… ist keine Option. Also faehrt ein eigener
+# Daemon im Pod mit und teilt seinen Socket ueber ein emptyDir. Nebeneffekt: der
+# gebaute PR-Code landet in einem EIGENEN Daemon und sieht die Node-Runtime nie.
+#
+# ACHTUNG: dind braucht privileged: true (cgroup-Mounts, overlayfs, iptables) —
+# das ist effektiv Root auf dem Node. Nur einschalten, wenn DAST gebraucht wird.
+# Dieser Schalter ist nur die Verkabelung; das Feature selbst schaltet der Admin
+# in der WebUI (Naudit:Review:Dast:Enabled + Projekt-Allowlist).
+dind:
+  enabled: false
+  image: docker.io/library/docker:29-dind
+  # Mount-Pfad des geteilten Sockets — identisch in beiden Containern.
+  socketDir: /var/run/naudit-docker
+  # Gruppe, der der Socket gehoert. Muss der App-User des Naudit-Images sein
+  # ($APP_UID des aspnet-Basisimages), sonst steht Naudit vor mode 0660.
+  socketGid: 1654
+  storage:
+    # /var/lib/docker MUSS ein Volume sein: auf der containerd-Overlay-Rootfs
+    # kann overlay2 nicht arbeiten und dockerd faellt auf vfs zurueck.
+    # false = emptyDir (Node-Ephemeral; Probe-Image und Build-Cache sind nach
+    # jedem Pod-Neustart weg und werden neu gezogen).
+    persistent: false
+    size: 20Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 4Gi
+
 # Nur bei db.provider=Sqlite relevant.
 persistence:
   # false = emptyDir: DB (Settings, Accounts, Historie) ist bei jedem

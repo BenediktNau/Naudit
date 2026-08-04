@@ -94,6 +94,48 @@ the deploy repo for values and at the (mirrored) naudit repo for the chart
 (ArgoCD multi-source), or wrap naudit as a dependency in a small umbrella chart
 inside the deploy repo.
 
+## Dynamic testing (DAST) — the `dind` sidecar
+
+DAST builds and runs the PR's own container, so it needs a Docker engine.
+On a single host that is the mounted `/var/run/docker.sock`; in Kubernetes
+there is no such socket to mount (containerd since 1.24), and Naudit's engine
+client speaks Unix sockets only — `DOCKER_HOST=tcp://…` is not an option.
+The chart therefore runs a Docker-in-Docker sidecar and shares its socket with
+the app container through an `emptyDir`:
+
+```bash
+helm upgrade naudit deploy/helm/naudit -n naudit --reuse-values \
+  --set dind.enabled=true \
+  --set dind.storage.persistent=true   # keeps the probe image across restarts
+```
+
+This wires the plumbing only — it sets `Naudit__Review__Dast__DockerSocketPath`
+(and the session-sandbox twin, which would otherwise win over it). The feature
+itself is DB-managed: switch it on under Settings → Review rules together with
+the project allowlist, then restart from the same page.
+
+Three things worth knowing before you flip it:
+
+- **`privileged: true` is unavoidable** for a real daemon (cgroup mounts,
+  overlayfs, iptables) and is effectively root on the node. The namespace must
+  not enforce a `baseline`/`restricted` Pod Security Standard. The Naudit
+  container itself stays non-root with `cap-drop: ALL`.
+- **`/var/lib/docker` must be a volume** (the chart mounts one). On the
+  containerd overlay rootfs, `overlay2` cannot operate and dockerd falls back
+  to `vfs` — slow and enormous.
+- **The sidecar pulls images from the pod network**: the probe image
+  (`mcr.microsoft.com/playwright/mcp`, ~2 GB) and whatever base images the PR's
+  Dockerfile references. Verify that egress exists before enabling — a blocked
+  registry surfaces only as "no dynamic findings" (DAST fails open).
+
+Verify after the rollout:
+
+```bash
+kubectl -n naudit exec deploy/naudit -c naudit -- ls -l /var/run/naudit-docker/docker.sock
+# expected: srw-rw---- 1 root 1654 … — group must be the app UID, else --group missed
+kubectl -n naudit exec deploy/naudit -c dind -- docker pull mcr.microsoft.com/playwright/mcp:latest
+```
+
 ## Upgrade / values
 
 ```bash

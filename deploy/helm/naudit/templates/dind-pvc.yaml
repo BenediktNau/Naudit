@@ -1,0 +1,21 @@
+{{- if and .Values.dind.enabled .Values.dind.storage.persistent }}
+# Storage der Docker-Engine im Sidecar (/var/lib/docker). Nur sinnvoll, wenn
+# das Probe-Image und die Build-Layer Pod-Neustarts ueberleben sollen — sonst
+# reicht das emptyDir (values.yaml: dind.storage.persistent=false).
+# RWO reicht: replicas=1 + Recreate-Strategie wie beim Daten-Volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "naudit.fullname" . }}-dind
+  labels:
+    {{- include "naudit.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.dind.storage.size }}
+  {{- with .Values.dind.storage.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
