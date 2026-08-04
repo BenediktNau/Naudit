@@ -1095,7 +1095,7 @@ Start übersprungen. Am Ende meldet das Werkzeug auffällige Reviews (Fehler, fe
 Warnungen aus der Pipeline) — die gehören wiederholt, **nicht** importiert, sonst zählt ein
 stumm degradiertes Review als „nichts gefunden".
 
-Import und Auswertung danach: `tools/benchmark/README` bzw. Task 9 des Plans.
+Import und Auswertung danach: `tools/benchmark/import_reviews.py` bzw. Task 9 des Plans.
 ````
 
 - [ ] **Step 5: Committen**
@@ -1480,11 +1480,22 @@ uv run python -m code_review_benchmark.step3_judge_comments --tool naudit \
   --dedup-groups results/anthropic_claude-sonnet-4-5-20250929/dedup_groups.json
 ```
 
+> **Wiederholungslauf:** Wurde schon einmal importiert und bewertet, brauchen **alle drei**
+> Schritte zusätzlich `--force`. Jeder überspringt bereits vorhandene Ergebnisse: `step2` seine
+> Kandidaten, `step2_5` seine Dedup-Gruppen je (PR, Tool), `step3` seine erledigten
+> (PR, Tool)-Paare. Ohne `--force` würden frische Reviews gegen alte Kandidaten und alte Urteile
+> gerechnet — die Zahl wäre still die des vorigen Laufs. Das gilt auch dann, wenn der Import
+> selbst mit `--force` lief: `--force` am Importer ersetzt nur den Eintrag in
+> `benchmark_data.json`, es räumt die Zwischenergebnisse der Auswertungsschritte nicht ab.
+> `--force --tool naudit` löscht dabei nur die naudit-Ergebnisse, die der 41 anderen Tools
+> bleiben stehen.
+
 - [ ] **Step 4: Judge-Lauf Opus 4.5**
 
 Dieselben drei Befehle mit `MARTIAN_MODEL=anthropic/claude-opus-4-5-20251101` und
 `MARTIAN_MODEL_ENDPOINT=anthropic/claude-opus-4.5`, `--dedup-groups` entsprechend auf
-`results/anthropic_claude-opus-4-5-20251101/dedup_groups.json`.
+`results/anthropic_claude-opus-4-5-20251101/dedup_groups.json` — bei einem Wiederholungslauf
+mit demselben `--force`-Vorbehalt.
 
 - [ ] **Step 5: Dashboard und Export**
 

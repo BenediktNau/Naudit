@@ -22,6 +22,9 @@ fängt die Review-Kommentare ab, statt sie zu posten.
 | `NAUDIT_BENCHMARK_LIMIT` | Anzahl Reviews in diesem Lauf (Default: alle; `1` für den Smoke-Test, `0` für reinen Preflight) |
 | `NAUDIT_BENCHMARK_PAUSE_SECONDS` | Pause zwischen Reviews, Default 20 (Abo-Kontingent) |
 
+Die beiden Zahlen scheitern **laut**, wenn sie gesetzt, aber unlesbar oder negativ sind — ein
+Tippfehler in `NAUDIT_BENCHMARK_LIMIT` liefe sonst still als Vollauf über alle 50 PRs durch.
+
 Naudits eigene Konfiguration kommt wie gewohnt über `Naudit__*`-Variablen — siehe den
 Implementierungsplan, Task 8.
 
@@ -34,8 +37,28 @@ dotnet run --project tools/Naudit.Benchmark                            # Vollauf
 ```
 
 Der Lauf ist unterbrechbar: erledigte PRs stehen in der Ergebnisdatei und werden beim nächsten
-Start übersprungen. Am Ende meldet das Werkzeug auffällige Reviews (Fehler, fehlender Checkout,
-Warnungen aus der Pipeline) — die gehören wiederholt, **nicht** importiert, sonst zählt ein
-stumm degradiertes Review als „nichts gefunden".
+Start übersprungen.
 
-Import und Auswertung danach: `tools/benchmark/README` bzw. Task 9 des Plans.
+## Diagnose je Review
+
+Naudits Pipeline ist fail-open: ein gescheiterter Checkout, eine gescheiterte Profil-Destillation
+oder eine leer gebliebene Kontextsammlung ergeben still ein schwächeres Review — teils ohne dass
+irgendjemand es loggt. Der Lauf hält deshalb je Review fest:
+
+| Feld | Bedeutung |
+|---|---|
+| `checkoutRequested` / `checkoutFailed` | ob ein Checkout versucht wurde und ob er warf |
+| `headRef` / `headSha` | welcher Ref und welcher **Commit** tatsächlich ausgecheckt war (die Klon-URL trägt das Token und wird nie festgehalten) |
+| `contextInPrompt` / `guidelinesInPrompt` | ob der Prompt die Repo-Kontext- bzw. Architektur-Profil-Sektion trug |
+| `inputTokens` / `outputTokens` | Token-Verbrauch aus `ChatResponse.Usage` |
+| `changedFiles` | gesehene Dateien — bei 100 ist die Seitengrenze von `GetChangesAsync` erreicht und der PR womöglich gekürzt reviewt |
+| `warnings` / `error` / `durationSeconds` | was die Pipeline geloggt hat, ein Abbruch, die Laufzeit |
+
+Am Ende meldet das Werkzeug alle auffälligen Reviews. Die gehören **wiederholt, nicht importiert** —
+sonst zählt ein stumm degradiertes Review als „nichts gefunden". `import_reviews.py` lehnt dieselben
+Datensätze ab.
+
+Getrennt davon steht ein Hinweis-Block für PRs mit voller Dateiseite: die sind kein
+Wiederholungsgrund (ein erneuter Lauf sähe dasselbe), gehören aber als Grenze in die Arbeit.
+
+Import und Auswertung danach: `tools/benchmark/import_reviews.py` bzw. Task 9 des Plans.

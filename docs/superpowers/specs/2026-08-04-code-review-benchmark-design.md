@@ -78,7 +78,7 @@ This design keeps the benchmark's measurement untouched and replaces only its co
 | Step | Script | Role |
 |---|---|---|
 | 1 | `step1_download_prs.py` | Harvest tool comments from the fixture PRs → `benchmark_data.json`. **Replaced locally** (see below). |
-| 2 | `step2_extract_comments.py` | Line-specific comments become candidates directly; prose comments go to an LLM that extracts distinct issues. |
+| 2 | `step2_extract_comments.py` | All of a tool's comment bodies for one PR are concatenated and sent to an LLM, which extracts the distinct issues as candidates. Line-bound comments are *not* short-circuited into candidates — they go through the same extraction. |
 | 2.5 | `step2_5_dedup_candidates.py` | An LLM groups candidates expressing the same concern so a tool is not penalised for repeating itself in summary and inline form. |
 | 3 | `step3_judge_comments.py` | Cartesian product: every golden comment × every candidate of that PR, one small LLM call each → TP/FP/FN, precision, recall. |
 | 4 | `analysis/benchmark_dashboard.py` | Regenerates dashboard JSON + HTML. |
@@ -150,7 +150,7 @@ afterwards — cheaper, and consistent across the PRs of one repository.
 `Trigger = Ci` keeps the roundtrip limit out of the way; it would not bite at one review per PR
 anyway, but the intent should be explicit.
 
-### 2. Import — `scripts/naudit/import_reviews.py`
+### 2. Import — `tools/benchmark/import_reviews.py`
 
 Merges `naudit-reviews.json` into `results/benchmark_data.json` as a review entry with
 `tool: "naudit"`, in exactly the shape `step1` produces:
@@ -164,6 +164,12 @@ The summary becomes one entry with `path: null, line: null` (matching how `step1
 top-level review bodies), each inline comment one entry with its path and line. Existing keys —
 above all `golden_comments` — are read and written back untouched; the script refuses to run if
 a `naudit` entry already exists unless `--force` is given.
+
+It also refuses to run on an **incomplete** run: every key of `benchmark_data.json` must have a
+record. The benchmark computes recall per tool over all PRs of the target file, so importing 30
+of 50 would score Naudit over 30 PRs while the other 41 tools are scored over 50 — and the
+missing ones would be exactly the hard ones, making Naudit look better than it is.
+`--allow-partial` overrides this and prints a loud warning saying the number is not comparable.
 
 ### 3. Judge routing — `MARTIAN_MODEL_ENDPOINT`
 
@@ -214,10 +220,29 @@ Judge (`offline/.env`): `MARTIAN_API_KEY` = OpenRouter key,
   retried on the next start rather than being recorded as "found nothing".
 - **Fail-open is a defect here.** Naudit deliberately continues when the checkout, the
   architecture profile or a SAST analyzer fails. In production that is right; in a benchmark it
-  silently produces a worse review with no trace. The harness therefore records per review
-  whether the workspace checkout succeeded, whether guidelines were non-empty, prompt and
-  completion token counts, and the wall-clock duration. Any review with a failed checkout or an
-  empty profile is reported at the end and re-run rather than imported.
+  silently produces a worse review with no trace. Worse, most of those paths are not even logged:
+  `GitHubPlatform.GetCheckoutAsync` throws through `EnsureSuccessStatusCode`,
+  `ReviewService.GatherGroundingAsync` swallows it, `WorkspaceContextCollector` has no logger at
+  all, and the audit sink logs only its success case. The harness therefore records per review:
+  whether the checkout was requested and whether it **failed**, the actually checked-out commit,
+  whether the prompt carried the repository-context and the architecture-profile section, prompt
+  and completion token counts, the number of changed files, the wall-clock duration, and every
+  `Warning`/`Error` the pipeline did log.
+
+  Three decorators supply this, all in `tools/`, none touching `src/`: `IGitPlatform` (checkout
+  outcome, changed-file count, capture instead of post), `IChatClient` (what the outgoing prompt
+  contained, token counts) and `IWorkspaceProvider` (the resolved head commit, failed clone). The
+  chat decorator has to tell the architecture-profile **distillation** call apart from the review
+  call, because both go through the same global client: a call counts as the review only if its
+  user text carries both headings `PromptBuilder.Build` always writes (`# Merge Request: ` and
+  `# Static-analysis & dependency findings`); the distillation prompt is nothing but repository
+  documents and cannot carry both. The last such call wins, since the review call follows the
+  grounding.
+
+  Any review with a failed checkout, a missing context section, a missing profile section, a
+  pipeline warning or an error is reported at the end and re-run rather than imported — and
+  `import_reviews.py` refuses those same records, treating a missing diagnostic field as a
+  rejection rather than a pass.
 - **A failed review is not an empty review.** Only reviews that completed are written; the
   importer refuses to import a run whose diagnostic log contains unresolved failures.
 - **Judging is incremental.** `step3` tracks completed `(PR, tool)` pairs, so an interrupted
@@ -239,7 +264,7 @@ three minutes each.
 
 ## Deviations from the upstream pipeline
 
-Two, both to be stated in the thesis:
+Three, all to be stated in the thesis:
 
 1. **Collection is local.** Naudit's comments are captured through a decorating `IGitPlatform`
    rather than harvested from forked PRs by `step1`. Review inputs are identical — same
@@ -247,6 +272,19 @@ Two, both to be stated in the thesis:
    provably the same as the posted one (decision 1).
 2. **Judge model names are mapped** to OpenRouter's ids, because the benchmark's own router has
    no self-serve access. Same models, same snapshots.
+3. **The fixture is not frozen.** The comparison tools reviewed *pushed snapshots*, not the live
+   pull requests. Each `pr_url` in `benchmark_data.json` carries the push date in its repository
+   name (`keycloak__keycloak__augment__PR37634__20260122/pull/1`), and those dates run from
+   **2026-01-22 to 2026-04-06** — the earliest and largest cohort (augment, coderabbit, copilot,
+   greptile, bugbot, propel, baz: 350 reviews) is 2026-01-22, the later tool generations were
+   pushed in March and April. Naudit reads the upstream pull request *today*, months after every
+   one of them. For a pull request that is still open and has received further commits since, the
+   diff and the head Naudit sees are not the ones the other tools saw — and the tools do not even
+   share one state among themselves. This cannot be avoided without the fork route (out of scope),
+   so it is mitigated by recording, per review, the head commit Naudit actually checked out
+   (`headSha` in `naudit-reviews.json`, read from `.git/HEAD` of the workspace — the clone URL
+   carries the token and is deliberately never recorded). That makes the divergence auditable
+   after the fact instead of invisible.
 
 Extraction, deduplication, judge prompt and metric are untouched.
 
@@ -263,6 +301,21 @@ Extraction, deduplication, judge prompt and metric are untouched.
   placement is stable across judges.
 - **Single run.** No repeated sampling, so run-to-run variance of Naudit itself is not
   characterised.
+- **The fixture is not frozen.** Same fact as deviation 3, and it belongs in the limitations too:
+  Naudit reviews today's state of each pull request, the other tools reviewed snapshots pushed
+  between 2026-01-22 and 2026-04-06. For a still-open PR that has grown since, the two are not the
+  same input, and the golden comments were annotated against the older one. The recorded `headSha`
+  per review lets the thesis state which state was measured, but it does not remove the
+  divergence — nor the fact that the 41 comparison tools are themselves spread over three months
+  of snapshots.
+- **No pagination.** `GitHubPlatform.GetChangesAsync` fetches a single page (`per_page=100`) — a
+  deliberate POC limit of the product, not of the harness. A pull request with more than 100
+  changed files would be reviewed on a truncated diff, and the golden comments for the omitted
+  files could never be found. The runner records the changed-file count per review and lists every
+  PR that hit a full page separately at the end; those are *not* re-run (a re-run would see the
+  same thing) but reported as a limitation. The count is a lower bound: files without a patch
+  (binary or too large) are already filtered out, so a full page containing binaries shows up
+  below 100.
 
 ## Testing
 
