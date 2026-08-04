@@ -312,7 +312,7 @@ public sealed class CapturingGitPlatform(IGitPlatform inner, ReviewCapture captu
 - [ ] **Step 8: Test laufen lassen und Erfolg bestätigen**
 
 Run: `dotnet test tests/Naudit.Tests/Naudit.Tests.csproj --filter BenchmarkCaptureTests`
-Expected: PASS (6 Tests)
+Expected: PASS (5 Tests)
 
 - [ ] **Step 9: Committen**
 
