@@ -80,7 +80,16 @@ RUN go mod init naudit/betterleaks-build \
 # gewollt -- der Pin oben waere dann wirkungslos geworden, ohne dass es jemand merkt. Fix in dem
 # Fall: XTEXT_VERSION auf die neue Version ziehen (oder, wenn betterleaks weit genug ist, den
 # ganzen Override samt Hilfsmodul wieder ausbauen).
-RUN go version -m /go/bin/betterleaks | grep -qE "golang\.org/x/text[[:space:]]+v${XTEXT_VERSION}"
+# Beide Grenzen sind noetig, aus demselben Grund in zwei Richtungen -- ein Teilstring-Treffer
+# taeuscht den Guard:
+#   rechts fehlend: v0.39.0-rc1 enthaelt "v0.39.0", liegt semver-maessig aber VOR 0.39.0 und
+#                   traegt den Fix gar nicht;
+#   links fehlend:  example.com/golang.org/x/text v0.39.0 wuerde als Modulpfad durchgehen,
+#                   obwohl das echte golang.org/x/text gar nicht in der Liste steht.
+# Beides haette die CVE still wieder ins Image gelassen -- genau das, was der Guard verhindert.
+# Whitespace-oder-Rand statt harter ^/$: `go version -m` rahmt die Zeile mit Tabs (dep-Marker
+# davor, Hash dahinter).
+RUN go version -m /go/bin/betterleaks | grep -qE "(^|[[:space:]])golang\.org/x/text[[:space:]]+v${XTEXT_VERSION}([[:space:]]|\$)"
 
 # --- Runtime-Stage: schlankes ASP.NET-Image, non-root ---
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:1fa23fc4872d95fd71c2833ebe65d7e84a43b2d51a31d119516852f13d9505a7 AS runtime
