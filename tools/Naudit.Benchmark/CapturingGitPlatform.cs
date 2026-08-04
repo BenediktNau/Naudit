@@ -13,8 +13,12 @@ public sealed class CapturingGitPlatform(IGitPlatform inner, ReviewCapture captu
     /// dass hier die konfigurierte Plattform steckt und nicht irgendein Platzhalter.</summary>
     public IGitPlatform Inner => inner;
 
-    public Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
-        => inner.GetChangesAsync(request, ct);
+    public async Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
+    {
+        var changes = await inner.GetChangesAsync(request, ct);
+        capture.RecordChanges(changes.Count);
+        return changes;
+    }
 
     /// <summary>Erfolg wird erst NACH der Rückkehr vermerkt, ein Fehlschlag getrennt. Zählte man
     /// vorher, wäre ein am Rate-Limit gescheiterter Checkout als erfolgreich diagnostiziert — und

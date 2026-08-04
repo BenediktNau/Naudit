@@ -60,6 +60,10 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 
+# Python-Artefakte (tools/benchmark: Importer + pytest)
+__pycache__/
+.pytest_cache/
+
 # Local tooling downloads (e.g. ngrok for manual E2E testing)
 ngrok
 ngrok-*.tgz

@@ -10,7 +10,7 @@ public class BenchmarkAnomalyTests
     private static ReviewDiagnostics Good() => new(
         CheckoutRequested: true, CheckoutFailed: false, HeadRef: "refs/pull/1/head",
         ContextInPrompt: true, GuidelinesInPrompt: true, InputTokens: 1000, OutputTokens: 200,
-        Warnings: [], DurationSeconds: 12.5, Error: null);
+        ChangedFiles: 7, Warnings: [], DurationSeconds: 12.5, Error: null);
 
     [Fact]
     public void Ein_vollstaendiges_Review_ist_unauffaellig()
@@ -50,6 +50,19 @@ public class BenchmarkAnomalyTests
         Assert.Contains(ReviewAnomalies.Of(Good() with { Error = "boom" }), r => r.Contains("boom"));
         Assert.Contains(ReviewAnomalies.Of(Good() with { Warnings = ["git fetch schlug fehl"] }),
             r => r.Contains("git fetch"));
+    }
+
+    [Theory]
+    [InlineData(99, false)]
+    [InlineData(100, true)]
+    [InlineData(140, true)]
+    public void Volle_Dateiseite_gilt_als_moeglicherweise_gekuerzt(int changedFiles, bool truncated)
+    {
+        // GetChangesAsync holt nur eine Seite (per_page=100). Kein Wiederholungsgrund (ein erneuter
+        // Lauf sähe dasselbe), deshalb bewusst KEINE Auffälligkeit — nur ein eigener Vermerk.
+        var d = Good() with { ChangedFiles = changedFiles };
+        Assert.Equal(truncated, d.PossiblyTruncated);
+        Assert.Empty(ReviewAnomalies.Of(d));
     }
 
     [Fact]

@@ -15,9 +15,9 @@ var benchmarkRepo = Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_REPO")
 var goldenDir = Path.Combine(benchmarkRepo, "offline", "golden_comments");
 var outputPath = Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_OUTPUT")
     ?? Path.Combine(benchmarkRepo, "offline", "results", "naudit-reviews.json");
-var limit = int.TryParse(Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_LIMIT"), out var l) ? l : int.MaxValue;
-var pause = TimeSpan.FromSeconds(
-    int.TryParse(Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_PAUSE_SECONDS"), out var p) ? p : 20);
+// Gesetzt, aber unlesbar ⇒ Abbruch statt stiller Default (siehe EnvNumbers).
+var limit = EnvNumbers.Read("NAUDIT_BENCHMARK_LIMIT", int.MaxValue);
+var pause = TimeSpan.FromSeconds(EnvNumbers.Read("NAUDIT_BENCHMARK_PAUSE_SECONDS", 20));
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("benchmark.appsettings.json", optional: true)
@@ -101,15 +101,20 @@ foreach (var entry in todo)
         GuidelinesInPrompt: capture.GuidelinesInPrompt,
         InputTokens: capture.InputTokens,
         OutputTokens: capture.OutputTokens,
+        ChangedFiles: capture.ChangedFiles,
         Warnings: collected,
         DurationSeconds: sw.Elapsed.TotalSeconds,
         Error: error);
 
     store.Append(new BenchmarkRecord(entry.Url, captured, diagnostics));
     Console.WriteLine($"    {captured.Comments.Count} Inline-Kommentare, {captured.Verdict}, {sw.Elapsed.TotalSeconds:F0}s, " +
+        $"{diagnostics.ChangedFiles} Dateien, " +
         $"{diagnostics.InputTokens?.ToString() ?? "?"}/{diagnostics.OutputTokens?.ToString() ?? "?"} Tokens");
     foreach (var reason in ReviewAnomalies.Of(diagnostics))
         Console.WriteLine($"    ACHTUNG: {reason}");
+    if (diagnostics.PossiblyTruncated)
+        Console.WriteLine($"    ACHTUNG: {diagnostics.ChangedFiles} geänderte Dateien — GetChangesAsync holt nur eine Seite " +
+            $"(per_page={ReviewDiagnostics.PageLimit}); dieser PR wurde womöglich gekürzt reviewt.");
 
     if (index < todo.Count)
         await Task.Delay(pause);
@@ -128,4 +133,16 @@ if (suspicious.Count > 0)
     Console.WriteLine($"ACHTUNG — {suspicious.Count} auffällige Reviews (vor dem Import wiederholen):");
     foreach (var (url, reasons) in suspicious)
         Console.WriteLine($"  {url}: {string.Join(" | ", reasons)}");
+}
+
+// Gekürzt reviewte PRs stehen separat: ein Wiederholungslauf sähe dasselbe (die Seitengrenze ist
+// eine POC-Grenze von GetChangesAsync, kein transienter Fehler). Sie gehören in die Arbeit, nicht
+// in die Wiederholungsliste.
+var truncated = store.All().Where(r => r.Diagnostics.PossiblyTruncated).ToList();
+if (truncated.Count > 0)
+{
+    Console.WriteLine($"HINWEIS — {truncated.Count} PRs mit voller Dateiseite (per_page={ReviewDiagnostics.PageLimit}), " +
+        "womöglich gekürzt reviewt — in der Arbeit als Grenze nennen:");
+    foreach (var r in truncated)
+        Console.WriteLine($"  {r.Url}: {r.Diagnostics.ChangedFiles} Dateien");
 }

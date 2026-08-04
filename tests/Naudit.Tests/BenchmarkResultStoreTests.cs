@@ -12,7 +12,7 @@ public class BenchmarkResultStoreTests
                 .ToList()),
         new ReviewDiagnostics(CheckoutRequested: true, CheckoutFailed: false, HeadRef: "refs/pull/1/head",
             ContextInPrompt: true, GuidelinesInPrompt: true, InputTokens: 1000, OutputTokens: 200,
-            Warnings: [], DurationSeconds: 12.5, Error: error));
+            ChangedFiles: 7, Warnings: [], DurationSeconds: 12.5, Error: error));
 
     [Fact]
     public void CompletedUrls_ist_leer_wenn_die_Datei_noch_nicht_existiert()

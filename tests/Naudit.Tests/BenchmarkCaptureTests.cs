@@ -9,15 +9,18 @@ public class BenchmarkCaptureTests
     private static ReviewRequest Request() => new("getsentry/sentry", 93824, "Titel");
 
     [Fact]
-    public async Task GetChangesAsync_delegiert_an_die_innere_Plattform()
+    public async Task GetChangesAsync_delegiert_und_haelt_die_Dateizahl_fest()
     {
         var inner = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@")]);
-        var sut = new CapturingGitPlatform(inner, new ReviewCapture());
+        var capture = new ReviewCapture();
+        var sut = new CapturingGitPlatform(inner, capture);
 
         var changes = await sut.GetChangesAsync(Request());
 
         Assert.Single(changes);
         Assert.Equal("a.cs", changes[0].FilePath);
+        // Die Dateizahl deckt die Seitengrenze von GetChangesAsync auf (per_page=100).
+        Assert.Equal(1, capture.ChangedFiles);
     }
 
     [Fact]

@@ -18,10 +18,21 @@ namespace Naudit.Benchmark;
 /// <param name="GuidelinesInPrompt">Trug der Review-Prompt das Architektur-Profil?</param>
 /// <param name="InputTokens">Prompt-Tokens aus ChatResponse.Usage (null ⇒ Provider meldet keins).</param>
 /// <param name="OutputTokens">Antwort-Tokens aus ChatResponse.Usage.</param>
+/// <param name="ChangedFiles">Geänderte Dateien, die der Review sah. GetChangesAsync holt nur eine
+/// Seite (per_page=100) — bei <see cref="PageLimit"/> ist der PR womöglich gekürzt reviewt.</param>
 public sealed record ReviewDiagnostics(
     bool CheckoutRequested, bool CheckoutFailed, string? HeadRef,
     bool ContextInPrompt, bool GuidelinesInPrompt, long? InputTokens, long? OutputTokens,
-    IReadOnlyList<string> Warnings, double DurationSeconds, string? Error);
+    int ChangedFiles, IReadOnlyList<string> Warnings, double DurationSeconds, string? Error)
+{
+    /// <summary>Seitengröße von GitHubPlatform.GetChangesAsync (per_page=100, bewusste POC-Grenze).</summary>
+    public const int PageLimit = 100;
+
+    /// <summary>Ein voller Seiten-Treffer: der Pull Request hat möglicherweise mehr geänderte
+    /// Dateien, als der Review gesehen hat. Kein Wiederholungsgrund (ein erneuter Lauf sähe
+    /// dasselbe), aber ein Vermerk für die Arbeit.</summary>
+    public bool PossiblyTruncated => ChangedFiles >= PageLimit;
+}
 
 /// <summary>Ein Datensatz je PR: was Naudit gesagt hätte, plus unter welchen Bedingungen.</summary>
 public sealed record BenchmarkRecord(string Url, CapturedReview Review, ReviewDiagnostics Diagnostics);

@@ -63,6 +63,14 @@ public sealed class ReviewCapture
 
     public long? OutputTokens { get; private set; }
 
+    /// <summary>Wie viele geänderte Dateien der Review sah. GitHubPlatform.GetChangesAsync holt
+    /// bewusst nur EINE Seite (per_page=100) — bei 100 ist der Pull Request womöglich still gekürzt
+    /// reviewt. Untergrenze: Dateien ohne Patch (binär/zu groß) sind hier schon aussortiert, ein
+    /// voller Seiten-Treffer mit Binärdateien liegt darunter.</summary>
+    public int ChangedFiles { get; private set; }
+
+    public void RecordChanges(int count) => ChangedFiles = count;
+
     public void RecordReviewPrompt(bool contextInPrompt, bool guidelinesInPrompt, long? inputTokens, long? outputTokens)
     {
         ReviewPromptSeen = true;
@@ -93,5 +101,6 @@ public sealed class ReviewCapture
         GuidelinesInPrompt = false;
         InputTokens = null;
         OutputTokens = null;
+        ChangedFiles = 0;
     }
 }
