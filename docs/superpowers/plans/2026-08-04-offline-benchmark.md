@@ -19,6 +19,20 @@ keine Migration, keine Frontend-Änderung.
 
 **Spec:** `docs/superpowers/specs/2026-08-04-code-review-benchmark-design.md`
 
+> **Der Code im Repo ist maßgeblich, nicht die Blöcke in diesem Plan.** Die Reviews haben an
+> mehreren Stellen Fehler in den hier ausgeschriebenen Entwürfen gefunden; der umgesetzte Stand
+> weicht deshalb bewusst ab. Wer aus diesem Dokument reimplementiert, holt sich die behobenen
+> Fehler zurück. Die wichtigsten Abweichungen:
+>
+> | Stelle | Im Plan unten | Umgesetzt |
+> |---|---|---|
+> | `ResultStore` (Task 3) | `File.WriteAllText`, ungeschützter `Deserialize`, `RemoveAll`+`Add` | atomar über Temp-Datei, korrupte Datei als `.corrupt` beiseite, positionserhaltendes Ersetzen |
+> | `CapturingGitPlatform` (Task 1) | zählt den Checkout **vor** dem Aufruf | zählt Erfolg erst nach Rückkehr, Fehlschlag getrennt |
+> | `ReviewDiagnostics` (Task 3) | zwei Werte | zusätzlich Kontext-/Guidelines-Nachweis, Token-Zahlen, Dateizahl, ausgecheckter Stand |
+> | Diagnose-Quellen (Task 5) | nur Logger-Warnungen | zusätzlich ein `IChatClient`-Dekorator und ein `IWorkspaceProvider`-Dekorator |
+> | `import_reviews.py` (Task 6) | schreibt direkt, akzeptiert Teilläufe | atomar über `os.replace`, verweigert unvollständige Läufe (`--allow-partial`) |
+> | Umgebungsvariablen (Task 5) | handgebautes Einlesen | `Microsoft.Extensions.Configuration.EnvironmentVariables` |
+
 ## Global Constraints
 
 - Solution-Datei ist `Naudit.slnx`, **nicht** `Naudit.sln`.
