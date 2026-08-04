@@ -17,9 +17,16 @@ def record(url="https://github.com/getsentry/sentry/pull/1"):
             ],
         },
         "diagnostics": {"checkoutRequested": True, "checkoutFailed": False,
-                        "headRef": "refs/pull/1/head", "warnings": [],
+                        "headRef": "refs/pull/1/head",
+                        "contextInPrompt": True, "guidelinesInPrompt": True,
+                        "inputTokens": 1000, "outputTokens": 200, "warnings": [],
                         "durationSeconds": 12.5, "error": None},
     }
+
+
+def diagnostics(**overrides):
+    """Vollständige Diagnose eines sauberen Laufs, feldweise überschreibbar."""
+    return record()["diagnostics"] | overrides
 
 
 def test_summary_wird_als_kommentar_ohne_pfad_gefuehrt():
@@ -95,19 +102,25 @@ def test_merge_ersetzt_existierenden_naudit_mit_force():
     assert [r["tool"] for r in pr["reviews"]] == ["coderabbit", "naudit"]
 
 
-@pytest.mark.parametrize("diagnostics", [
-    {"checkoutRequested": True, "warnings": [], "error": "Checkout fehlgeschlagen"},
-    {"checkoutRequested": False, "warnings": [], "error": None},
-    {"checkoutRequested": True, "warnings": ["Warning: git fetch schlug fehl"], "error": None},
+@pytest.mark.parametrize("diag", [
+    diagnostics(error="Checkout fehlgeschlagen"),
+    diagnostics(checkoutRequested=False),
+    diagnostics(warnings=["Warning: git fetch schlug fehl"]),
     # Checkout angefragt, aber die Ausnahme fiel unter den Tisch (GitHub-Rate-Limit): das Review
     # lief diff-only, ohne Repo-Kontext und ohne frisches Profil — und niemand hat es geloggt.
-    {"checkoutRequested": True, "checkoutFailed": True, "warnings": [], "error": None},
+    diagnostics(checkoutFailed=True),
+    # Kontextsammlung kam leer zurück (WorkspaceContextCollector hat nicht einmal einen Logger).
+    diagnostics(contextInPrompt=False),
+    # Profil-Destillation ohne Workspace oder ohne gefundene Quelldokumente.
+    diagnostics(guidelinesInPrompt=False),
+    # Alte Ergebnisdatei ohne die neuen Felder: fehlend heißt ablehnen, nicht durchwinken.
+    {"checkoutRequested": True, "warnings": [], "error": None},
 ])
-def test_merge_verweigert_import_bei_degradiertem_review(diagnostics):
+def test_merge_verweigert_import_bei_degradiertem_review(diag):
     # Alle Fälle heißen: das Review lief nicht unter vollen Bedingungen. Importiert
     # zählte es als "nichts gefunden" und würde den Recall verfälschen.
     bad = record()
-    bad["diagnostics"] = diagnostics
+    bad["diagnostics"] = diag
     data = {"https://github.com/getsentry/sentry/pull/1": {"golden_comments": [], "reviews": []}}
     with pytest.raises(SystemExit):
         merge(data, [bad], force=False)

@@ -31,18 +31,31 @@ def build_review_entry(record: dict) -> dict:
     }
 
 
+def degradation_reason(diag: dict) -> str | None:
+    """Lief das Review NICHT unter vollen Bedingungen? Dann der Grund, sonst None.
+
+    Spiegelt ReviewAnomalies.Of im Runner. Fehlende Felder (Ergebnisdatei aus einem älteren
+    Lauf) gelten bewusst als "nicht nachgewiesen" und damit als Ablehnungsgrund — die sichere
+    Richtung: lieber ein Review erneut fahren als ein degradiertes in die Zahl lassen.
+    """
+    if diag.get("error"):
+        return f"Fehler: {diag['error']}"
+    if not diag.get("checkoutRequested", False):
+        return "kein Checkout angefragt — Review lief ohne Repo-Kontext"
+    if diag.get("checkoutFailed", False):
+        return "Checkout fehlgeschlagen — Review lief diff-only, ohne Repo-Kontext und ohne frisches Profil"
+    if not diag.get("contextInPrompt", False):
+        return "kein Repo-Kontext im Prompt — die Kontextsammlung kam leer zurück"
+    if not diag.get("guidelinesInPrompt", False):
+        return "kein Architektur-Profil im Prompt — Destillation leer oder gescheitert"
+    if diag.get("warnings"):
+        return "Warnungen der Pipeline: " + " | ".join(diag["warnings"])
+    return None
+
+
 def merge(data: dict, records: list[dict], force: bool) -> dict:
     for record in records:
-        diag = record.get("diagnostics") or {}
-        reason = None
-        if diag.get("error"):
-            reason = f"Fehler: {diag['error']}"
-        elif not diag.get("checkoutRequested", False):
-            reason = "kein Checkout angefragt — Review lief ohne Repo-Kontext"
-        elif diag.get("checkoutFailed", False):
-            reason = "Checkout fehlgeschlagen — Review lief diff-only, ohne Repo-Kontext und ohne frisches Profil"
-        elif diag.get("warnings"):
-            reason = "Warnungen der Pipeline: " + " | ".join(diag["warnings"])
+        reason = degradation_reason(record.get("diagnostics") or {})
         if reason:
             # Naudit ist fail-open: ein degradiertes Review sieht im Ergebnis nur schwächer aus.
             # Importiert verfälschte es den Recall — also wiederholen statt übernehmen.

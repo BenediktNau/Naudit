@@ -97,18 +97,19 @@ foreach (var entry in todo)
         CheckoutRequested: capture.CheckoutRequested,
         CheckoutFailed: capture.CheckoutFailures > 0,
         HeadRef: capture.HeadRef,
+        ContextInPrompt: capture.ContextInPrompt,
+        GuidelinesInPrompt: capture.GuidelinesInPrompt,
+        InputTokens: capture.InputTokens,
+        OutputTokens: capture.OutputTokens,
         Warnings: collected,
         DurationSeconds: sw.Elapsed.TotalSeconds,
         Error: error);
 
     store.Append(new BenchmarkRecord(entry.Url, captured, diagnostics));
-    Console.WriteLine($"    {captured.Comments.Count} Inline-Kommentare, {captured.Verdict}, {sw.Elapsed.TotalSeconds:F0}s");
-    if (!diagnostics.CheckoutRequested)
-        Console.WriteLine("    ACHTUNG: kein Checkout angefragt — Review lief ohne Repo-Kontext.");
-    if (diagnostics.CheckoutFailed)
-        Console.WriteLine("    ACHTUNG: Checkout fehlgeschlagen — Review lief ohne Repo-Kontext und ohne frisches Profil.");
-    foreach (var w in collected)
-        Console.WriteLine($"    WARNUNG: {w}");
+    Console.WriteLine($"    {captured.Comments.Count} Inline-Kommentare, {captured.Verdict}, {sw.Elapsed.TotalSeconds:F0}s, " +
+        $"{diagnostics.InputTokens?.ToString() ?? "?"}/{diagnostics.OutputTokens?.ToString() ?? "?"} Tokens");
+    foreach (var reason in ReviewAnomalies.Of(diagnostics))
+        Console.WriteLine($"    ACHTUNG: {reason}");
 
     if (index < todo.Count)
         await Task.Delay(pause);
@@ -117,22 +118,14 @@ foreach (var entry in todo)
 // Abschlussbericht: was noch fehlt und was auffällig war.
 var remaining = entries.Count - store.CompletedUrls.Count;
 var suspicious = store.All()
-    .Where(r => r.Diagnostics.Error is not null
-             || !r.Diagnostics.CheckoutRequested
-             || r.Diagnostics.CheckoutFailed
-             || r.Diagnostics.Warnings.Count > 0)
+    .Select(r => (r.Url, Reasons: ReviewAnomalies.Of(r.Diagnostics)))
+    .Where(x => x.Reasons.Count > 0)
     .ToList();
 Console.WriteLine();
 Console.WriteLine($"Fertig: {store.CompletedUrls.Count}/{entries.Count}, offen: {remaining}");
 if (suspicious.Count > 0)
 {
     Console.WriteLine($"ACHTUNG — {suspicious.Count} auffällige Reviews (vor dem Import wiederholen):");
-    foreach (var r in suspicious)
-    {
-        var reason = r.Diagnostics.Error
-            ?? (!r.Diagnostics.CheckoutRequested ? "kein Checkout angefragt"
-                : r.Diagnostics.CheckoutFailed ? "Checkout fehlgeschlagen"
-                : string.Join(" | ", r.Diagnostics.Warnings));
-        Console.WriteLine($"  {r.Url}: {reason}");
-    }
+    foreach (var (url, reasons) in suspicious)
+        Console.WriteLine($"  {url}: {string.Join(" | ", reasons)}");
 }

@@ -44,6 +44,34 @@ public sealed class ReviewCapture
 
     public void RecordCheckoutFailed() => CheckoutFailures++;
 
+    /// <summary>Wurde überhaupt ein Review-Prompt gesehen? false nach einem abgeschlossenen Review
+    /// hieße: der LLM-Aufruf lief nicht über den Dekorator (Verdrahtung kaputt).</summary>
+    public bool ReviewPromptSeen { get; private set; }
+
+    /// <summary>Trug der Review-Prompt die Repo-Kontext-Sektion? false ⇒ die Kontextsammlung kam
+    /// leer zurück (Checkout weg oder Sammler-Fehler — der WorkspaceContextCollector hat nicht
+    /// einmal einen Logger, ReviewService.SafeCollectContextAsync schluckt still).</summary>
+    public bool ContextInPrompt { get; private set; }
+
+    /// <summary>Trug der Review-Prompt das Architektur-Profil? false ⇒ Destillation ohne Workspace,
+    /// ohne Quelldokumente oder komplett gescheitert (DistillingReviewGuidelines ist fail-open).</summary>
+    public bool GuidelinesInPrompt { get; private set; }
+
+    /// <summary>Token-Zahlen aus ChatResponse.Usage (der ClaudeCode-Adapter füllt sie). Ein
+    /// auffällig kleiner Prompt-Wert verrät einen gekürzten oder degradierten Prompt.</summary>
+    public long? InputTokens { get; private set; }
+
+    public long? OutputTokens { get; private set; }
+
+    public void RecordReviewPrompt(bool contextInPrompt, bool guidelinesInPrompt, long? inputTokens, long? outputTokens)
+    {
+        ReviewPromptSeen = true;
+        ContextInPrompt = contextInPrompt;
+        GuidelinesInPrompt = guidelinesInPrompt;
+        InputTokens = inputTokens;
+        OutputTokens = outputTokens;
+    }
+
     public void Record(ReviewRequest request, string summaryMarkdown,
         IReadOnlyList<InlineComment> comments, ReviewVerdict verdict)
         => Last = new CapturedReview(
@@ -60,5 +88,10 @@ public sealed class ReviewCapture
         CheckoutSuccesses = 0;
         CheckoutFailures = 0;
         HeadRef = null;
+        ReviewPromptSeen = false;
+        ContextInPrompt = false;
+        GuidelinesInPrompt = false;
+        InputTokens = null;
+        OutputTokens = null;
     }
 }
