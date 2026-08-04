@@ -50,6 +50,11 @@ admin:
 extraEnv: []
 # - name: Naudit__AccessGate__Mode
 #   value: Registered
+# Produktions-Haertung: ohne KnownNetworks vertraut Naudit den X-Forwarded-*-
+# Headern jeder Quelle — wer den Ingress umgeht, faelscht damit Schema und
+# Client-IP. Pod-Netz des Ingress-Controllers eintragen:
+# - name: Naudit__ForwardedHeaders__KnownNetworks__0
+#   value: "10.42.0.0/16"
 
 # Docker-in-Docker-Sidecar — die Engine, die die dynamische Pruefung (DAST)
 # und optional die Session-Sandbox brauchen.
