@@ -14,6 +14,9 @@ namespace Naudit.Benchmark;
 /// frisches Architektur-Profil — geloggt wird das nirgends.</param>
 /// <param name="HeadRef">Der Ref, den Naudit ausgecheckt hat. Die Klon-URL wird NICHT festgehalten
 /// (sie trägt das Token).</param>
+/// <param name="HeadSha">Der tatsächlich ausgecheckte Commit. Die Vorlage ist nicht eingefroren —
+/// bei noch offenen Pull Requests wandert der Head weiter, und die 41 Vergleichstools reviewten
+/// einen Schnappschuss vom Januar 2026. Dies hält fest, was Naudit gesehen hat.</param>
 /// <param name="ContextInPrompt">Trug der Review-Prompt die Repo-Kontext-Sektion?</param>
 /// <param name="GuidelinesInPrompt">Trug der Review-Prompt das Architektur-Profil?</param>
 /// <param name="InputTokens">Prompt-Tokens aus ChatResponse.Usage (null ⇒ Provider meldet keins).</param>
@@ -21,7 +24,7 @@ namespace Naudit.Benchmark;
 /// <param name="ChangedFiles">Geänderte Dateien, die der Review sah. GetChangesAsync holt nur eine
 /// Seite (per_page=100) — bei <see cref="PageLimit"/> ist der PR womöglich gekürzt reviewt.</param>
 public sealed record ReviewDiagnostics(
-    bool CheckoutRequested, bool CheckoutFailed, string? HeadRef,
+    bool CheckoutRequested, bool CheckoutFailed, string? HeadRef, string? HeadSha,
     bool ContextInPrompt, bool GuidelinesInPrompt, long? InputTokens, long? OutputTokens,
     int ChangedFiles, IReadOnlyList<string> Warnings, double DurationSeconds, string? Error)
 {

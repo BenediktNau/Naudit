@@ -10,7 +10,7 @@ public class BenchmarkResultStoreTests
             Enumerable.Range(0, commentCount)
                 .Select(i => new CapturedComment("a.cs", 5 + i, $"Fund{i}", "High", "Medium"))
                 .ToList()),
-        new ReviewDiagnostics(CheckoutRequested: true, CheckoutFailed: false, HeadRef: "refs/pull/1/head",
+        new ReviewDiagnostics(CheckoutRequested: true, CheckoutFailed: false, HeadRef: "refs/pull/1/head", HeadSha: "0123456789abcdef0123456789abcdef01234567",
             ContextInPrompt: true, GuidelinesInPrompt: true, InputTokens: 1000, OutputTokens: 200,
             ChangedFiles: 7, Warnings: [], DurationSeconds: 12.5, Error: error));
 

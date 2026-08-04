@@ -100,6 +100,7 @@ foreach (var entry in todo)
         CheckoutRequested: capture.CheckoutRequested,
         CheckoutFailed: capture.CheckoutFailures > 0,
         HeadRef: capture.HeadRef,
+        HeadSha: capture.HeadSha,
         ContextInPrompt: capture.ContextInPrompt,
         GuidelinesInPrompt: capture.GuidelinesInPrompt,
         InputTokens: capture.InputTokens,

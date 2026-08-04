@@ -7,6 +7,7 @@ using Naudit.Core.Models;
 using Naudit.Infrastructure;
 using Naudit.Infrastructure.Ai.ClaudeCode;
 using Naudit.Infrastructure.Git.GitHub;
+using Naudit.Infrastructure.Sast;
 using Naudit.Tests.Fakes;
 
 namespace Naudit.Tests;
@@ -67,6 +68,20 @@ public class BenchmarkWiringTests
 
         var decorator = Assert.IsType<CapturingChatClient>(client);
         Assert.IsType<ClaudeCodeChatClient>(decorator.Inner);
+    }
+
+    [Fact]
+    public void AddBenchmarkCapture_ersetzt_IWorkspaceProvider_durch_den_Dekorator_um_den_echten_Provider()
+    {
+        // Diese Registrierung läuft über den konkreten Typ, nicht über eine Fabrik — der
+        // Dekorations-Helfer muss beide Formen können.
+        using var provider = Provider();
+        using var scope = provider.CreateScope();
+
+        var workspaces = scope.ServiceProvider.GetRequiredService<IWorkspaceProvider>();
+
+        var decorator = Assert.IsType<CapturingWorkspaceProvider>(workspaces);
+        Assert.IsType<GitWorkspaceProvider>(decorator.Inner);
     }
 
     [Fact]

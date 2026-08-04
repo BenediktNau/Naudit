@@ -32,6 +32,14 @@ public sealed class ReviewCapture
     /// ungespeichert — sie trägt das Token.</summary>
     public string? HeadRef { get; private set; }
 
+    /// <summary>Der tatsächlich ausgecheckte Commit (aus .git/HEAD des Workspace). Der Ref allein
+    /// ist immer "refs/pull/N/head" und sagt nichts über den Stand; bei noch offenen Pull Requests
+    /// wandert der Head weiter, und die 41 Vergleichstools reviewten einen Schnappschuss vom
+    /// Januar 2026. Diese SHA hält fest, was Naudit gesehen hat.</summary>
+    public string? HeadSha { get; private set; }
+
+    public void RecordHeadSha(string? sha) => HeadSha = sha;
+
     /// <summary>Wurde ein Checkout überhaupt versucht? 0 heißt: gar nicht erst angefragt — dann lief
     /// das Review ohne Repo-Kontext und ohne Architektur-Profil (Fehlkonfiguration).</summary>
     public bool CheckoutRequested => CheckoutSuccesses + CheckoutFailures > 0;
@@ -96,6 +104,7 @@ public sealed class ReviewCapture
         CheckoutSuccesses = 0;
         CheckoutFailures = 0;
         HeadRef = null;
+        HeadSha = null;
         ReviewPromptSeen = false;
         ContextInPrompt = false;
         GuidelinesInPrompt = false;
