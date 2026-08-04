@@ -874,6 +874,7 @@ public sealed class CollectingLoggerProvider(WarningCollector collector) : ILogg
 
 ```csharp
 using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -881,6 +882,7 @@ using Naudit.Benchmark;
 using Naudit.Core.Models;
 using Naudit.Core.Review;
 using Naudit.Infrastructure;
+using Naudit.Infrastructure.Data;
 
 // Pflichtangaben: Klon des Benchmarks + Ausgabedatei. Optionale Begrenzung für den Smoke-Test.
 var benchmarkRepo = Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_REPO")
@@ -914,6 +916,12 @@ services.AddNauditInfrastructure(config);
 services.AddBenchmarkCapture();
 
 using var provider = services.BuildServiceProvider();
+
+// Schema anlegen. Im Web-Host erledigt das der DbSettingsLoader vor dem Host-Bau; hier gibt es
+// ihn nicht. Ohne Migration scheitert die Audit-Senke nach JEDEM Review — fail-open, aber sie
+// loggt dabei, und dann meldet die Diagnose alle 50 Reviews als auffällig.
+using (var migrationScope = provider.CreateScope())
+    await migrationScope.ServiceProvider.GetRequiredService<NauditDbContext>().Database.MigrateAsync();
 
 // Preflight: erst alles parsen, dann erst reviewen — ein Tippfehler im Datensatz soll
 // nicht nach dreißig Reviews auffallen.
@@ -999,9 +1007,14 @@ if (suspicious.Count > 0)
 }
 ```
 
-- [ ] **Step 3: Bauen und Preflight ohne Reviews prüfen**
+- [ ] **Step 3: Benchmark klonen und Preflight ohne Reviews prüfen**
+
+Der Klon ist Voraussetzung für diesen Schritt und für alle Tasks danach; er liegt bewusst
+außerhalb dieses Repos.
 
 ```bash
+git clone https://github.com/withmartian/code-review-benchmark.git ~/workspace/code-review-benchmark
+
 export NAUDIT_BENCHMARK_REPO=~/workspace/code-review-benchmark
 export NAUDIT_BENCHMARK_LIMIT=0
 dotnet run --project tools/Naudit.Benchmark
