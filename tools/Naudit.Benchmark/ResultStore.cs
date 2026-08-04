@@ -4,12 +4,18 @@ namespace Naudit.Benchmark;
 
 /// <summary>Nachweis, dass ein Review unter vollen Bedingungen lief. Naudit ist fail-open:
 /// ein fehlgeschlagener Checkout, eine gescheiterte Profil-Destillation oder ein toter Analyzer
-/// ergeben still ein schlechteres Review. Von außen sind zwei Spuren beobachtbar — ob der
-/// Checkout überhaupt angefragt wurde (Dekorator) und was die Pipeline währenddessen als
-/// Warning/Error geloggt hat. Beides zusammen fängt die fail-open-Pfade ab, die sich melden.
-/// Auffällige Läufe werden am Ende berichtet und wiederholt, nicht importiert.</summary>
+/// ergeben still ein schlechteres Review. Beobachtbar sind der Checkout (angefragt/gescheitert,
+/// über den IGitPlatform-Dekorator) und was die Pipeline währenddessen als Warning/Error geloggt
+/// hat. Auffällige Läufe werden am Ende berichtet und wiederholt, nicht importiert.</summary>
+/// <param name="CheckoutRequested">Wurde ein Checkout überhaupt versucht? false ⇒ Fehlkonfiguration
+/// (Kontext aus), das Review lief diff-only.</param>
+/// <param name="CheckoutFailed">Warf der Checkout? true ⇒ diff-only ohne Repo-Kontext und ohne
+/// frisches Architektur-Profil — geloggt wird das nirgends.</param>
+/// <param name="HeadRef">Der Ref, den Naudit ausgecheckt hat. Die Klon-URL wird NICHT festgehalten
+/// (sie trägt das Token).</param>
 public sealed record ReviewDiagnostics(
-    bool CheckoutRequested, IReadOnlyList<string> Warnings, double DurationSeconds, string? Error);
+    bool CheckoutRequested, bool CheckoutFailed, string? HeadRef,
+    IReadOnlyList<string> Warnings, double DurationSeconds, string? Error);
 
 /// <summary>Ein Datensatz je PR: was Naudit gesagt hätte, plus unter welchen Bedingungen.</summary>
 public sealed record BenchmarkRecord(string Url, CapturedReview Review, ReviewDiagnostics Diagnostics);

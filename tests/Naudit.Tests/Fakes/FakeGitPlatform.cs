@@ -11,6 +11,9 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
     public int PostCallCount { get; private set; }
     public IReadOnlyList<PostedComment> PostedIds { get; set; } = [];
 
+    /// <summary>Gesetzt ⇒ GetCheckoutAsync wirft diese Ausnahme (realer Fall: GitHub-Rate-Limit).</summary>
+    public Exception? CheckoutError { get; set; }
+
     public Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
         => Task.FromResult(changes);
 
@@ -28,5 +31,7 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
     }
 
     public Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
-        => Task.FromResult(new RepoCheckoutInfo("https://token@host/repo.git", "refs/test/head"));
+        => CheckoutError is not null
+            ? Task.FromException<RepoCheckoutInfo>(CheckoutError)
+            : Task.FromResult(new RepoCheckoutInfo("https://token@host/repo.git", "refs/test/head"));
 }

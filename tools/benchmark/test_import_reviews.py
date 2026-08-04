@@ -16,7 +16,8 @@ def record(url="https://github.com/getsentry/sentry/pull/1"):
                  "severity": "High", "confidence": "Medium"},
             ],
         },
-        "diagnostics": {"checkoutRequested": True, "warnings": [],
+        "diagnostics": {"checkoutRequested": True, "checkoutFailed": False,
+                        "headRef": "refs/pull/1/head", "warnings": [],
                         "durationSeconds": 12.5, "error": None},
     }
 
@@ -98,9 +99,12 @@ def test_merge_ersetzt_existierenden_naudit_mit_force():
     {"checkoutRequested": True, "warnings": [], "error": "Checkout fehlgeschlagen"},
     {"checkoutRequested": False, "warnings": [], "error": None},
     {"checkoutRequested": True, "warnings": ["Warning: git fetch schlug fehl"], "error": None},
+    # Checkout angefragt, aber die Ausnahme fiel unter den Tisch (GitHub-Rate-Limit): das Review
+    # lief diff-only, ohne Repo-Kontext und ohne frisches Profil — und niemand hat es geloggt.
+    {"checkoutRequested": True, "checkoutFailed": True, "warnings": [], "error": None},
 ])
 def test_merge_verweigert_import_bei_degradiertem_review(diagnostics):
-    # Alle drei Fälle heißen: das Review lief nicht unter vollen Bedingungen. Importiert
+    # Alle Fälle heißen: das Review lief nicht unter vollen Bedingungen. Importiert
     # zählte es als "nichts gefunden" und würde den Recall verfälschen.
     bad = record()
     bad["diagnostics"] = diagnostics

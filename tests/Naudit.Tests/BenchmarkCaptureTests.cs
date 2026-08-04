@@ -21,7 +21,7 @@ public class BenchmarkCaptureTests
     }
 
     [Fact]
-    public async Task GetCheckoutAsync_delegiert_und_wird_mitgezaehlt()
+    public async Task GetCheckoutAsync_delegiert_und_zaehlt_den_Erfolg_erst_nach_der_Rueckkehr()
     {
         var inner = new FakeGitPlatform([]);
         var capture = new ReviewCapture();
@@ -30,22 +30,49 @@ public class BenchmarkCaptureTests
         var info = await sut.GetCheckoutAsync(Request());
 
         Assert.Equal("refs/test/head", info.HeadRef);
-        // Der Zähler ist die einzige von außen sichtbare Spur, dass ein Checkout überhaupt
+        // Die Zähler sind die einzige von außen sichtbare Spur, dass ein Checkout überhaupt
         // versucht wurde — Naudit schluckt Checkout-Fehler bewusst (fail-open).
-        Assert.Equal(1, capture.CheckoutCalls);
+        Assert.Equal(1, capture.CheckoutSuccesses);
+        Assert.Equal(0, capture.CheckoutFailures);
+        Assert.True(capture.CheckoutRequested);
+        Assert.Equal("refs/test/head", capture.HeadRef);
+    }
+
+    [Fact]
+    public async Task GetCheckoutAsync_vermerkt_einen_Fehlschlag_getrennt_und_wirft_weiter()
+    {
+        // Realer Fall über 50 Läufe: GitHub-Rate-Limit auf GET /repos/{owner}/{repo}.
+        // Niemand loggt das (EnsureSuccessStatusCode wirft, GatherGroundingAsync schluckt still) —
+        // ohne diesen Zähler sähe das Review nur wie ein schwächeres aus.
+        var boom = new HttpRequestException("403 rate limit exceeded");
+        var inner = new FakeGitPlatform([]) { CheckoutError = boom };
+        var capture = new ReviewCapture();
+        var sut = new CapturingGitPlatform(inner, capture);
+
+        var thrown = await Assert.ThrowsAsync<HttpRequestException>(() => sut.GetCheckoutAsync(Request()));
+
+        Assert.Same(boom, thrown);                    // Ausnahme unverändert weitergereicht
+        Assert.Equal(0, capture.CheckoutSuccesses);   // KEIN Erfolg vor der Rückkehr gezählt
+        Assert.Equal(1, capture.CheckoutFailures);
+        Assert.True(capture.CheckoutRequested);       // versucht wurde er trotzdem
+        Assert.Null(capture.HeadRef);
     }
 
     [Fact]
     public void Reset_setzt_Aufzeichnung_und_Checkout_Zaehler_zurueck()
     {
         var capture = new ReviewCapture();
-        capture.RecordCheckout();
+        capture.RecordCheckoutSucceeded("refs/test/head");
+        capture.RecordCheckoutFailed();
         capture.Record(Request(), "s", [], ReviewVerdict.Approve);
 
         capture.Reset();
 
         Assert.Null(capture.Last);
-        Assert.Equal(0, capture.CheckoutCalls);
+        Assert.Equal(0, capture.CheckoutSuccesses);
+        Assert.Equal(0, capture.CheckoutFailures);
+        Assert.False(capture.CheckoutRequested);
+        Assert.Null(capture.HeadRef);
     }
 
     [Fact]

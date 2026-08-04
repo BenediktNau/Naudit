@@ -18,11 +18,31 @@ public sealed class ReviewCapture
 {
     public CapturedReview? Last { get; private set; }
 
-    /// <summary>Wie oft GetCheckoutAsync angefragt wurde. 0 heißt: der Checkout wurde gar nicht
-    /// erst versucht — dann lief das Review ohne Repo-Kontext und ohne Architektur-Profil.</summary>
-    public int CheckoutCalls { get; private set; }
+    /// <summary>Wie oft GetCheckoutAsync ERFOLGREICH zurückkam. Erst nach der Rückkehr gezählt:
+    /// ein Aufruf, der wirft (GitHub-Rate-Limit), ist kein Checkout.</summary>
+    public int CheckoutSuccesses { get; private set; }
 
-    public void RecordCheckout() => CheckoutCalls++;
+    /// <summary>Wie oft der Checkout mit einer Ausnahme abbrach. Niemand in der Pipeline loggt das:
+    /// GitHubPlatform.GetCheckoutAsync wirft über EnsureSuccessStatusCode, GitWorkspaceProvider loggt
+    /// nur seine git-Unterprozesse und ReviewService.GatherGroundingAsync schluckt still. Das Review
+    /// läuft dann diff-only weiter und sähe im Ergebnis nur wie ein schwächeres Review aus.</summary>
+    public int CheckoutFailures { get; private set; }
+
+    /// <summary>Head-Ref des Checkouts (aus RepoCheckoutInfo). Die Klon-URL bleibt bewusst
+    /// ungespeichert — sie trägt das Token.</summary>
+    public string? HeadRef { get; private set; }
+
+    /// <summary>Wurde ein Checkout überhaupt versucht? 0 heißt: gar nicht erst angefragt — dann lief
+    /// das Review ohne Repo-Kontext und ohne Architektur-Profil (Fehlkonfiguration).</summary>
+    public bool CheckoutRequested => CheckoutSuccesses + CheckoutFailures > 0;
+
+    public void RecordCheckoutSucceeded(string headRef)
+    {
+        CheckoutSuccesses++;
+        HeadRef = headRef;
+    }
+
+    public void RecordCheckoutFailed() => CheckoutFailures++;
 
     public void Record(ReviewRequest request, string summaryMarkdown,
         IReadOnlyList<InlineComment> comments, ReviewVerdict verdict)
@@ -37,6 +57,8 @@ public sealed class ReviewCapture
     public void Reset()
     {
         Last = null;
-        CheckoutCalls = 0;
+        CheckoutSuccesses = 0;
+        CheckoutFailures = 0;
+        HeadRef = null;
     }
 }

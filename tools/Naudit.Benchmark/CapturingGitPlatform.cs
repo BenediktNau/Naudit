@@ -12,10 +12,23 @@ public sealed class CapturingGitPlatform(IGitPlatform inner, ReviewCapture captu
     public Task<IReadOnlyList<CodeChange>> GetChangesAsync(ReviewRequest request, CancellationToken ct = default)
         => inner.GetChangesAsync(request, ct);
 
-    public Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
+    /// <summary>Erfolg wird erst NACH der Rückkehr vermerkt, ein Fehlschlag getrennt. Zählte man
+    /// vorher, wäre ein am Rate-Limit gescheiterter Checkout als erfolgreich diagnostiziert — und
+    /// das diff-only-Review ginge unbemerkt in den Import.</summary>
+    public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
     {
-        capture.RecordCheckout();
-        return inner.GetCheckoutAsync(request, ct);
+        RepoCheckoutInfo info;
+        try
+        {
+            info = await inner.GetCheckoutAsync(request, ct);
+        }
+        catch
+        {
+            capture.RecordCheckoutFailed();
+            throw;   // Verhalten der echten Plattform bleibt unverändert (ReviewService schluckt oben)
+        }
+        capture.RecordCheckoutSucceeded(info.HeadRef);
+        return info;
     }
 
     public Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown,

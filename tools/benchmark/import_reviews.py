@@ -39,6 +39,8 @@ def merge(data: dict, records: list[dict], force: bool) -> dict:
             reason = f"Fehler: {diag['error']}"
         elif not diag.get("checkoutRequested", False):
             reason = "kein Checkout angefragt — Review lief ohne Repo-Kontext"
+        elif diag.get("checkoutFailed", False):
+            reason = "Checkout fehlgeschlagen — Review lief diff-only, ohne Repo-Kontext und ohne frisches Profil"
         elif diag.get("warnings"):
             reason = "Warnungen der Pipeline: " + " | ".join(diag["warnings"])
         if reason:

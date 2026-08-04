@@ -10,7 +10,8 @@ public class BenchmarkResultStoreTests
             Enumerable.Range(0, commentCount)
                 .Select(i => new CapturedComment("a.cs", 5 + i, $"Fund{i}", "High", "Medium"))
                 .ToList()),
-        new ReviewDiagnostics(CheckoutRequested: true, Warnings: [], DurationSeconds: 12.5, Error: error));
+        new ReviewDiagnostics(CheckoutRequested: true, CheckoutFailed: false, HeadRef: "refs/pull/1/head",
+            Warnings: [], DurationSeconds: 12.5, Error: error));
 
     [Fact]
     public void CompletedUrls_ist_leer_wenn_die_Datei_noch_nicht_existiert()

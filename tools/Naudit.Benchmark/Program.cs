@@ -94,7 +94,9 @@ foreach (var entry in todo)
     }
 
     var diagnostics = new ReviewDiagnostics(
-        CheckoutRequested: capture.CheckoutCalls > 0,
+        CheckoutRequested: capture.CheckoutRequested,
+        CheckoutFailed: capture.CheckoutFailures > 0,
+        HeadRef: capture.HeadRef,
         Warnings: collected,
         DurationSeconds: sw.Elapsed.TotalSeconds,
         Error: error);
@@ -103,6 +105,8 @@ foreach (var entry in todo)
     Console.WriteLine($"    {captured.Comments.Count} Inline-Kommentare, {captured.Verdict}, {sw.Elapsed.TotalSeconds:F0}s");
     if (!diagnostics.CheckoutRequested)
         Console.WriteLine("    ACHTUNG: kein Checkout angefragt — Review lief ohne Repo-Kontext.");
+    if (diagnostics.CheckoutFailed)
+        Console.WriteLine("    ACHTUNG: Checkout fehlgeschlagen — Review lief ohne Repo-Kontext und ohne frisches Profil.");
     foreach (var w in collected)
         Console.WriteLine($"    WARNUNG: {w}");
 
@@ -115,6 +119,7 @@ var remaining = entries.Count - store.CompletedUrls.Count;
 var suspicious = store.All()
     .Where(r => r.Diagnostics.Error is not null
              || !r.Diagnostics.CheckoutRequested
+             || r.Diagnostics.CheckoutFailed
              || r.Diagnostics.Warnings.Count > 0)
     .ToList();
 Console.WriteLine();
@@ -126,6 +131,7 @@ if (suspicious.Count > 0)
     {
         var reason = r.Diagnostics.Error
             ?? (!r.Diagnostics.CheckoutRequested ? "kein Checkout angefragt"
+                : r.Diagnostics.CheckoutFailed ? "Checkout fehlgeschlagen"
                 : string.Join(" | ", r.Diagnostics.Warnings));
         Console.WriteLine($"  {r.Url}: {reason}");
     }
