@@ -1,6 +1,141 @@
-namespace Naudit.Benchmark;
+using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Naudit.Benchmark;
+using Naudit.Core.Models;
+using Naudit.Core.Review;
+using Naudit.Infrastructure;
+using Naudit.Infrastructure.Data;
 
-internal static class Program
+// Pflichtangaben: Klon des Benchmarks + Ausgabedatei. Optionale Begrenzung für den Smoke-Test.
+var benchmarkRepo = Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_REPO")
+    ?? throw new InvalidOperationException("NAUDIT_BENCHMARK_REPO muss auf den Benchmark-Klon zeigen.");
+var goldenDir = Path.Combine(benchmarkRepo, "offline", "golden_comments");
+var outputPath = Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_OUTPUT")
+    ?? Path.Combine(benchmarkRepo, "offline", "results", "naudit-reviews.json");
+var limit = int.TryParse(Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_LIMIT"), out var l) ? l : int.MaxValue;
+var pause = TimeSpan.FromSeconds(
+    int.TryParse(Environment.GetEnvironmentVariable("NAUDIT_BENCHMARK_PAUSE_SECONDS"), out var p) ? p : 20);
+
+// AddEnvironmentVariables() braucht das Paket Microsoft.Extensions.Configuration.EnvironmentVariables,
+// das hier (Konsolen-Sdk statt Web-Sdk) nicht transitiv verfügbar ist und laut Vorgabe nicht neu
+// hinzugefügt werden darf. Gleichwertiger Ersatz ohne neues Paket: die Umgebungsvariablen selbst
+// einlesen und "__" wie die offizielle Implementierung in ":" übersetzen (Naudit__Git__Platform ⇒
+// Naudit:Git:Platform), dann als In-Memory-Quelle einhängen — Microsoft.Extensions.Configuration
+// (mit AddInMemoryCollection) ist bereits über Naudit.Infrastructure transitiv vorhanden.
+var config = new ConfigurationBuilder()
+    .AddJsonFile("benchmark.appsettings.json", optional: true)
+    .AddInMemoryCollection(Environment.GetEnvironmentVariables()
+        .Cast<System.Collections.DictionaryEntry>()
+        .Select(e => new KeyValuePair<string, string?>(
+            ((string)e.Key).Replace("__", ConfigurationPath.KeyDelimiter), (string?)e.Value)))
+    .Build();
+
+var warnings = new WarningCollector();
+
+var services = new ServiceCollection();
+services.AddSingleton<IConfiguration>(config);
+services.AddSingleton(warnings);
+// Nur der Sammler — kein Konsolen-Provider (spart das Paket Microsoft.Extensions.Logging.Console;
+// der Runner gibt Warnungen ohnehin selbst je Review aus).
+services.AddLogging(b =>
 {
-    public static void Main() { }
+    b.SetMinimumLevel(LogLevel.Warning);
+    b.AddProvider(new CollectingLoggerProvider(warnings));
+});
+services.AddNauditDatabase(config);
+services.AddNauditInfrastructure(config);
+services.AddBenchmarkCapture();
+
+using var provider = services.BuildServiceProvider();
+
+// Schema anlegen. Im Web-Host erledigt das der DbSettingsLoader vor dem Host-Bau; hier gibt es
+// ihn nicht. Ohne Migration scheitert die Audit-Senke nach JEDEM Review — fail-open, aber sie
+// loggt dabei, und dann meldet die Diagnose alle 50 Reviews als auffällig.
+using (var migrationScope = provider.CreateScope())
+    await migrationScope.ServiceProvider.GetRequiredService<NauditDbContext>().Database.MigrateAsync();
+
+// Preflight: erst alles parsen, dann erst reviewen — ein Tippfehler im Datensatz soll
+// nicht nach dreißig Reviews auffallen.
+var entries = GoldenDataset.Load(goldenDir);
+Console.WriteLine($"{entries.Count} Einträge geladen, {entries.Select(e => e.ProjectId).Distinct().Count()} Projekte.");
+
+var store = new ResultStore(outputPath);
+var done = store.CompletedUrls;
+var todo = entries.Where(e => !done.Contains(e.Url)).Take(limit).ToList();
+Console.WriteLine($"{done.Count} bereits erledigt, {todo.Count} zu tun.");
+
+var capture = provider.GetRequiredService<ReviewCapture>();
+var index = 0;
+
+foreach (var entry in todo)
+{
+    index++;
+    Console.WriteLine($"[{index}/{todo.Count}] {entry.ProjectId}#{entry.Number} — {entry.PrTitle}");
+    capture.Reset();
+    warnings.Drain();   // Reste des Vorgängers verwerfen
+
+    var sw = Stopwatch.StartNew();
+    string? error = null;
+    try
+    {
+        using var scope = provider.CreateScope();
+        var reviewService = scope.ServiceProvider.GetRequiredService<ReviewService>();
+        // Trigger = Ci: das Roundtrip-Limit ist hier bedeutungslos, aber die Absicht soll im Code stehen.
+        var request = new ReviewRequest(entry.ProjectId, entry.Number, entry.PrTitle, null, ReviewTrigger.Ci);
+        await reviewService.ReviewAsync(request);
+    }
+    catch (Exception ex)
+    {
+        error = ex.Message;
+    }
+    sw.Stop();
+
+    var collected = warnings.Drain();
+    var captured = capture.Last;
+    if (captured is null)
+    {
+        // Kein PostReviewAsync ⇒ kein Review. Nicht speichern, damit der nächste Lauf es wiederholt.
+        Console.WriteLine($"    FEHLGESCHLAGEN: {error ?? "kein Review erzeugt (leerer Diff?)"}");
+        continue;
+    }
+
+    var diagnostics = new ReviewDiagnostics(
+        CheckoutRequested: capture.CheckoutCalls > 0,
+        Warnings: collected,
+        DurationSeconds: sw.Elapsed.TotalSeconds,
+        Error: error);
+
+    store.Append(new BenchmarkRecord(entry.Url, captured, diagnostics));
+    Console.WriteLine($"    {captured.Comments.Count} Inline-Kommentare, {captured.Verdict}, {sw.Elapsed.TotalSeconds:F0}s");
+    if (!diagnostics.CheckoutRequested)
+        Console.WriteLine("    ACHTUNG: kein Checkout angefragt — Review lief ohne Repo-Kontext.");
+    foreach (var w in collected)
+        Console.WriteLine($"    WARNUNG: {w}");
+
+    if (index < todo.Count)
+        await Task.Delay(pause);
+}
+
+// Abschlussbericht: was noch fehlt und was auffällig war.
+var remaining = entries.Count - store.CompletedUrls.Count;
+var suspicious = store.All()
+    .Where(r => r.Diagnostics.Error is not null
+             || !r.Diagnostics.CheckoutRequested
+             || r.Diagnostics.Warnings.Count > 0)
+    .ToList();
+Console.WriteLine();
+Console.WriteLine($"Fertig: {store.CompletedUrls.Count}/{entries.Count}, offen: {remaining}");
+if (suspicious.Count > 0)
+{
+    Console.WriteLine($"ACHTUNG — {suspicious.Count} auffällige Reviews (vor dem Import wiederholen):");
+    foreach (var r in suspicious)
+    {
+        var reason = r.Diagnostics.Error
+            ?? (!r.Diagnostics.CheckoutRequested ? "kein Checkout angefragt"
+                : string.Join(" | ", r.Diagnostics.Warnings));
+        Console.WriteLine($"  {r.Url}: {reason}");
+    }
 }
