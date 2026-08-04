@@ -181,7 +181,14 @@ public static class DependencyInjection
             // Lazy erzeugt — wie der globale Client (Factory-Lambda) und NICHT eager zur Registrierzeit,
             // damit die Recovery-Mode-Startup-Probe (AddNauditInfrastructure gegen eine Wegwerf-Collection)
             // nicht schon hier an einem fehlenden Key scheitert.
-            var dastBaseClient = new Lazy<IChatClient>(() => AiClientFactory.Create(aiOptions, mcpOptions));
+            // Naudit:Review:Dast:Ai darf den Provider NUR fürs Probing überschreiben (leere Sektion ⇒
+            // der globale, heutiges Verhalten): der Loop reicht dem Modell Werkzeuge über
+            // ChatOptions.Tools, was nicht jeder Provider kann — der ClaudeCode-CLI-Client etwa
+            // ignoriert sie. Das Binden läuft bewusst eager, nicht in der Lazy: eine kaputte
+            // Provider-Angabe soll wie jeder andere Config-Fehler in den Recovery-Mode laufen,
+            // statt später jede Review an einem DAST-Detail scheitern zu lassen.
+            var dastAiOptions = DastAiOptions.Resolve(configuration);
+            var dastBaseClient = new Lazy<IChatClient>(() => AiClientFactory.Create(dastAiOptions, mcpOptions));
             services.AddScoped<ISastAnalyzer>(sp => new DastAnalyzer(
                 sp.GetRequiredService<IAppRunner>(),
                 dastOptions,
