@@ -15,7 +15,8 @@ public sealed record ReviewDiagnostics(
 public sealed record BenchmarkRecord(string Url, CapturedReview Review, ReviewDiagnostics Diagnostics);
 
 /// <summary>Ergebnisdatei und zugleich Wiederaufsetzpunkt. Nach jedem Review neu geschrieben —
-/// der Lauf dauert Stunden, ein Abbruch darf nichts kosten.</summary>
+/// der Lauf dauert Stunden, ein Abbruch darf nichts kosten. Schreibt atomar (via Temp-Datei)
+/// und überlebt korrupte Eingaben, um nicht alle bisherigen Ergebnisse zu verlieren.</summary>
 public sealed class ResultStore
 {
     private static readonly JsonSerializerOptions JsonOpts =
@@ -27,9 +28,36 @@ public sealed class ResultStore
     public ResultStore(string path)
     {
         _path = path;
-        _records = File.Exists(path)
-            ? JsonSerializer.Deserialize<List<BenchmarkRecord>>(File.ReadAllText(path), JsonOpts) ?? []
-            : [];
+        _records = [];
+        if (File.Exists(path))
+        {
+            try
+            {
+                var json = File.ReadAllText(path);
+                var loaded = JsonSerializer.Deserialize<List<BenchmarkRecord>>(json, JsonOpts);
+                if (loaded != null)
+                {
+                    _records.AddRange(loaded);
+                }
+            }
+            catch (JsonException ex)
+            {
+                // Abgeschnittene oder beschädigte Datei (z.B. nach Abbruch während Write).
+                // Zur Diagnose beiseitelegen, mit leerer Liste weitermachen.
+                var corruptPath = $"{path}.corrupt";
+                try
+                {
+                    File.Move(path, corruptPath, overwrite: true);
+                    Console.WriteLine($"[ResultStore] Korrupte Datei {path} nach {corruptPath} verschoben. " +
+                        $"Lauf wird mit leerer Liste fortgesetzt. Fehler: {ex.Message}");
+                }
+                catch
+                {
+                    Console.WriteLine($"[ResultStore] Datei {path} ist korrupt (JsonException: {ex.Message}), " +
+                        $"konnte aber nicht verschoben werden. Lauf wird mit leerer Liste fortgesetzt.");
+                }
+            }
+        }
     }
 
     public IReadOnlyCollection<string> CompletedUrls => _records.Select(r => r.Url).ToHashSet();
@@ -38,9 +66,26 @@ public sealed class ResultStore
 
     public void Append(BenchmarkRecord record)
     {
-        _records.RemoveAll(r => r.Url == record.Url);
-        _records.Add(record);
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllText(_path, JsonSerializer.Serialize(_records, JsonOpts));
+        // Ersetzen an Ort und Stelle: Reihenfolge bleibt erhalten.
+        var index = _records.FindIndex(r => r.Url == record.Url);
+        if (index >= 0)
+        {
+            _records[index] = record;
+        }
+        else
+        {
+            _records.Add(record);
+        }
+
+        // Atomar schreiben: in Temp-Datei, dann per Move ersetzen.
+        var dirPath = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(dirPath))
+        {
+            Directory.CreateDirectory(dirPath);
+        }
+
+        var tempPath = $"{_path}.tmp";
+        File.WriteAllText(tempPath, JsonSerializer.Serialize(_records, JsonOpts));
+        File.Move(tempPath, _path, overwrite: true);
     }
 }
