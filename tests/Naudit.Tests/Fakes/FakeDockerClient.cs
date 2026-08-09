@@ -8,7 +8,6 @@ internal class FakeDockerClient : IDockerClient
 {
     public Dictionary<string, bool> Containers { get; } = new();   // Name -> Running
     public HashSet<string> Volumes { get; } = new();
-    public HashSet<string> Networks { get; } = new();
     public List<string> Calls { get; } = new();
     public List<(string Container, string Path, string Content)> WrittenFiles { get; } = new();
     public List<(string Container, IReadOnlyList<string> Argv, IReadOnlyDictionary<string, string?>? Env, string WorkingDir)> Execs { get; } = new();
@@ -20,12 +19,7 @@ internal class FakeDockerClient : IDockerClient
     public TimeSpan? ExecDelay { get; set; }
     public TimeSpan? RunDelay { get; set; }   // simuliert einen langsamen `docker run` (Concurrency-Tests)
     public ContainerRunSpec? LastRunSpec { get; private set; }
-    public List<ContainerRunSpec> RunSpecs { get; } = new();   // neben LastRunSpec: alle Specs (App- + Probe-Container)
-
-    public List<(string Tag, string Dockerfile, long ContextBytes)> Builds { get; } = new();
-    public HashSet<string> Images { get; } = new();
-    public bool NextBuildFails { get; set; }
-    public List<string> PulledImages { get; } = new();
+    public List<ContainerRunSpec> RunSpecs { get; } = new();   // neben LastRunSpec: alle Specs
 
     public Task<bool> PingAsync(CancellationToken ct = default)
     {
@@ -108,91 +102,4 @@ internal class FakeDockerClient : IDockerClient
             .Select(c => new ContainerListEntry(c.Key, c.Value))
             .ToList());
 
-    public virtual Task CreateNetworkAsync(string name, CancellationToken ct = default)
-    {
-        Calls.Add($"netcreate:{name}");
-        Networks.Add(name);
-        return Task.CompletedTask;
-    }
-
-    public Task RemoveNetworkAsync(string name, CancellationToken ct = default)
-    {
-        Calls.Add($"netrm:{name}");
-        Networks.Remove(name);
-        return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<string>> ListNetworksAsync(string namePrefix, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<string>>(Networks
-            .Where(n => n.StartsWith(namePrefix, StringComparison.Ordinal)).ToList());
-
-    public async Task<DockerBuildResult> BuildImageAsync(string tag, Stream tarContext, string dockerfilePath,
-        CancellationToken ct = default)
-    {
-        Calls.Add($"build:{tag}");
-        var buffer = new MemoryStream();
-        await tarContext.CopyToAsync(buffer, ct);
-        Builds.Add((tag, dockerfilePath, buffer.Length));
-        if (NextBuildFails)
-        {
-            NextBuildFails = false;
-            return new DockerBuildResult(false, "fake: build failed");
-        }
-        Images.Add(tag);
-        return new DockerBuildResult(true, "");
-    }
-
-    public Task RemoveImageAsync(string tag, CancellationToken ct = default)
-    {
-        Calls.Add($"rmimg:{tag}");
-        Images.Remove(tag);
-        return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<string>> ListImagesAsync(string tagPrefix, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<string>>(Images
-            .Where(i => i.StartsWith(tagPrefix, StringComparison.Ordinal)).ToList());
-
-    public Task PullImageAsync(string reference, CancellationToken ct = default)
-    {
-        Calls.Add($"pull:{reference}");
-        PulledImages.Add(reference);
-        Images.Add(reference);
-        return Task.CompletedTask;
-    }
-
-    public List<(string Container, IReadOnlyList<string> Argv)> ExecStreamCalls { get; } = new();
-    public byte[]? NextExecStdout { get; set; }
-    public byte[]? LastExecStdin { get; private set; }
-
-    public Task<DockerExecStream> ExecStreamAsync(string name, IReadOnlyList<string> argv,
-        IReadOnlyDictionary<string, string?>? environment, string workingDirectory, CancellationToken ct = default)
-    {
-        ExecStreamCalls.Add((name, argv));
-        var stdinCapture = new CapturingStream(b => LastExecStdin = b);
-        var stdout = new MemoryStream(NextExecStdout ?? []);
-        return Task.FromResult(new DockerExecStream(stdinCapture, stdout, new NoopAsyncDisposable()));
-    }
-
-    private sealed class CapturingStream(Action<byte[]> onWrite) : Stream
-    {
-        private readonly MemoryStream _buf = new();
-        public override void Write(byte[] b, int o, int c) { _buf.Write(b, o, c); onWrite(_buf.ToArray()); }
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> b, CancellationToken ct = default)
-        { _buf.Write(b.Span); onWrite(_buf.ToArray()); return ValueTask.CompletedTask; }
-        public override bool CanWrite => true;
-        public override bool CanRead => false;
-        public override bool CanSeek => false;
-        public override long Length => _buf.Length;
-        public override long Position { get => _buf.Position; set => _buf.Position = value; }
-        public override void Flush() { }
-        public override int Read(byte[] b, int o, int c) => throw new NotSupportedException();
-        public override long Seek(long o, SeekOrigin r) => throw new NotSupportedException();
-        public override void SetLength(long v) => throw new NotSupportedException();
-    }
-
-    private sealed class NoopAsyncDisposable : IAsyncDisposable
-    {
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
 }
