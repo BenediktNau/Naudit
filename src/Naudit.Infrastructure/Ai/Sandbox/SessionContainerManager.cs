@@ -47,8 +47,15 @@ public sealed class SessionContainerManager(
                 await EnforceCapAsync(accountId, ct);
                 var image = await ResolveImageAsync(ct);
                 logger.LogInformation("Session-Sandbox: lege Container {Name} an (Image {Image}).", name, image);
+                // Entrypoint-Override, nicht nur Cmd: das Naudit-Image traegt
+                // ENTRYPOINT ["dotnet","Naudit.Web.dll"], ein blosses Cmd wuerde daran nur als
+                // Argumente haengen und im Account-Container einen zweiten Naudit-Host starten
+                // statt ihn passiv schlafen zu lassen. Cmd bleibt leer (SocketDockerClient setzt
+                // es bei gesetztem Entrypoint explizit, damit aeltere Engines nicht das
+                // image-eigene CMD anhaengen).
                 await docker.RunDetachedAsync(
-                    new ContainerRunSpec(name, image, VolumeName: name, VolumeTarget, ["sleep", "infinity"]), ct);
+                    new ContainerRunSpec(name, image, VolumeName: name, VolumeTarget, [])
+                    { Entrypoint = ["sleep", "infinity"] }, ct);
             }
             else if (!info.Running)
             {

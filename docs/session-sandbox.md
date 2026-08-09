@@ -53,7 +53,10 @@ sweeper is the safety net for "this account has been quiet for a couple of days"
 
 - **Container per account.** `SessionContainerManager` names each account's container
   `naudit-session-<accountId>`, running the **same Naudit image** with `sleep infinity`
-  as its command (no second image to build or maintain).
+  as its **entrypoint** (no second image to build or maintain). The override matters: the
+  image's own `ENTRYPOINT` is `dotnet Naudit.Web.dll`, so passing `sleep infinity` as a mere
+  command would append it as arguments and boot a second Naudit host inside the account
+  container instead of idling.
 - **Warm auth via a named volume.** A volume also named `naudit-session-<accountId>`
   is mounted at `/home/app` (the image's `HOME`) — that is where the `claude` CLI keeps
   its credentials, so authenticated state survives both a container **stop** and a
