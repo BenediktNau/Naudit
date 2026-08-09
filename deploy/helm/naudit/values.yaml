@@ -56,8 +56,7 @@ extraEnv: []
 # - name: Naudit__ForwardedHeaders__KnownNetworks__0
 #   value: "10.42.0.0/16"
 
-# Docker-in-Docker-Sidecar — die Engine, die die dynamische Pruefung (DAST)
-# und optional die Session-Sandbox brauchen.
+# Docker-in-Docker-Sidecar — die Engine, die die Session-Sandbox braucht.
 #
 # Warum ueberhaupt: im Cluster gibt es keinen /var/run/docker.sock zum Mounten
 # (containerd seit K8s 1.24), und Naudits Engine-Client spricht ausschliesslich
@@ -66,9 +65,9 @@ extraEnv: []
 # gebaute PR-Code landet in einem EIGENEN Daemon und sieht die Node-Runtime nie.
 #
 # ACHTUNG: dind braucht privileged: true (cgroup-Mounts, overlayfs, iptables) —
-# das ist effektiv Root auf dem Node. Nur einschalten, wenn DAST gebraucht wird.
-# Dieser Schalter ist nur die Verkabelung; das Feature selbst schaltet der Admin
-# in der WebUI (Naudit:Review:Dast:Enabled + Projekt-Allowlist).
+# das ist effektiv Root auf dem Node. Nur einschalten, wenn die Session-Sandbox
+# gebraucht wird. Dieser Schalter ist nur die Verkabelung; das Feature selbst
+# schaltet Naudit:Ai:SessionSandbox=Docker.
 dind:
   enabled: false
   image: docker.io/library/docker:29-dind

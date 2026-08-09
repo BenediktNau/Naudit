@@ -72,14 +72,12 @@ public sealed class DbSettingsLoaderTests : IDisposable
         WriteViaService(svc =>
         {
             svc.SetAsync("Naudit:Sast:Analyzers", "opengrep, trivy").GetAwaiter().GetResult();
-            svc.SetAsync("Naudit:Review:Dast:Projects", "acme/web").GetAwaiter().GetResult();
         });
 
         var result = DbSettingsLoader.Load(Options);
 
         Assert.Equal("opengrep", result.Settings["Naudit:Sast:Analyzers:0"]);
         Assert.Equal("trivy", result.Settings["Naudit:Sast:Analyzers:1"]);
-        Assert.Equal("acme/web", result.Settings["Naudit:Review:Dast:Projects:0"]);
         // Elternkey bleibt leer: List<string>-Binding liest ausschliesslich Kinder.
         Assert.False(result.Settings.ContainsKey("Naudit:Sast:Analyzers"));
     }

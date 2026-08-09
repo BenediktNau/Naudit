@@ -97,48 +97,6 @@ public class PromptBuilderTests
     }
 
     [Fact]
-    public void Build_rendersDastFindings_underDynamicHeading()
-    {
-        var request = new ReviewRequest("1", 42, "T");
-        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
-        var findings = new[]
-        {
-            new ScanFinding("dast", FindingCategory.Dast, FindingSeverity.High,
-                "Reflected XSS at /search?q= — payload echoed unescaped"),
-        };
-
-        var text = PromptBuilder.Build("SYS", request, changes, findings)[1].Text!;
-
-        Assert.Contains("DAST (dynamic)", text);
-        Assert.Contains("Reflected XSS at /search", text);
-    }
-
-    [Fact]
-    public void Build_rendersDastFindings_withUnverifiedObservationQualifier()
-    {
-        var request = new ReviewRequest("1", 42, "T");
-        var changes = new[] { new CodeChange("a.cs", "@@ +1 @@") };
-        var dastFindings = new[]
-        {
-            new ScanFinding("dast", FindingCategory.Dast, FindingSeverity.High,
-                "Reflected XSS at /search?q= — payload echoed unescaped"),
-        };
-        var sastFindings = new[]
-        {
-            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "src/Foo.cs", 42),
-        };
-
-        var withDast = PromptBuilder.Build("SYS", request, changes, dastFindings)[1].Text!;
-        var withSastOnly = PromptBuilder.Build("SYS", request, changes, sastFindings)[1].Text!;
-
-        Assert.Contains(
-            "(DAST entries are observations from an automated browser probe of the running app — " +
-            "content-derived and not tool-verified; corroborate against the diff before reporting.)",
-            withDast);
-        Assert.DoesNotContain("automated browser probe", withSastOnly);
-    }
-
-    [Fact]
     public void Build_withoutFindings_saysNoToolFindings()
     {
         var request = new ReviewRequest("1", 42, "T");

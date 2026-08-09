@@ -78,26 +78,6 @@ public class StartupReportTests
     }
 
     [Fact]
-    public void BuildLines_dastEnabledWithAllowlist_listsProjects()
-    {
-        var lines = StartupReport.BuildLines(Config(
-            ("Naudit:Review:Dast:Enabled", "true"),
-            ("Naudit:Review:Dast:Projects:0", "acme/web"),
-            ("Naudit:Review:Dast:Projects:1", "acme/api")), Ready, null);
-
-        var dast = Line(lines, "DAST:");
-        Assert.Contains("acme/web, acme/api", dast);
-    }
-
-    [Fact]
-    public void BuildLines_dastEnabledWithEmptyAllowlist_marksItEmpty()
-    {
-        var lines = StartupReport.BuildLines(Config(("Naudit:Review:Dast:Enabled", "true")), Ready, null);
-
-        Assert.Contains("(leer)", Line(lines, "DAST:"));
-    }
-
-    [Fact]
     public void BuildLines_setupMode_showsModeAndMissingKeys()
     {
         var setup = new SetupStatusResult(true, ["Naudit:GitHub:Token", "Naudit:Ai:Model"]);
@@ -248,24 +228,6 @@ public class StartupReportTests
     }
 
     [Fact]
-    public void BuildWarnings_dastEnabledWithoutAllowlist_warns()
-    {
-        var warnings = StartupReport.BuildWarnings(Config(("Naudit:Review:Dast:Enabled", "true")));
-
-        Assert.Contains(warnings, w => w.Contains("DAST") && w.Contains("Allowlist"));
-    }
-
-    [Fact]
-    public void BuildWarnings_dastEnabledWithAllowlist_isSilent()
-    {
-        var warnings = StartupReport.BuildWarnings(Config(
-            ("Naudit:Review:Dast:Enabled", "true"),
-            ("Naudit:Review:Dast:Projects:0", "acme/web")));
-
-        Assert.DoesNotContain(warnings, w => w.Contains("DAST"));
-    }
-
-    [Fact]
     public void BuildWarnings_sastEnabledWithoutAnalyzers_warnsAboutTheDefault()
     {
         var warnings = StartupReport.BuildWarnings(Config(("Naudit:Sast:Enabled", "true")));
@@ -304,7 +266,7 @@ public class StartupReportTests
     [Fact]
     public void BuildWarnings_defaultConfig_isSilent()
     {
-        // Frische Installation ohne Zutun: SAST/DAST aus, Routing Single, MaxRoundtrips 3.
+        // Frische Installation ohne Zutun: SAST aus, Routing Single, MaxRoundtrips 3.
         Assert.Empty(StartupReport.BuildWarnings(Config()));
     }
 
@@ -341,10 +303,10 @@ public class StartupReportTests
     {
         var logger = new RecordingLogger();
 
-        StartupReport.Log(logger, Config(("Naudit:Review:Dast:Enabled", "true")), Ready, null);
+        StartupReport.Log(logger, Config(("Naudit:Review:MaxRoundtrips", "0")), Ready, null);
 
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("Modus:"));
-        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("DAST"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("MaxRoundtrips"));
     }
 
     [Fact]

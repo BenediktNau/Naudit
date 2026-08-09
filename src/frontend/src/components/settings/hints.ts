@@ -18,8 +18,7 @@ export function computeHints(ctx: SettingsCtx): Record<CategoryId, { tone: "acc"
   const gateDefault = (!sev || sev === "High") && (!conf || conf === "Medium");
 
   const sast = ctx.get("Naudit:Sast:Enabled") === "true";
-  const dast = ctx.get("Naudit:Review:Dast:Enabled") === "true";
-  const scans = [sast && "sast", dast && "dast"].filter(Boolean).join(" · ");
+  const scans = [sast && "sast"].filter(Boolean).join(" · ");
 
   const gh = ctx.get("Naudit:Ui:Auth:GitHub:Enabled") === "true";
   const oidc = ctx.get("Naudit:Ui:Auth:Oidc:Enabled") === "true";

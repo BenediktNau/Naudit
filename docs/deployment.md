@@ -216,11 +216,6 @@ distro and must match exactly, or the non-root container user cannot use the mou
 socket. Getting it wrong is not fatal: Naudit logs a warning and falls back to
 in-process session runs, same as if the socket were missing entirely.
 
-[DAST](dast.md) uses this **same socket mount and the same `group_add` GID**, but is a
-separate feature switched on independently via `Naudit:Review:Dast:Enabled` and the
-`Naudit:Review:Dast:Projects` allowlist — mounting the socket for the session sandbox
-does not turn DAST on, and vice versa.
-
 ## Automatic deploy on each release
 
 The CI does **not** deploy — Coolify owns deployment. The recommended pattern is push-based:
@@ -283,7 +278,6 @@ kompakten Block mit der effektiv geladenen Konfiguration:
   Plattform:  GitHub · Auth: App · PostVerdict: aus
   AI:         Anthropic · claude-opus-5 · Routing: Single · Sandbox: None · MCP: aus · Logging: aus
   SAST:       AN · opengrep, trivy
-  DAST:       aus
   Prompt:     Kontext AN · Memory AN (max 50) · Guidelines AN · Redaction AN
   Review:     Gate ab High/Medium · MaxRoundtrips 3 · Resolution AN
   Zugang:     AccessGate Open · DB Sqlite
@@ -298,7 +292,7 @@ Konfigurationswert zitieren; Naudit loggt ihn separat als eigene Recovery-Meldun
 auf Error-Level.
 
 Zusätzlich erscheinen Warnzeilen für gültige, aber wirkungslose Kombinationen —
-etwa DAST aktiviert bei leerer `Naudit:Review:Dast:Projects`-Allowlist (dann wird
-kein Projekt dynamisch getestet).
+etwa `Naudit:Ai:SessionSandbox=Docker` bei `SessionRouting=Single` (dann greift die
+Sandbox nie).
 
 Der Block enthält **keine Secrets** — nur Schalter, Namen und Zahlen.

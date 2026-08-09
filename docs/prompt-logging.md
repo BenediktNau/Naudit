@@ -78,10 +78,9 @@ Default-Cap wäre der falsche Weg: wer Prompts tunt, will sie vollständig sehen
 
 ## Umfang / bewusste Grenzen
 
-- **DAST**-Probing nutzt einen eigenen, un-umhüllten Basis-Client (`DependencyInjection.cs`,
-  `dastBaseClient`) und wird (noch) nicht protokolliert. Die Guideline-Destillation dagegen läuft
-  über den globalen (umhüllten) Client innerhalb des Review-Flows und erscheint daher — wenn sie
-  überhaupt anläuft (hash-gecacht) — als zusätzliche Transcript-Zeile desselben Reviews.
+- Die **Guideline-Destillation** läuft über den globalen (umhüllten) Client innerhalb des
+  Review-Flows und erscheint daher — wenn sie überhaupt anläuft (hash-gecacht) — als
+  zusätzliche Transcript-Zeile desselben Reviews.
 - Auf dem **Fallback-Pfad** (Autor-Session scheitert → globaler Client) entstehen zwei Zeilen: ein
   `Failed`-Versuch (Session) und der erfolgreiche globale Aufruf — bewusst, als ehrliches Protokoll.
 - **Streaming wird nicht protokolliert.** `MediatorChatClient.GetStreamingResponseAsync` reicht

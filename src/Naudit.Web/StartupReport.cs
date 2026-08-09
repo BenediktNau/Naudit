@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Ai;
 using Naudit.Infrastructure.Ai.Logging;
-using Naudit.Infrastructure.Dast;
 using Naudit.Infrastructure.Data;
 using Naudit.Infrastructure.Git;
 using Naudit.Infrastructure.Git.GitHub;
@@ -34,7 +33,6 @@ public static class StartupReport
         var aiLogging = config.GetSection("Naudit:Ai:Logging").Get<AiLoggingOptions>() ?? new AiLoggingOptions();
         var mcp = config.GetSection("Naudit:Review:Mcp").Get<McpOptions>() ?? new McpOptions();
         var sast = config.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
-        var dast = config.GetSection("Naudit:Review:Dast").Get<DastOptions>() ?? new DastOptions();
         var review = config.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
         var redaction = config.GetSection("Naudit:Redaction").Get<RedactionOptions>() ?? new RedactionOptions();
         var gate = config.GetSection("Naudit:AccessGate").Get<AccessGateOptions>() ?? new AccessGateOptions();
@@ -57,9 +55,6 @@ public static class StartupReport
             sast.Enabled
                 ? $"  SAST:       AN · {string.Join(", ", SastOptions.ResolveAnalyzers(sast.Analyzers))}"
                 : "  SAST:       aus",
-            dast.Enabled
-                ? $"  DAST:       AN · Allowlist: {List(dast.Projects)}"
-                : "  DAST:       aus",
             $"  Prompt:     Kontext {OnOff(review.Context.Enabled)} · Memory {OnOff(review.Memory.Enabled)}"
                 + $" (max {review.Memory.MaxEntries}) · Guidelines {OnOff(review.Guidelines.Enabled)}"
                 + $" · Redaction {OnOff(redaction.Enabled)}",
@@ -121,14 +116,9 @@ public static class StartupReport
     {
         var ai = config.GetSection("Naudit:Ai").Get<AiOptions>() ?? new AiOptions();
         var sast = config.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
-        var dast = config.GetSection("Naudit:Review:Dast").Get<DastOptions>() ?? new DastOptions();
         var review = config.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
 
         var warnings = new List<string>();
-
-        if (dast.Enabled && dast.Projects.Count == 0)
-            warnings.Add("DAST ist aktiviert, aber Allowlist Naudit:Review:Dast:Projects ist leer — "
-                + "kein Projekt wird dynamisch getestet.");
 
         if (sast.Enabled && sast.Analyzers.Count == 0)
             warnings.Add("Naudit:Sast:Analyzers ist leer — es greift der Default "

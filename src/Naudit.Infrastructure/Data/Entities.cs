@@ -108,7 +108,7 @@ public sealed class ReviewFindingEntity
 
 /// <summary>Protokoll eines einzelnen LLM-Austauschs (Prompt + rohe Antwort + Metadaten), erzeugt
 /// vom PromptLoggingBehavior, wenn Naudit:Ai:Logging aktiv ist. Über CorrelationId dem Review
-/// zugeordnet (ein Review kann mehrere Zeilen haben: Retry, Autor-Fallback, DAST). Prompt-/
+/// zugeordnet (ein Review kann mehrere Zeilen haben: Retry, Autor-Fallback). Prompt-/
 /// Antwort-Volltexte sind bereits redigiert (Redaction läuft vor dem Prompt) — im WebUI dennoch
 /// nur Admins sichtbar.</summary>
 public sealed class ChatTranscriptEntity

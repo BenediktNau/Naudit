@@ -30,7 +30,7 @@ port/URLs (`ASPNETCORE_URLS`). These never appear on the Settings page.
 
 ### List-shaped settings
 
-A few DB-managed keys are lists — `Naudit:Sast:Analyzers` and `Naudit:Review:Dast:Projects`.
+One DB-managed key is list-shaped — `Naudit:Sast:Analyzers`.
 In the database they live in a **single row** holding a comma-separated value
 (`opengrep,trivy`); on startup `DbSettingsLoader` expands them into the indexed config keys
 (`Naudit:Sast:Analyzers:0`, `:1`, …) that normal options binding expects. On the Settings page
@@ -145,7 +145,6 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Sast:AnalyzerTimeout` | Timeout per analyzer run (default `00:05:00`) |
 | `Naudit:Sast:MaxFindingsPerGroup` | Cap per category when condensing findings (default `20`) |
 | `Naudit:Sast:Reducer` | Reducer strategy — currently only `deterministic` |
-| `Naudit:Review:Dast:Enabled` / `:Projects` | Dynamic testing on/off plus the per-project allowlist (**list-shaped**, empty ⇒ no project runs). Both switches must agree — DAST builds and runs untrusted PR code (see [DAST](dast.md)) |
 | `Naudit:Review:Memory:Enabled` | Inject per-project maintainer guidance (false positives + conventions) as a read-only prompt section — **default `true`** (see [Review memory](review-memory.md)) |
 | `Naudit:Review:Memory:MaxEntries` | Cap on memory entries injected per review — conventions first, then false positives, newest-first (default `50`) |
 | `Naudit:Review:Resolution:Enabled` | Enable finding-resolution tracking — `@naudit ok`/`fp` replies and the LLM classifier write `ResolutionStatus` — **default `true`** (see [Review analytics](review-analytics.md)) |

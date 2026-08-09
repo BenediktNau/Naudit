@@ -59,12 +59,12 @@ public sealed class NauditConfigTests : IDisposable
         {
             ["Naudit:Sast:Analyzers:0"] = "trivy",
             ["Naudit:Sast:Analyzers:1"] = "dotnet-sca",   // wuerde sonst als Index 1 dazugemischt
-            ["Naudit:Review:Dast:Projects:0"] = "acme/web", // andere Liste: bleibt unangetastet
+            ["Naudit:GitHub:ProjectTokens:0"] = "acme/web=tok", // andere Liste: bleibt unangetastet
         });
         var config = builder.Build();
 
         Assert.Equal(["opengrep"], config.GetSection("Naudit:Sast:Analyzers").GetChildren().Select(c => c.Value));
-        Assert.Equal(["acme/web"], config.GetSection("Naudit:Review:Dast:Projects").GetChildren().Select(c => c.Value));
+        Assert.Equal(["acme/web=tok"], config.GetSection("Naudit:GitHub:ProjectTokens").GetChildren().Select(c => c.Value));
         Assert.NotNull(env.Root["Naudit:Sast:Analyzers:0"]);
     }
 
