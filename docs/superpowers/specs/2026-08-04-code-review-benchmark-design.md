@@ -211,7 +211,10 @@ A read-only token is the safety net that matters: the harness never calls a writ
 a token without write scope means a bug cannot either.
 
 Judge (`offline/.env`): `MARTIAN_API_KEY` = OpenRouter key,
-`MARTIAN_BASE_URL=https://openrouter.ai/api/v1`, plus the model pair per run.
+`MARTIAN_BASE_URL=https://openrouter.ai/api/v1`, plus the model pair per run — three runs, one
+per published judge directory (`anthropic_claude-sonnet-4-5-20250929`,
+`anthropic_claude-opus-4-5-20251101`, `openai_gpt-5.2`). GPT-5.2 needs no
+`MARTIAN_MODEL_ENDPOINT`; its OpenRouter id is identical to the directory name.
 
 ## Error handling, resumption, and fail-open detection
 
@@ -264,7 +267,7 @@ three minutes each.
 
 ## Deviations from the upstream pipeline
 
-Three, all to be stated in the thesis:
+Four, all to be stated in the thesis:
 
 1. **Collection is local.** Naudit's comments are captured through a decorating `IGitPlatform`
    rather than harvested from forked PRs by `step1`. Review inputs are identical — same
@@ -285,6 +288,12 @@ Three, all to be stated in the thesis:
    (`headSha` in `naudit-reviews.json`, read from `.git/HEAD` of the workspace — the clone URL
    carries the token and is deliberately never recorded). That makes the divergence auditable
    after the fact instead of invisible.
+4. **The `@naudit fp/ok` command hint is switched off** (`Naudit:Review:Resolution:RenderHint=false`).
+   Since PR 3 every posted comment carries an invisible HTML block, and every summary a
+   `<details>` block, advertising the reply commands. That text is product surface, not review
+   content: the capture takes the *posted* copy, so it would have entered all 50 records and been
+   scored as noise by the extraction and judge steps. Found by the smoke test, which is what the
+   smoke test is for.
 
 Extraction, deduplication, judge prompt and metric are untouched.
 
@@ -297,8 +306,14 @@ Extraction, deduplication, judge prompt and metric are untouched.
 - **Human-curated ground truth.** A real finding that no human annotator recorded counts as a
   false positive here. Precision is therefore a lower bound.
 - **Judge variance.** The judge is an LLM; the benchmark mitigates this with fixed prompts and by
-  reporting the judge model. Running both Claude judges lets the thesis show whether Naudit's
-  placement is stable across judges.
+  reporting the judge model. All **three** published judges are run — Sonnet 4.5, Opus 4.5 and
+  GPT-5.2 — so the thesis can show whether Naudit's placement is stable across judges. GPT-5.2
+  matters most: Naudit reviews with a Claude model, and a cross-vendor judge is what answers the
+  "Claude grading Claude" objection.
+- **Model generation.** Naudit reviews with Opus 5 (August 2026); the 41 comparison tools were
+  measured between January and April 2026 with the models of that time. Part of any good placement
+  is therefore a model advantage, not a tool advantage. The thesis must say so — a ranking that
+  hides this is flattering itself.
 - **Single run.** No repeated sampling, so run-to-run variance of Naudit itself is not
   characterised.
 - **The fixture is not frozen.** Same fact as deviation 3, and it belongs in the limitations too:

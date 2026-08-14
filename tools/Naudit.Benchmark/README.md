@@ -62,3 +62,27 @@ Getrennt davon steht ein Hinweis-Block für PRs mit voller Dateiseite: die sind 
 Wiederholungsgrund (ein erneuter Lauf sähe dasselbe), gehören aber als Grenze in die Arbeit.
 
 Import und Auswertung danach: `tools/benchmark/import_reviews.py` bzw. Task 9 des Plans.
+
+## Ergebnis des Laufs vom 2026-08-14
+
+50/50 PRs, 74 min, 371 Inline-Kommentare (⌀ 7,4 je PR), ein Review wegen einer Pipeline-Warnung
+wiederholt, ein PR an der Seitengrenze von 100 Dateien. Bewertet über alle drei veröffentlichten
+Judges, je 0 Fehler:
+
+| Judge | Precision | Recall | F1 | Rang F1 | Rang Recall |
+|---|---|---|---|---|---|
+| Sonnet 4.5 | 20,4 % | 69,3 % | 31,5 % | 28 / 41 | 2 / 41 |
+| Opus 4.5 | 22,5 % | 67,9 % | 33,8 % | 29 / 42 | 3 / 42 |
+| GPT-5.2 | 19,8 % | 67,9 % | 30,6 % | 27 / 42 | 2 / 42 |
+
+Naudit ist damit ein **High-Recall-/Low-Precision-Reviewer**: es findet fast am meisten im Feld
+(nur `cubic-dev` liegt höher) und erzeugt dabei mehr als doppelt so viele Kommentare wie der
+Feld-Schnitt (478 Kandidaten gegen 213). Der Befund ist über alle drei Judges stabil, auch über
+den herstellerfremden. Die gemessene Precision ist eine Untergrenze — ein echter Fund, den kein
+Annotator notierte, zählt hier als Fehlalarm.
+
+Einordnung, Grenzen und die vier Abweichungen vom Originalverfahren stehen in
+`docs/superpowers/specs/2026-08-04-code-review-benchmark-design.md`.
+
+Wichtig für einen Wiederholungslauf: `Naudit__Review__Resolution__RenderHint=false` setzen, sonst
+hängt an jedem erfassten Kommentar der `@naudit fp/ok`-Hinweis und wird als Inhalt mitbewertet.
