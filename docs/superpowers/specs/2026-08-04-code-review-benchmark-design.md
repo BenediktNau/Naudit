@@ -357,6 +357,6 @@ Extraction, deduplication, judge prompt and metric are untouched.
 - The fork route (`step0` or an API-based variant) — reconsider only if the local numbers are
   contested.
 - The `online/` half of the benchmark, which avoids training-data leakage by using fresh PRs.
-- gpt-5.2 as a third judge — a later addition for ~2 $ with no re-run of anything, since its
-  OpenRouter id already matches the published directory name.
+*(gpt-5.2 as a third judge was out of scope when this was written; it was added on the run of
+2026-08-14 and is now part of the plan above — see the judge section.)*
 - Contributing Naudit's results back upstream.

@@ -57,9 +57,14 @@ var entries = GoldenDataset.Load(goldenDir);
 Console.WriteLine($"{entries.Count} Einträge geladen, {entries.Select(e => e.ProjectId).Distinct().Count()} Projekte.");
 
 var store = new ResultStore(outputPath);
-var done = store.CompletedUrls;
+// Wiederaufsetzen über die sauberen Reviews, nicht über alle: ein auffälliges Review (Fehler,
+// gescheiterter Checkout, leerer Kontext, Warnung) darf nicht importiert werden — würde der
+// nächste Start es als erledigt überspringen, bliebe die Lücke bis zum Import unentdeckt.
+var done = store.CleanUrls;
 var todo = entries.Where(e => !done.Contains(e.Url)).Take(limit).ToList();
-Console.WriteLine($"{done.Count} bereits erledigt, {todo.Count} zu tun.");
+var zuWiederholen = store.CompletedUrls.Count - done.Count;
+Console.WriteLine($"{done.Count} bereits erledigt, {todo.Count} zu tun"
+    + (zuWiederholen > 0 ? $" (davon {zuWiederholen} Wiederholung auffälliger Reviews)." : "."));
 
 var capture = provider.GetRequiredService<ReviewCapture>();
 var index = 0;
@@ -125,13 +130,13 @@ foreach (var entry in todo)
 }
 
 // Abschlussbericht: was noch fehlt und was auffällig war.
-var remaining = entries.Count - store.CompletedUrls.Count;
+var remaining = entries.Count - store.CleanUrls.Count;
 var suspicious = store.All()
     .Select(r => (r.Url, Reasons: ReviewAnomalies.Of(r.Diagnostics)))
     .Where(x => x.Reasons.Count > 0)
     .ToList();
 Console.WriteLine();
-Console.WriteLine($"Fertig: {store.CompletedUrls.Count}/{entries.Count}, offen: {remaining}");
+Console.WriteLine($"Fertig: {store.CleanUrls.Count}/{entries.Count}, offen: {remaining}");
 if (suspicious.Count > 0)
 {
     Console.WriteLine($"ACHTUNG — {suspicious.Count} auffällige Reviews (vor dem Import wiederholen):");

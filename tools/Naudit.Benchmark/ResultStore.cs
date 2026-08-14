@@ -88,6 +88,13 @@ public sealed class ResultStore
 
     public IReadOnlyCollection<string> CompletedUrls => _records.Select(r => r.Url).ToHashSet();
 
+    /// <summary>URLs der Reviews, die sauber durchliefen — der eigentliche Wiederaufsetzpunkt.
+    /// Auffällige Reviews (Fehler, fehlender oder gescheiterter Checkout, leerer Kontext, fehlendes
+    /// Profil, Pipeline-Warnung) bleiben bewusst draußen: sie dürfen ohnehin nicht importiert werden,
+    /// und ein erneuter Start soll sie wiederholen statt sie als erledigt zu überspringen.</summary>
+    public IReadOnlyCollection<string> CleanUrls =>
+        _records.Where(r => ReviewAnomalies.Of(r.Diagnostics).Count == 0).Select(r => r.Url).ToHashSet();
+
     public IReadOnlyList<BenchmarkRecord> All() => _records;
 
     public void Append(BenchmarkRecord record)

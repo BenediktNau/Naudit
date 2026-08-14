@@ -27,6 +27,25 @@ public class BenchmarkResultStoreTests
     }
 
     [Fact]
+    public void CleanUrls_laesst_auffaellige_Reviews_aus_damit_sie_wiederholt_werden()
+    {
+        var dir = Directory.CreateTempSubdirectory("naudit-store-");
+        try
+        {
+            var path = Path.Combine(dir.FullName, "naudit-reviews.json");
+            var store = new ResultStore(path);
+            store.Append(Record("https://github.com/getsentry/sentry/pull/1", 1));
+            store.Append(Record("https://github.com/getsentry/sentry/pull/2", 2, error: "Zeitüberschreitung"));
+
+            // Geschrieben sind beide — der Wiederaufsetzpunkt kennt aber nur das saubere Review.
+            Assert.Equal(2, store.CompletedUrls.Count);
+            Assert.Single(store.CleanUrls);
+            Assert.Contains("https://github.com/getsentry/sentry/pull/1", store.CleanUrls);
+        }
+        finally { dir.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void Append_schreibt_sofort_und_ein_neuer_Store_liest_es_wieder()
     {
         var dir = Directory.CreateTempSubdirectory("naudit-store-");

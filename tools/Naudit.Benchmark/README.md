@@ -55,8 +55,8 @@ irgendjemand es loggt. Der Lauf hält deshalb je Review fest:
 | `warnings` / `error` / `durationSeconds` | was die Pipeline geloggt hat, ein Abbruch, die Laufzeit |
 
 Am Ende meldet das Werkzeug alle auffälligen Reviews. Die gehören **wiederholt, nicht importiert** —
-sonst zählt ein stumm degradiertes Review als „nichts gefunden". `import_reviews.py` lehnt dieselben
-Datensätze ab.
+sonst zählt ein stumm degradiertes Review als „nichts gefunden“. `import_reviews.py` lehnt dieselben
+Datensätze ab, und der Runner selbst nimmt sie beim nächsten Start automatisch wieder auf.
 
 Getrennt davon steht ein Hinweis-Block für PRs mit voller Dateiseite: die sind kein
 Wiederholungsgrund (ein erneuter Lauf sähe dasselbe), gehören aber als Grenze in die Arbeit.
