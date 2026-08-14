@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Naudit.Benchmark</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Erstanbieter-Paket, Ausnahme von "keine neuen NuGet-Pakete": tools/Naudit.Benchmark ist
+         ein reines Entwicklerwerkzeug (geht nicht ins Container-Image) und braucht den
+         Standard-Provider für Naudit__*-Umgebungsvariablen. Ein handgebauter Ersatz kollidierte
+         unter Linux bei Groß-/Kleinschreibungs-Duplikaten (z. B. PATH neben Path) im
+         case-insensitiven Config-Wörterbuch. Version an die übrigen Microsoft.Extensions.*-Pakete
+         der Solution angeglichen (Naudit.Infrastructure.csproj). -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.9" />
+    <ProjectReference Include="..\..\src\Naudit.Core\Naudit.Core.csproj" />
+    <ProjectReference Include="..\..\src\Naudit.Infrastructure\Naudit.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

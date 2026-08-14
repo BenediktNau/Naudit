@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Naudit.Core\Naudit.Core.csproj" />
     <ProjectReference Include="..\..\src\Naudit.Infrastructure\Naudit.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Naudit.Web\Naudit.Web.csproj" />
+    <ProjectReference Include="..\..\tools\Naudit.Benchmark\Naudit.Benchmark.csproj" />
   </ItemGroup>
 
 </Project>
