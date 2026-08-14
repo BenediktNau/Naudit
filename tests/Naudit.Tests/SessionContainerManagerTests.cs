@@ -25,8 +25,24 @@ public class SessionContainerManagerTests
         Assert.Equal("sha256:self-image", docker.LastRunSpec!.Image);
         Assert.Equal("naudit-session-7", docker.LastRunSpec.VolumeName);
         Assert.Equal("/home/app", docker.LastRunSpec.VolumeTarget);
-        Assert.Equal(["sleep", "infinity"], docker.LastRunSpec.Command);
+        Assert.Empty(docker.LastRunSpec.Command);   // Kommando steckt im Entrypoint, s. Test unten
         Assert.NotNull(manager.LastUsed(7)); // EnsureRunning zählt als Nutzung
+    }
+
+    /// <summary>Das Naudit-Image traegt ENTRYPOINT ["dotnet","Naudit.Web.dll"]. Ohne Override
+    /// haengt Docker das Cmd als ARGUMENTE daran — der Account-Container startet dann einen
+    /// kompletten zweiten Naudit-Host statt eines passiven "sleep infinity" (verifiziert per
+    /// `docker run naudit:latest sleep infinity`). Er lebt zwar, aber verbrennt pro Konto einen
+    /// vollen Host samt eigener DB und Hintergrunddiensten. Der Entrypoint MUSS gesetzt sein.</summary>
+    [Fact]
+    public async Task EnsureRunning_overridesImageEntrypoint_soTheContainerIdlesInsteadOfBooting()
+    {
+        var docker = new FakeDockerClient();
+        var manager = Create(docker);
+
+        await manager.EnsureRunningAsync(7);
+
+        Assert.Equal(["sleep", "infinity"], docker.LastRunSpec!.Entrypoint);
     }
 
     [Fact]
