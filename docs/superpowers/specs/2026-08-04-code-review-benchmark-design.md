@@ -213,8 +213,14 @@ a token without write scope means a bug cannot either.
 Judge (`offline/.env`): `MARTIAN_API_KEY` = OpenRouter key,
 `MARTIAN_BASE_URL=https://openrouter.ai/api/v1`, plus the model pair per run — three runs, one
 per published judge directory (`anthropic_claude-sonnet-4-5-20250929`,
-`anthropic_claude-opus-4-5-20251101`, `openai_gpt-5.2`). GPT-5.2 needs no
-`MARTIAN_MODEL_ENDPOINT`; its OpenRouter id is identical to the directory name.
+`anthropic_claude-opus-4-5-20251101`, `openai_gpt-5.2`).
+
+**Keep `MARTIAN_MODEL`/`MARTIAN_MODEL_ENDPOINT` out of `.env` and export both explicitly per
+run.** `uv run` loads that `.env` itself, and a value there refills any variable the calling
+script `unset`s — while the endpoint variable outranks the directory name. On 2026-08-14 a run
+meant to be GPT-5.2 therefore executed on Sonnet 4.5 and still wrote to `results/openai_gpt-5.2/`.
+The only two tells were the `Judge model:` line in the log and the provider's cost breakdown
+listing no GPT model. Verify that line after every run.
 
 ## Error handling, resumption, and fail-open detection
 
@@ -315,7 +321,10 @@ Extraction, deduplication, judge prompt and metric are untouched.
   is therefore a model advantage, not a tool advantage. The thesis must say so — a ranking that
   hides this is flattering itself.
 - **Single run.** No repeated sampling, so run-to-run variance of Naudit itself is not
-  characterised.
+  characterised. The *judge* side did get measured, by accident: the mis-configured run above put
+  Sonnet 4.5 over the identical inputs a second time and produced 20.4 → 19.8 % precision,
+  69.3 → 67.9 % recall, 31.5 → 30.6 % F1, rank 28 → 27. Read differences below one percentage
+  point as pipeline noise, not signal.
 - **The fixture is not frozen.** Same fact as deviation 3, and it belongs in the limitations too:
   Naudit reviews today's state of each pull request, the other tools reviewed snapshots pushed
   between 2026-01-22 and 2026-04-06. For a still-open PR that has grown since, the two are not the

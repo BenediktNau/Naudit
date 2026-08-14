@@ -73,7 +73,7 @@ Judges, je 0 Fehler:
 |---|---|---|---|---|---|
 | Sonnet 4.5 | 20,4 % | 69,3 % | 31,5 % | 28 / 41 | 2 / 41 |
 | Opus 4.5 | 22,5 % | 67,9 % | 33,8 % | 29 / 42 | 3 / 42 |
-| GPT-5.2 | 19,8 % | 67,9 % | 30,6 % | 27 / 42 | 2 / 42 |
+| GPT-5.2 | 19,5 % | 67,9 % | 30,3 % | 27 / 42 | 2 / 42 |
 
 Naudit ist damit ein **High-Recall-/Low-Precision-Reviewer**: es findet fast am meisten im Feld
 (nur `cubic-dev` liegt höher) und erzeugt dabei mehr als doppelt so viele Kommentare wie der
@@ -86,3 +86,17 @@ Einordnung, Grenzen und die vier Abweichungen vom Originalverfahren stehen in
 
 Wichtig für einen Wiederholungslauf: `Naudit__Review__Resolution__RenderHint=false` setzen, sonst
 hängt an jedem erfassten Kommentar der `@naudit fp/ok`-Hinweis und wird als Inhalt mitbewertet.
+
+### Falle beim Judge-Modell
+
+`uv run` lädt `offline/.env` selbst nach. Steht dort ein `MARTIAN_MODEL_ENDPOINT`, füllt es jede
+im aufrufenden Skript ge-`unset`-ete Variable wieder auf — und der Endpunkt schlägt den
+Verzeichnisnamen. Am 14.08. lief ein als GPT-5.2 gemeinter Durchgang deshalb in Wahrheit auf
+Sonnet 4.5 und schrieb trotzdem nach `results/openai_gpt-5.2/`. Sichtbar war das nur an der Zeile
+`Judge model:` im Log und daran, dass die Kostenaufstellung des Anbieters kein GPT-Modell
+auswies. **Modell und Endpunkt immer explizit exportieren, nie in der `.env` stehen lassen, und
+nach jedem Lauf die `Judge model:`-Zeile prüfen.**
+
+Der Fehllauf ist als Messung brauchbar: derselbe Judge über dieselben Eingaben ergab 20,4 → 19,8 %
+Precision, 69,3 → 67,9 % Recall, 31,5 → 30,6 % F1, Rang 28 → 27. **Unterschiede unter einem
+Prozentpunkt sind Rauschen der Bewertungspipeline, kein Signal.**
