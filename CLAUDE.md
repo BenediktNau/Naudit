@@ -146,7 +146,7 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
 
   **Config model:** most `Naudit:*` keys are now DB-managed — a whitelist in
   `src/Naudit.Infrastructure/Settings/SettingsCatalog.cs` (`SettingDefinition(Key, IsSecret,
-  IsList, AllowedValues)`; `IsList` keys — `Sast:Analyzers`, `Dast:Projects` — are stored as
+  IsList, AllowedValues)`; `IsList` keys — `Sast:Analyzers` — are stored as
   **one comma-separated row** and expanded by `DbSettingsLoader` into indexed config keys
   (`…:Analyzers:0`), so the `*Options` classes see plain binding; `SettingsValues` holds the
   only two list-aware spots, reading a value and detecting env-set-ness — `Naudit__…__0` sets
@@ -273,8 +273,7 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   review row). Off by default, config-only via `Naudit:Ai:Logging` (`Enabled`/`IncludePrompts`/
   `IncludeResponse`/`Persist`/`MaxCharsPerField`, DB-managed). WebUI: an **admin-only** "Prompt &
   Kommunikation" panel in the review detail (`GET /api/reviews/{id}` returns `transcripts` only to
-  admins — prompts carry redacted source). DAST probing keeps its own un-wrapped base client and is
-  out of scope. See `docs/prompt-logging.md`.
+  admins — prompts carry redacted source). See `docs/prompt-logging.md`.
 - **Session sandbox (containerized subscription sessions):** `Naudit:Ai:SessionSandbox = None | Docker`
   (default `None` = in-process CLI runs, today's behaviour). `Docker` moves Author/RoundRobin session
   runs into long-lived sibling containers per account (host Docker socket, same Naudit image,
@@ -293,30 +292,6 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   account is gone, not `Active`, or token-less. Opt-in integration test via `NAUDIT_TEST_DOCKER=1`.
   Status: `GET /api/me/session-sandbox` (mapped only in Docker mode; the cross-account
   `liveContainers` count is admin-only). See `docs/session-sandbox.md`.
-- **DAST app-runner + probing analyzer (dynamic-testing slice, PR 1+2):** `IAppRunner`/`DockerAppRunner`
-  (`src/Naudit.Infrastructure/Dast/`) builds the PR's own `Dockerfile` (checkout tar'd into the
-  engine via `WorkspaceTarPacker` — the daemon cannot see Naudit's filesystem), starts it as a
-  sibling container on a per-review `internal` network (no egress, no published ports, memory/CPU/PID
-  limits, `cap-drop ALL`, no volume, no environment) next to a passive **probe container**
-  (`ProbeImage`, pulled on demand, `sleep`-entrypoint). Returns a `RunningApp` whose `DisposeAsync`
-  tears both containers, network and built image down. `DastAnalyzer : ISastAnalyzer` is now the
-  caller: it runs the app via the runner, then `DastProbeSession` starts the Playwright-MCP server
-  as a **stdio** process in the probe container over a raw bidirectional `docker exec` (Engine-API
-  duplex stream, no `docker` CLI in the image, no new NuGet) wired to the MCP SDK's
-  `StreamClientTransport`, and drives a `MaxProbeSteps`-bounded (default 12) agentic tool-loop on
-  the **global** `IChatClient` (never the author-session router), parsing
-  `{"findings":[...]}` JSON into `ScanFinding(Category = FindingCategory.Dast)` grounding — the
-  verdict stays LLM-driven, DAST never gates. All reachability runs through the Docker socket
-  (healthcheck and MCP both via `docker exec`), Naudit never joins the network, and both phases
-  work identically from a containerized or bare-metal Naudit. `DastAnalyzer` self-registers as an
-  `ISastAnalyzer` whenever `Naudit:Review:Dast:Enabled=true` — it is **not** an entry in
-  `Naudit:Sast:Analyzers`. Gated twice: `Naudit:Review:Dast:Enabled` **and** the
-  `Naudit:Review:Dast:Projects` allowlist (empty ⇒ no project) — it executes foreign PR code.
-  Both switches (like `Naudit:Sast:Enabled`/`:Analyzers`) are DB-managed and live in the WebUI
-  under Settings → Review rules.
-  Fail-open everywhere (`null`/empty findings — only a caller cancellation rethrows after teardown),
-  plus a `DastOrphanSweeper` that removes `naudit-dast-*` leftovers at startup. `IReviewWorkspace`
-  gained `ProjectId` for that allowlist. See `docs/dast.md`.
 - **Review memory:** `IReviewMemory` (Core `Abstractions`) selects per-project maintainer
   guidance for a review; the default `DbReviewMemory`
   (`src/Naudit.Infrastructure/Memory/`) deterministically picks active conventions + false

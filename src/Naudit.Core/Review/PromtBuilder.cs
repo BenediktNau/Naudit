@@ -182,14 +182,6 @@ public static class PromptBuilder
         AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
-        // DAST-Funde stammen aus einem Browser-Probing der laufenden App — anders als Semgrep/Trivy
-        // ist ihr Inhalt (Seiteninhalt, den ein Angreifer/PR-Autor kontrolliert) nicht deterministisch
-        // verifiziert. Eigener Qualifier direkt unter der Überschrift, ohne den geteilten Header oben
-        // zu ändern: das reviewende Modell soll DAST-Einträge gegen den Diff abgleichen statt blind
-        // übernehmen (begrenzte Prompt-Injection-Fläche: Probe-Inhalt → Probe-LLM → dieser Prompt).
-        AppendCategory(sb, "DAST (dynamic)", findings.Where(f => f.Category == FindingCategory.Dast),
-            "(DAST entries are observations from an automated browser probe of the running app — " +
-            "content-derived and not tool-verified; corroborate against the diff before reporting.)");
     }
 
     // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
@@ -248,15 +240,13 @@ public static class PromptBuilder
         }
     }
 
-    private static void AppendCategory(StringBuilder sb, string heading, IEnumerable<ScanFinding> items, string? qualifier = null)
+    private static void AppendCategory(StringBuilder sb, string heading, IEnumerable<ScanFinding> items)
     {
         var list = items.ToList();
         if (list.Count == 0)
             return;
         sb.AppendLine();
         sb.AppendLine($"## {heading}");
-        if (qualifier is not null)
-            sb.AppendLine(qualifier);
         foreach (var f in list)
         {
             var scope = f.InDiff ? "in diff" : "pre-existing";

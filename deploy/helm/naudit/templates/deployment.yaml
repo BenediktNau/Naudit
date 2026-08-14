@@ -59,12 +59,7 @@ spec:
                   name: {{ include "naudit.bootstrapSecretName" . }}
                   key: admin-initial-password
             {{- if .Values.dind.enabled }}
-            # Engine-Socket des Sidecars. BEIDE Keys, obwohl heute nur DAST ihn
-            # liest: es gibt prozessweit nur einen IDockerClient, und sobald
-            # Naudit:Ai:SessionSandbox=Docker gesetzt wird, gewinnt dessen Pfad
-            # ueber den von DAST. Gleicher Wert => kein Weg, das falsch zu haben.
-            - name: Naudit__Review__Dast__DockerSocketPath
-              value: {{ printf "%s/docker.sock" .Values.dind.socketDir | quote }}
+            # Engine-Socket des Sidecars — die Session-Sandbox spricht ihn an.
             - name: Naudit__Ai__Sandbox__DockerSocketPath
               value: {{ printf "%s/docker.sock" .Values.dind.socketDir | quote }}
             {{- end }}
@@ -106,8 +101,8 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
         {{- if .Values.dind.enabled }}
-        # Docker-Engine fuer DAST (siehe values.yaml: warum Sidecar statt
-        # Host-Socket). Laeuft als root und privilegiert — der Naudit-Container
+        # Docker-Engine fuer die Session-Sandbox (siehe values.yaml: warum Sidecar
+        # statt Host-Socket). Laeuft als root und privilegiert — der Naudit-Container
         # daneben bleibt unveraendert non-root mit cap-drop ALL.
         - name: dind
           image: {{ .Values.dind.image | quote }}
@@ -126,8 +121,8 @@ spec:
             - --group={{ .Values.dind.socketGid }}
           securityContext:
             # Unvermeidbar fuer einen echten Daemon: cgroup-Mounts, overlayfs,
-            # iptables. Entspricht Root auf dem Node — deshalb ist DAST
-            # zusaetzlich hinter einer Projekt-Allowlist verriegelt.
+            # iptables. Entspricht Root auf dem Node — deshalb ist der Sidecar
+            # per Default aus und nur fuer die Session-Sandbox gedacht.
             privileged: true
           volumeMounts:
             - name: docker-socket

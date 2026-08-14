@@ -49,15 +49,12 @@ public class SettingsValuesTests
     }
 
     [Fact]
-    public void Katalog_kenntSastUndDastListen()
+    public void Katalog_kenntSastListe()
     {
         Assert.True(SettingsCatalog.TryGet("Naudit:Sast:Enabled", out _));
         Assert.True(SettingsCatalog.TryGet("Naudit:Sast:Analyzers", out var analyzers));
         Assert.True(analyzers.IsList);
         Assert.Contains("opengrep", analyzers.AllowedValues!);
         Assert.Contains("dotnet-sca", analyzers.AllowedValues!);
-        Assert.True(SettingsCatalog.TryGet("Naudit:Review:Dast:Projects", out var projects));
-        Assert.True(projects.IsList);
-        Assert.Null(projects.AllowedValues);
     }
 }

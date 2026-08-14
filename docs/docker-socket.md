@@ -1,10 +1,8 @@
 # The Docker socket (`/var/run/docker.sock`)
 
-Two optional Naudit features drive the host's Docker engine: the
-[session sandbox](session-sandbox.md) (released) and [DAST](dast.md) (app-runner shipped; probing analyzer in development).
-Both talk to the engine through the same seam — this page explains what that socket
-access means, what it is used for, and how to set it up. It is the shared reference for
-both features.
+One optional Naudit feature drives the host's Docker engine: the
+[session sandbox](session-sandbox.md). This page explains what that socket access means,
+what it is used for, and how to set it up.
 
 ## What it is
 
@@ -35,12 +33,10 @@ critical workloads.
 | Feature | Switch | What gets started |
 | --- | --- | --- |
 | [Session sandbox](session-sandbox.md) | `Naudit:Ai:SessionSandbox=Docker` | Long-lived per-account containers for Claude subscription sessions (your own, trusted workloads) |
-| [DAST](dast.md) (app-runner shipped; probing analyzer in development) | `Naudit:Review:Dast:Enabled=true` | Short-lived per-review containers that build and run the **PR's own app** — foreign code, with its own containment story |
 
-Both switches are independent and off by default — different risk profiles, separately
-enabled. Everything is **fail-open** on Docker plumbing: no socket (or any engine error)
-means sandbox sessions run in-process and DAST yields no findings; a review never fails
-because of the Docker substrate.
+The switch is off by default. Everything is **fail-open** on Docker plumbing: no socket
+(or any engine error) means sandbox sessions run in-process; a review never fails because
+of the Docker substrate.
 
 ## Setup
 
@@ -84,12 +80,8 @@ No mount, no `group_add` — the process opens the host socket directly. Require
   (e.g. `ghcr.io/benediktnau/naudit:latest`). The default resolves Naudit's own image
   by self-inspection, which only works when Naudit itself is a container.
 
-DAST is designed to behave identically in both deployment forms: all interaction with
-its review network runs through the socket (`docker exec`), never over published ports.
-
 ## See also
 
 - [Deployment](deployment.md) — the full Coolify environment template.
 - [Session sandbox](session-sandbox.md) — lifecycle, fail-open matrix, and what
   per-account containers change about credential storage.
-- [DAST](dast.md) — status and the activation guide.

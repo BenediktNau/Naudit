@@ -8,8 +8,8 @@ knowledge alone and either miss real misuse or invent false positives against an
 has since changed. Context7 needs **no running target app**, which is why it's the first tool: it
 delivers value immediately and de-risks the agentic-loop plumbing for future, app-dependent tools.
 
-> Playwright/browser tooling and dynamic security testing (DAST) are separate, **future** slices
-> (they need a sandboxed App-Runner to build and run the changed code first). This feature is the
+> Tooling that needs the changed code **running** (a browser driver, dynamic probing) is out of
+> scope here: it would require building and running untrusted PR code first. This feature is the
 > MCP-client plumbing plus Context7 only — no running-app tooling ships here.
 
 ## Two provider paths, one config source
@@ -105,6 +105,6 @@ The seam is `Naudit.Core.Abstractions.IReviewToolProvider` (returns MEAI `AITool
 wiring — `McpOptions`, `IMcpToolConnector`/`McpClientToolConnector` (the real `ModelContextProtocol`
 SDK connection), and `McpReviewToolProvider` — lives entirely in
 `src/Naudit.Infrastructure/Mcp/`; Core never references the `ModelContextProtocol` package. A
-future tool (or a future App-Runner-backed Playwright/DAST slice) is another server entry plus, if
+future tool is another server entry plus, if
 it needs more than MCP gives for free, another `IReviewToolProvider`/`IMcpToolConnector`
 implementation — not a change to `Naudit.Core`.
