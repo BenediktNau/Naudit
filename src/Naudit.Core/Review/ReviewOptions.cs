@@ -108,7 +108,13 @@ public sealed class ReviewGuidelinesOptions
 public sealed class PreExistingOptions
 {
     /// <summary>Baseline-Sektion im Prompt und Altlasten-Kommentar. Default AN;
-    /// false ⇒ weder Sektion noch Kommentar (heutiges Verhalten).</summary>
+    /// false ⇒ weder Sektion noch Kommentar. ACHTUNG: das ist NICHT das Verhalten vor diesem
+    /// Feature — der Reducer kennt diese Option nicht und wendet die dreistufige Logik
+    /// (Stufe 0/1/2) unabhaengig davon an. Stufe-2-Funde (unberuehrte Datei) erscheinen dann in
+    /// GAR KEINER Form mehr im Prompt: nicht einzeln (das war nie so) und ohne Baseline auch nicht
+    /// mehr verdichtet. Das ist WENIGER Grounding als vor der Umstellung, als ein Critical-Fund aus
+    /// einer unberuehrten Datei noch auf Platz 1 des Diff-Kontingents stehen konnte. Ein sauberer
+    /// Rueckfall auf Ein-Kontingent-Verhalten waere ein eigener Folge-PR.</summary>
     public bool Enabled { get; set; } = true;
 
     /// <summary>Ab dieser Severity werden Altlasten EINZELN mit Datei:Zeile ausgewiesen statt nach

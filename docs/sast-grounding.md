@@ -83,8 +83,8 @@ noise for languages a repo doesn't use.
 ## Pre-existing findings
 
 Everything a scan turns up that is **not** on a commentable diff line — tier 1 and
-tier 2 findings — is never dropped, but it is also never dumped into the prompt
-as a wall of individual findings. Instead it is condensed by `PreExistingSummary`
+tier 2 findings — is never dumped into the prompt as a wall of individual findings.
+Instead it is condensed by `PreExistingSummary`
 (`src/Naudit.Core/Review/PreExistingSummary.cs`) into one deterministic overview
 that two things are rendered from.
 
@@ -141,7 +141,7 @@ before this feature existed.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `Enabled` | `true` | Master switch for both the prompt section and the comment. `false` ⇒ neither (today's diff-only behavior). |
+| `Enabled` | `true` | Master switch for both the prompt section and the comment. `false` ⇒ neither — **not** the pre-feature behavior: the reducer's tier-0/1/2 split (above) still applies regardless of this switch, so tier-2 findings then appear in **no** form at all in the prompt (they were never individual, and now they're not condensed either). This is *less* grounding than before this feature existed, when an untouched-file finding could still occupy a diff-budget slot. A clean fallback to single-budget behavior would be a follow-up change. |
 | `DetailSeverity` | `High` | Minimum severity listed individually (file + line); below it, findings are grouped by rule. |
 | `MaxDetailed` | `50` | Cap on the individually-listed findings; anything beyond falls back into the rule groups instead of being dropped. |
 | `MaxRules` | `30` | Cap on the number of rule groups shown. |
