@@ -7,7 +7,7 @@ namespace Naudit.Infrastructure.Sast;
 /// Sortierung (Diff-Zeile vor geänderter Datei vor unberührter Datei, dann Severity), getrennte
 /// Kontingente pro Category. Altlasten belegen dadurch nie Plätze, die Diff-Befunden zustehen.</summary>
 public sealed class DeterministicFindingReducer(
-    int maxFindingsPerGroup = 20, int maxPreExistingPerGroup = 5) : IFindingReducer
+    int maxFindingsPerGroup = 30, int maxPreExistingPerGroup = 5) : IFindingReducer
 {
     public Task<FindingReduction> ReduceAsync(
         IReadOnlyList<ScanFinding> findings, IReadOnlyList<CodeChange> changes, CancellationToken ct = default)

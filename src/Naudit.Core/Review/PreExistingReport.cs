@@ -73,7 +73,13 @@ public static class PreExistingReport
             sb.AppendLine("| --- | --- | ---: | --- |");
             foreach (var g in s.Groups)
             {
-                var example = g.ExampleFilePath is null ? "—"
+                // Derselbe Sonderfall wie oben bei s.Detailed, hier NUR fuer den Beispielort: eine
+                // Secrets-Gruppe entsteht entweder ueber eine Severity unterhalb von DetailSeverity
+                // oder ueber einen Ueberlauf aus der Einzelliste (mehr als MaxDetailed Secrets-Funde)
+                // — beide Wege umgehen die Sonderbehandlung dort, wenn hier nicht ebenfalls maskiert
+                // wird. Regel, Severity und Anzahl bleiben (die sagen nichts ueber einen Fundort).
+                var example = g.Category == FindingCategory.Secrets ? "—"
+                    : g.ExampleFilePath is null ? "—"
                     : g.ExampleLine is int ln ? $"`{g.ExampleFilePath}:{ln}`" : $"`{g.ExampleFilePath}`";
                 sb.AppendLine($"| {g.Rule} | {g.Severity} | {g.Count} | {example} |");
             }

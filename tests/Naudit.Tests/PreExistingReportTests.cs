@@ -89,4 +89,28 @@ public class PreExistingReportTests
 
         Assert.Contains("src/Db.cs:17", md);
     }
+
+    [Fact]
+    public void Markdown_secretsGroup_hasNoExampleLocation()
+    {
+        // Re-Review-Nachtrag: Markdown_secretsFinding_hasNoLocation (oben) deckt nur den Weg ueber
+        // s.Detailed ab. Eine Secrets-Gruppe entsteht aber auch OHNE Ueberlauf, naemlich sobald die
+        // Severity UNTER PreExistingOptions.DetailSeverity liegt (hier: Medium < High) — der Fund
+        // landet dann direkt in s.Groups, wo die erste Fix-Runde die Sonderbehandlung nicht erfasst
+        // hatte: die "Beispiel"-Spalte der Gruppen-Tabelle rendert unbedingt g.ExampleFilePath/-Line,
+        // auch fuer Secrets. Derselbe Effekt tritt bei mehr als MaxDetailed Secrets-Funden auf
+        // (Ueberlauf aus der Einzelliste in die Gruppen).
+        var summary = PreExistingSummary.Build(
+            [
+                new ScanFinding("betterleaks", FindingCategory.Secrets, FindingSeverity.Medium, "msg",
+                    "detected-generic-api-key", "config/secrets.yaml", 5),
+            ],
+            new PreExistingOptions());
+
+        var md = PreExistingReport.Markdown(summary);
+
+        Assert.Contains("detected-generic-api-key", md);
+        Assert.DoesNotContain("config/secrets.yaml", md);      // kein Beispielort fuer Secrets-Gruppen
+        Assert.DoesNotContain(":5", md);
+    }
 }
