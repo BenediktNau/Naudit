@@ -42,8 +42,12 @@ public sealed class ReviewService(
         if (changes.Count == 0)
             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
 
+        // Einmal parsen, zweimal gebraucht: fuer die zeilengenaue Fund-Markierung (Grounding)
+        // und weiter unten fuer die Verankerung der Modell-Kommentare.
+        var commentable = DiffParser.Parse(changes);
+
         // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext + Architektur-Profil (je leer/null, wenn Feature aus).
-        var (findings, context, guidelines) = await GatherGroundingAsync(request, changes, ct);
+        var (findings, context, guidelines) = await GatherGroundingAsync(request, changes, commentable, ct);
 
         // Projekt-Gedächtnis: Auswahl braucht kein Repo (unabhängig vom Checkout);
         // Fail-open lebt in der Implementierung — hier kommt schlimmstenfalls eine leere Liste an.
@@ -96,7 +100,6 @@ public sealed class ReviewService(
 
         // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
         // Gate auswerten: blockt nur ein BESTÄTIGTER High/Critical-Fund (≥ konfigurierter Schwelle).
-        var commentable = DiffParser.Parse(changes);
         var inline = new List<InlineComment>();
         var orphans = new List<OrphanComment>();
         var blocking = false;
@@ -175,7 +178,8 @@ public sealed class ReviewService(
     // (Infrastructure hat geloggt); das Architektur-Profil fragt reviewGuidelines dennoch ohne
     // Workspace ab — die Implementierung fällt dabei ggf. auf ein gespeichertes Profil zurück.
     private async Task<(IReadOnlyList<ScanFinding> Findings, ReviewContext Context, string? Guidelines)> GatherGroundingAsync(
-        ReviewRequest request, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+        ReviewRequest request, IReadOnlyList<CodeChange> changes,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable, CancellationToken ct)
     {
         var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
         if (!needCheckout)
@@ -195,7 +199,7 @@ public sealed class ReviewService(
         await using (workspace)
         {
             var findings = _analyzers.Count > 0
-                ? await RunAnalyzersAsync(workspace, changes, ct)
+                ? await RunAnalyzersAsync(workspace, changes, commentable, ct)
                 : Array.Empty<ScanFinding>();
 
             var context = options.Context.Enabled
@@ -209,17 +213,35 @@ public sealed class ReviewService(
     }
 
     private async Task<IReadOnlyList<ScanFinding>> RunAnalyzersAsync(
-        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable, CancellationToken ct)
     {
         var results = await Task.WhenAll(_analyzers.Select(a => SafeAnalyzeAsync(a, workspace, changes, ct)));
 
         var changed = new HashSet<string>(changes.Select(c => c.FilePath));
         var annotated = results
             .SelectMany(r => r)
-            .Select(f => f.FilePath is not null && changed.Contains(f.FilePath) ? f with { InDiff = true } : f)
+            .Select(f => Annotate(f, changed, commentable))
             .ToList();
 
         return await findingReducer.ReduceAsync(annotated, changes, ct);
+    }
+
+    // Zweistufige Markierung. InDiff meint zeilengenau "auf einer kommentierbaren Diff-Zeile" —
+    // nur dort kann das Modell ueberhaupt einen Kommentar verankern. Ein Fund OHNE Zeilennummer
+    // (typisch SCA auf einer Lockfile) faellt auf die Datei-Regel zurueck, sonst waere jeder
+    // Dependency-Fund einer im MR geaenderten Lockfile faelschlich eine Altlast.
+    private static ScanFinding Annotate(
+        ScanFinding f, HashSet<string> changed,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable)
+    {
+        if (f.FilePath is null || !changed.Contains(f.FilePath))
+            return f;
+
+        var inDiff = f.Line is not int line
+            || (commentable.TryGetValue(f.FilePath, out var lines) && lines.ContainsKey(line));
+
+        return f with { InChangedFile = true, InDiff = inDiff };
     }
 
     // Fail-open: ein Zählerfehler (DB weg) darf das Review nicht verhindern — Count 0 heißt

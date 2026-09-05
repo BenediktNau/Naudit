@@ -311,7 +311,10 @@ public class ReviewServiceTests
     public async Task ReviewAsync_groundsFindings_inPrompt_andAnnotatesInDiff()
     {
         var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
-        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        // Die Markierung ist seit Task 1 zeilengenau: der Stub-Header "@@ +1 @@" (ohne Hunk-Inhalt,
+        // wie ihn andere Tests hier nur als "Datei geaendert"-Platzhalter nutzen) traefe keine
+        // Zeile 5 -> der Fund wuerde faelschlich "pre-existing". Der Diff muss Zeile 5 also wirklich beruehren.
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -5,1 +5,1 @@\n+touched")]);
         var finding = new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "a.cs", 5);
         var analyzers = new[] { new FakeSastAnalyzer("opengrep", new[] { finding }) };
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
@@ -688,5 +691,47 @@ public class ReviewServiceTests
 
         Assert.DoesNotContain("naudit:commands", Assert.Single(git.PostedComments).Body);
         Assert.DoesNotContain("Naudit-Kommandos", git.PostedMarkdown!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_marksFindingOutsideHunk_asPreExisting_evenInChangedFile()
+    {
+        // Diff berührt nur Zeile 10; der Fund sitzt auf Zeile 500 derselben Datei.
+        // Frueher: InDiff=true (Datei-Regel) und damit faelschlich prompt-priorisiert.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -10,1 +10,1 @@\n+touched")]);
+        var analyzer = new FakeSastAnalyzer("opengrep",
+        [
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "im-hunk", "R-IN", "a.cs", 10),
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "ausserhalb", "R-OUT", "a.cs", 500),
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "andere-datei", "R-FAR", "b.cs", 3),
+        ]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers: [analyzer]);
+
+        await service.ReviewAsync(Request);
+
+        var prompt = chat.LastMessages![1].Text;
+        Assert.Contains("[in diff] opengrep · R-IN", prompt);
+        Assert.Contains("[pre-existing] opengrep · R-OUT", prompt);
+        Assert.Contains("[pre-existing] opengrep · R-FAR", prompt);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_keepsFileLevelFinding_inDiff_whenLineIsUnknown()
+    {
+        // SCA-Funde (Trivy/OSV auf einer Lockfile) tragen oft keine Zeile. Sie duerfen nicht
+        // zur Altlast werden, nur weil die Zeilennummer fehlt — sonst faellt jeder Dependency-Fund
+        // einer im MR geaenderten Lockfile hinten runter.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("package-lock.json", "@@ -1,1 +1,1 @@\n+dep")]);
+        var analyzer = new FakeSastAnalyzer("trivy",
+        [
+            new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.High, "CVE", "CVE-1", "package-lock.json"),
+        ]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers: [analyzer]);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Contains("[in diff] trivy · CVE-1", chat.LastMessages![1].Text);
     }
 }
