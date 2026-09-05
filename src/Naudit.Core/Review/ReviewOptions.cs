@@ -24,6 +24,10 @@ public sealed class ReviewOptions
 
     /// <summary>Architektur-Profil: destillierte Projekt-Guidelines (Naudit:Review:Guidelines).</summary>
     public ReviewGuidelinesOptions Guidelines { get; set; } = new();
+
+    /// <summary>Vorbestehende Werkzeugbefunde (Altlasten): aggregierter Baseline-Block im Prompt
+    /// und als eigener MR/PR-Kommentar (Naudit:Review:PreExisting).</summary>
+    public PreExistingOptions PreExisting { get; set; } = new();
 }
 
 /// <summary>Ab wann ein Review blockt (request_changes). Default: nur bestätigtes High/Critical.</summary>
@@ -97,4 +101,29 @@ public sealed class ReviewGuidelinesOptions
     /// <summary>Quellen relativ zum Repo-Root; Reihenfolge = Priorität. Exakte Namen oder das Muster "dir/**/*.md".</summary>
     public List<string> Sources { get; set; } =
         ["CLAUDE.md", "AGENTS.md", "README.md", "CONTRIBUTING.md", "docs/**/*.md"];
+}
+
+/// <summary>Aggregation der Werkzeugbefunde, die NICHT aus dem Diff stammen. Beeinflusst das
+/// Verdict nie — das Gate rechnet weiterhin ausschließlich über die LLM-Findings.</summary>
+public sealed class PreExistingOptions
+{
+    /// <summary>Baseline-Sektion im Prompt und Altlasten-Kommentar. Default AN;
+    /// false ⇒ weder Sektion noch Kommentar (heutiges Verhalten).</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Ab dieser Severity werden Altlasten EINZELN mit Datei:Zeile ausgewiesen statt nach
+    /// Regel verdichtet. Default High: was blocken könnte, wenn es im Diff läge, wird auch
+    /// außerhalb namentlich genannt.</summary>
+    public FindingSeverity DetailSeverity { get; set; } = FindingSeverity.High;
+
+    /// <summary>Deckel für die Einzelliste. Darüber hinaus fällt der Rest ins Regel-Aggregat —
+    /// Schutz gegen ein Repo mit hunderten High-Altlasten.</summary>
+    public int MaxDetailed { get; set; } = 50;
+
+    /// <summary>Deckel für die nach Regel verdichteten Gruppen.</summary>
+    public int MaxRules { get; set; } = 30;
+
+    /// <summary>Altlasten ändern sich zwischen zwei Pushes am selben PR nicht — den Kommentar
+    /// deshalb nur beim ersten Review posten. false ⇒ bei jedem Review.</summary>
+    public bool FirstReviewOnly { get; set; } = true;
 }
