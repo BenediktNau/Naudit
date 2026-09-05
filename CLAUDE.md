@@ -80,12 +80,15 @@ alongside project memory) →
 `PromptBuilder.Build` → `IChatClient.GetResponseAsync` → `IGitPlatform.PostReviewAsync`. If there are no
 changes, nothing is posted. The merge verdict is **derived** from a severity-aware gate over the LLM
 findings' severity/confidence (the LLM no longer returns a top-level verdict); see `docs/review-gate.md`.
-Findings outside the diff never become individual prompt findings; `PreExistingSummary.Build`
-(severity-aware: `DetailSeverity`-and-above stay individual with file:line, the rest groups by rule) condenses
-them into the prompt's "Repository baseline" section **and** a separate, German MR/PR comment posted via
-`IGitPlatform.PostNoteAsync` (not `PostReviewAsync`) — by default only on a PR's first review
-(`Naudit:Review:PreExisting:*`, `Naudit:Sast:MaxPreExistingPerGroup`). This never affects the merge verdict;
-see `docs/sast-grounding.md#pre-existing-findings`.
+Only findings in an untouched file never get an individual prompt slot; a finding in a
+changed file but outside the diff hunks still appears individually there too (capped by
+`Naudit:Sast:MaxPreExistingPerGroup`), tagged `[pre-existing]`. Separately, `PreExistingSummary.Build`
+(severity-aware: `DetailSeverity`-and-above stay individual with file:line, the rest groups by rule)
+condenses **every** finding outside the diff — including that same near-diff one, so it can appear
+twice — into the prompt's "Repository baseline" section **and** a separate, German MR/PR comment
+posted via `IGitPlatform.PostNoteAsync` (not `PostReviewAsync`) — by default only on a PR's first
+review (`Naudit:Review:PreExisting:*`). This never affects the merge verdict; see
+`docs/sast-grounding.md#pre-existing-findings`.
 Webhook-triggered reviews are throttled by a roundtrip limit (`Naudit:Review:MaxRoundtrips`,
 default `3`, `0` = unlimited): `ReviewService` skips early (before any platform call/checkout/LLM)
 once that many reviews were already posted for the MR/PR, counted from the existing `ReviewEntity`
