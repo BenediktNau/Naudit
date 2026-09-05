@@ -14,7 +14,7 @@ their own (no hard tool gate).
 | `OpengrepRules` | _(empty)_ | Extra `--config` paths for OpenGrep, **added on top** of the defaults (see below). |
 | `Reducer` | `deterministic` | Finding de-duplication strategy (seam for a future `llm` reducer). |
 | `AnalyzerTimeout` | `00:05:00` | Per-tool timeout. |
-| `MaxFindingsPerGroup` | `20` | Cap per category for findings on a commentable diff line (tier 0, see [Pre-existing findings](#pre-existing-findings) below). |
+| `MaxFindingsPerGroup` | `30` | Cap per category for findings on a commentable diff line (tier 0, see [Pre-existing findings](#pre-existing-findings) below). Raised from `20`: the measured reference case (cal.com #10600) has around 21 tier-0 findings — at a cap of `20` the 21st would be dropped **without replacement**, since a tier-0 finding is `InDiff` and therefore never falls back into the baseline (only tier 1/2 do). |
 | `MaxPreExistingPerGroup` | `5` | Separate, smaller cap per category for findings in a changed file but outside the hunks (tier 1) — its own budget so baseline findings never crowd out diff findings. |
 
 `Enabled`, `Analyzers`, `Reducer`, `AnalyzerTimeout`, `MaxFindingsPerGroup` and
@@ -74,7 +74,10 @@ noise for languages a repo doesn't use.
 - Findings are de-duplicated, sorted tier-first then by severity, and capped
   **per category and per tier** before grounding (`MaxFindingsPerGroup` for
   tier 0, `MaxPreExistingPerGroup` for tier 1) — a busy baseline can never
-  crowd diff findings out of their own budget.
+  crowd diff findings out of their own budget. Tier-0 findings beyond
+  `MaxFindingsPerGroup` are dropped **without replacement** — they cannot fall
+  back into the pre-existing baseline, since by definition a finding on a
+  commentable diff line is not pre-existing.
 - Graceful degradation: a single analyzer failure is logged and skipped; a failed
   checkout degrades the review to diff-only (it does not fail the gate).
 - The system prompt instructs the model to treat the toolchain/target framework

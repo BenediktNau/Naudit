@@ -143,7 +143,7 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Sast:Enabled` | SAST/SCA grounding on/off — default `false`; off ⇒ exactly diff-only (see [SAST grounding](sast-grounding.md)) |
 | `Naudit:Sast:Analyzers` | Active analyzers — `opengrep` \| `betterleaks` \| `osv-scanner` \| `trivy` \| `dotnet-sca`; **list-shaped** (see [List-shaped settings](#list-shaped-settings)); empty ⇒ `opengrep,trivy` |
 | `Naudit:Sast:AnalyzerTimeout` | Timeout per analyzer run (default `00:05:00`) |
-| `Naudit:Sast:MaxFindingsPerGroup` | Cap per category for findings on a commentable diff line, when condensing findings (default `20`) |
+| `Naudit:Sast:MaxFindingsPerGroup` | Cap per category for findings on a commentable diff line, when condensing findings (default `30`; findings beyond the cap are dropped without replacement — see [SAST grounding](sast-grounding.md#pre-existing-findings)) |
 | `Naudit:Sast:MaxPreExistingPerGroup` | Separate, smaller cap per category for findings in a changed file but outside the diff hunks (default `5`); see [Pre-existing findings](sast-grounding.md#pre-existing-findings) |
 | `Naudit:Sast:Reducer` | Reducer strategy — currently only `deterministic` |
 | `Naudit:Review:Memory:Enabled` | Inject per-project maintainer guidance (false positives + conventions) as a read-only prompt section — **default `true`** (see [Review memory](review-memory.md)) |
