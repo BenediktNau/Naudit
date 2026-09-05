@@ -33,7 +33,26 @@ public static class PreExistingReport
                 : $"**Höchste Schweregrade** ({s.Detailed.Count}):";
             sb.AppendLine(head);
             sb.AppendLine();
-            foreach (var f in s.Detailed)
+
+            // Secrets-Kategorie: NIE einzeln mit Fundort — nur als Regel + Anzahl. Grund für die
+            // Asymmetrie zur Prompt-Sektion (PromtBuilder.AppendBaseline bleibt hier bewusst
+            // vollständig — die geht ans Modell, nicht an die Öffentlichkeit): BetterleaksAnalyzer
+            // stuft JEDEN Secrets-Fund pauschal auf High ein, landet also komplett in dieser
+            // Einzelliste. Ohne diese Sonderbehandlung waeren das bis zu MaxDetailed Zeilen der
+            // Form "`pfad:zeile` detected-generic-api-key (High)" — eine durchsuchbare Landkarte
+            // aller (mutmasslichen) Secret-Fundorte in einem dauerhaften, bei oeffentlichen Repos
+            // weltlesbaren PR-Kommentar. Der Wert selbst steht dank der Nachricht-Garantie oben
+            // ohnehin nie drin — die Fundort-Liste allein waere aber schon eine Verstaerkung.
+            foreach (var g in s.Detailed
+                         .Where(f => f.Category == FindingCategory.Secrets)
+                         .GroupBy(f => f.RuleId ?? f.Tool)
+                         .Select(g => (Rule: g.Key, Severity: g.Max(f => f.Severity), Count: g.Count()))
+                         .OrderByDescending(g => g.Severity).ThenByDescending(g => g.Count).ThenBy(g => g.Rule))
+            {
+                sb.AppendLine($"- {g.Rule} ({g.Severity}) — {g.Count}× (Fundort nicht angezeigt, Secrets)");
+            }
+
+            foreach (var f in s.Detailed.Where(f => f.Category != FindingCategory.Secrets))
             {
                 var loc = f.FilePath is null ? "" : f.Line is int ln ? $"`{f.FilePath}:{ln}` " : $"`{f.FilePath}` ";
                 var rule = f.RuleId is null ? f.Tool : f.RuleId;

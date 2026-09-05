@@ -51,4 +51,42 @@ public class PreExistingReportTests
         Assert.Contains("config.yaml:5", md);                 // Fund wird trotzdem verortet
         Assert.DoesNotContain(secretMarker, md);
     }
+
+    [Fact]
+    public void Markdown_secretsFinding_hasNoLocation()
+    {
+        // BetterleaksAnalyzer stuft JEDEN Secrets-Fund pauschal auf High ein — ohne diese
+        // Sonderbehandlung wuerde der geposteten Bericht bis zu MaxDetailed Fundorte einzeln
+        // auflisten: eine durchsuchbare Landkarte aller Secret-Fundstellen in einem dauerhaften,
+        // bei oeffentlichen Repos weltlesbaren PR-Kommentar.
+        var summary = PreExistingSummary.Build(
+            [
+                new ScanFinding("betterleaks", FindingCategory.Secrets, FindingSeverity.High, "msg",
+                    "detected-generic-api-key", "config/secrets.yaml", 5),
+            ],
+            new PreExistingOptions());
+
+        var md = PreExistingReport.Markdown(summary);
+
+        Assert.Contains("detected-generic-api-key", md);
+        Assert.DoesNotContain("config/secrets.yaml", md);      // kein Fundort fuer Secrets
+        Assert.DoesNotContain(":5", md);
+    }
+
+    [Fact]
+    public void Markdown_nonSecretsFinding_keepsLocation_atSameSeverity()
+    {
+        // Gegenprobe zu Markdown_secretsFinding_hasNoLocation: dieselbe Severity, andere Kategorie
+        // -> die Sonderbehandlung greift NUR fuer FindingCategory.Secrets.
+        var summary = PreExistingSummary.Build(
+            [
+                new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg",
+                    "sql-injection", "src/Db.cs", 17),
+            ],
+            new PreExistingOptions());
+
+        var md = PreExistingReport.Markdown(summary);
+
+        Assert.Contains("src/Db.cs:17", md);
+    }
 }
