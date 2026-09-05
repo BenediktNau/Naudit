@@ -269,7 +269,10 @@ In `tests/Naudit.Tests/DeterministicFindingReducerTests.cs` — die bestehende H
     {
         // Abnahme-Kriterium: 18 High-Altlasten + 21 Medium-Diff-Befunde
         // => alle 21 Diff-Befunde ueberleben, Altlasten fuellen nur ihr eigenes Kontingent.
-        var reducer = new DeterministicFindingReducer(maxFindingsPerGroup: 20, maxPreExistingPerGroup: 5);
+        // Diff-Kontingent bewusst 25 (nicht der Produktions-Default 20): geprueft wird, dass
+        // ALTLASTEN keine Diff-Plaetze wegnehmen — nicht, wie gross das Diff-Kontingent ist.
+        // Mit 20 wuerde der Test am eigenen Deckel scheitern und die falsche Sache messen.
+        var reducer = new DeterministicFindingReducer(maxFindingsPerGroup: 25, maxPreExistingPerGroup: 5);
         var input = Enumerable.Range(0, 18)
             .Select(i => Tiered($"alt{i:D2}.cs", i, $"OLD{i:D2}", FindingSeverity.High))
             .Concat(Enumerable.Range(0, 21)
@@ -286,7 +289,9 @@ In `tests/Naudit.Tests/DeterministicFindingReducerTests.cs` — die bestehende H
     [Fact]
     public async Task Reduce_capsPreExistingSeparately_andNeverTakesDiffSlots()
     {
-        var reducer = new DeterministicFindingReducer(maxFindingsPerGroup: 20, maxPreExistingPerGroup: 5);
+        // Diff-Kontingent 25 aus demselben Grund wie oben: 21 Diff-Befunde muessen alle passen,
+        // damit die Aussage ueber das getrennte Altlasten-Kontingent ueberhaupt pruefbar ist.
+        var reducer = new DeterministicFindingReducer(maxFindingsPerGroup: 25, maxPreExistingPerGroup: 5);
         var input = Enumerable.Range(0, 18)
             .Select(i => Tiered($"alt{i:D2}.cs", i, $"OLD{i:D2}", FindingSeverity.High, inChangedFile: true))
             .Concat(Enumerable.Range(0, 21)
@@ -1008,9 +1013,9 @@ Ans Ende von `tests/Naudit.Tests/GitHubPlatformTests.cs` (`Request` ist dort `ne
         {
             Content = new StringContent("{}", Encoding.UTF8, "application/json"),
         });
+        // Logger-Parameter ist optional (Default NullLogger) — wie in den bestehenden Tests weglassen.
         var platform = new GitHubPlatform(
-            ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts(),
-            NullLogger<GitHubPlatform>.Instance);
+            ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
 
         await platform.PostNoteAsync(Request, "**Altlasten**");
 
@@ -1021,8 +1026,6 @@ Ans Ende von `tests/Naudit.Tests/GitHubPlatformTests.cs` (`Request` ist dort `ne
         Assert.Contains("Altlasten", call.Body);
     }
 ```
-
-> `GitHubPlatform` nimmt zusätzlich einen Logger — die exakte Konstruktor-Signatur und den in dieser Testklasse bereits verwendeten Logger-Ausdruck aus einem bestehenden `new GitHubPlatform(...)`-Aufruf derselben Datei übernehmen (ggf. `using Microsoft.Extensions.Logging.Abstractions;` ergänzen).
 
 - [ ] **Step 2: Run test to verify it fails**
 
