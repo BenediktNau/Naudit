@@ -23,11 +23,12 @@ public class ReviewServiceTests
         IReviewToolProvider? toolProvider = null,
         IReviewRoundtripCounter? roundtrips = null,
         IReviewMemory? memory = null,
-        IReviewGuidelines? guidelines = null)
+        IReviewGuidelines? guidelines = null,
+        IFindingReducer? findingReducer = null)
         => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
-            new FakeFindingReducer(),
+            findingReducer ?? new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
             auditSink ?? new FakeReviewAuditSink(),
@@ -733,5 +734,43 @@ public class ReviewServiceTests
         await service.ReviewAsync(Request);
 
         Assert.Contains("[in diff] trivy · CVE-1", chat.LastMessages![1].Text);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_preExistingDisabled_omitsBaselineSection()
+    {
+        // "other.cs" ist nicht Teil der Aenderungen -> die identische FakeFindingReducer-Logik
+        // stuft den Fund als PreExisting ein. Bei Enabled=false darf daraus dennoch keine
+        // Baseline-Sektion im Prompt werden.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var finding = new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.Low, "x", "r", "other.cs", 1);
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", new[] { finding }) };
+        var options = new ReviewOptions { SystemPrompt = "SYS", PreExisting = new PreExistingOptions { Enabled = false } };
+        var service = CreateService(chat, git, options, analyzers);
+
+        await service.ReviewAsync(Request);
+
+        Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_baselineAggregationThrows_failsOpen()
+    {
+        // PreExistingSummary.Build wirft beim ersten Feldzugriff (f.Severity) eine
+        // NullReferenceException, wenn die PreExisting-Liste einen null-Eintrag enthaelt.
+        // Genau das muss SafeBuildBaseline abfangen: das Review laeuft trotzdem durch, nur
+        // ohne Baseline-Sektion — der Fehler darf es nicht kippen.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", Array.Empty<ScanFinding>()) };
+        var brokenReducer = new FakeFindingReducer(preExistingOverride: new List<ScanFinding> { null! });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers,
+            findingReducer: brokenReducer);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+        Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
     }
 }
