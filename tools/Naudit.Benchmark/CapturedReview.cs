@@ -8,15 +8,26 @@ public sealed record CapturedComment(
     string FilePath, int NewLine, string Body, string Severity, string Confidence);
 
 /// <summary>Ein vollständig aufgefangener Review — das, was sonst an die Plattform ginge.</summary>
+/// <param name="Notes">Aufgefangene Altlasten-Notizen (PostNoteAsync statt PostReviewAsync, Task 6)
+/// — ohne dieses Feld landeten sie nur in ReviewCapture.Notes (Prozessspeicher) und tauchten im
+/// Ausgabe-JSON, über das die manuelle Abnahme läuft, nie auf.</param>
 public sealed record CapturedReview(
     string ProjectId, int MergeRequestIid, string Summary, string Verdict,
-    IReadOnlyList<CapturedComment> Comments);
+    IReadOnlyList<CapturedComment> Comments, IReadOnlyList<string> Notes);
 
 /// <summary>Sammelstelle für den Dekorator. Pro Prozess ein Review nach dem anderen —
 /// der Runner läuft bewusst seriell, also genügt "der letzte".</summary>
 public sealed class ReviewCapture
 {
-    public CapturedReview? Last { get; private set; }
+    private CapturedReview? _record;
+
+    /// <summary>Der zuletzt aufgefangene Review, MIT den bis jetzt aufgefangenen Altlasten-Notizen.
+    /// Bewusst bei jedem Zugriff neu zusammengesetzt statt einmal in Record() eingefroren: in
+    /// ReviewService.ReviewAsync läuft PostNoteAsync (Altlasten-Bericht, Task 6) ERST NACH
+    /// PostReviewAsync — wären die Notizen schon beim Record()-Aufruf festgeschrieben, wäre die
+    /// Liste hier immer leer. Program.cs liest Last erst, nachdem ReviewAsync vollständig
+    /// durchgelaufen ist, also sind zu diesem Zeitpunkt alle Notizen da.</summary>
+    public CapturedReview? Last => _record is null ? null : _record with { Notes = [.. Notes] };
 
     /// <summary>Wie oft GetCheckoutAsync ERFOLGREICH zurückkam. Erst nach der Rückkehr gezählt:
     /// ein Aufruf, der wirft (GitHub-Rate-Limit), ist kein Checkout.</summary>
@@ -96,17 +107,19 @@ public sealed class ReviewCapture
 
     public void Record(ReviewRequest request, string summaryMarkdown,
         IReadOnlyList<InlineComment> comments, ReviewVerdict verdict)
-        => Last = new CapturedReview(
+        => _record = new CapturedReview(
             request.ProjectId,
             request.MergeRequestIid,
             summaryMarkdown,
             verdict.ToString(),
             comments.Select(c => new CapturedComment(
-                c.FilePath, c.NewLine, c.Body, c.Severity.ToString(), c.Confidence.ToString())).ToList());
+                c.FilePath, c.NewLine, c.Body, c.Severity.ToString(), c.Confidence.ToString())).ToList(),
+            []);   // Platzhalter — die tatsächlichen Notizen liefert Last (siehe dort): zum
+                   // Zeitpunkt von Record() lief PostNoteAsync noch nicht.
 
     public void Reset()
     {
-        Last = null;
+        _record = null;
         CheckoutSuccesses = 0;
         CheckoutFailures = 0;
         HeadRef = null;

@@ -29,8 +29,10 @@ public sealed class ReviewService(
     {
         // Roundtrip-Limit: nur Webhook-Reviews drosseln — das CI-Gate braucht immer ein frisches
         // Verdict und ist zugleich der Weg, ein weiteres Review zu erzwingen. Der Zähler sind die
-        // bereits geposteten Reviews (Audit-Zeilen); fail-open bei Zählerfehlern.
-        var priorReviews = -1; // -1 = Limit inaktiv (Ci-Trigger oder MaxRoundtrips <= 0)
+        // bereits geposteten Reviews (Audit-Zeilen); fail-open bei Zählerfehlern. priorReviews wird
+        // weiter unten fuer eine zweite Frage wiederverwendet, wenn er hier schon gezaehlt wurde
+        // (IsFirstReviewAsync) — fuer den Altlasten-Bericht, der nur beim ersten Review gepostet wird.
+        var priorReviews = -1; // -1 = (noch) nicht gezaehlt (Ci-Trigger oder MaxRoundtrips <= 0)
         if (request.Trigger == ReviewTrigger.Webhook && options.MaxRoundtrips > 0)
         {
             priorReviews = await SafeCountRoundtripsAsync(request, ct);
@@ -149,6 +151,16 @@ public sealed class ReviewService(
         var postSummary = summary + ReviewCommandHint.Summary(options.Resolution);
 
         var posted = await gitPlatform.PostReviewAsync(request, postSummary, postInline, verdict, ct);
+
+        // Eigenstaendiger Kommentar statt Summary-Anhang: der Bericht ist lang und aendert sich
+        // zwischen zwei Pushes nicht. Best-effort — der Review ist bereits gepostet, ein Fehler
+        // am Zusatzkommentar darf das Ergebnis nicht mehr kippen.
+        if (options.PreExisting.Enabled && !baseline.IsEmpty && await IsFirstReviewAsync(request, priorReviews, ct))
+        {
+            try { await gitPlatform.PostNoteAsync(request, PreExistingReport.Markdown(baseline), ct); }
+            catch (Exception) when (!ct.IsCancellationRequested) { /* bewusst geschluckt */ }
+        }
+
         await RecordAuditAsync(request, verdict, summary, inline, orphans, posted, response, selection.UsedSessionAccountId(), ct);
         return new ReviewResult(summary, verdict);
     }
@@ -262,6 +274,20 @@ public sealed class ReviewService(
     {
         try { return await roundtripCounter.CountAsync(request.ProjectId, request.MergeRequestIid, ct); }
         catch (Exception) when (!ct.IsCancellationRequested) { return 0; }
+    }
+
+    // "Erstes Review" heisst: keine vorherigen Audit-Zeilen fuer diesen PR. priorReviews wird
+    // wiederverwendet, wenn das Roundtrip-Limit oben schon gezaehlt hat (Webhook-Trigger mit
+    // aktivem Limit) — sonst (Ci-Trigger oder MaxRoundtrips <= 0) wird HIER zum ersten Mal
+    // gezaehlt, aber bewusst erst an dieser Stelle: der Aufrufer prueft vorher schon
+    // options.PreExisting.Enabled && !baseline.IsEmpty, der Zaehler-Roundtrip lohnt sich also nur,
+    // wenn tatsaechlich ein Bericht zu posten waere.
+    private async Task<bool> IsFirstReviewAsync(ReviewRequest request, int priorReviews, CancellationToken ct)
+    {
+        if (!options.PreExisting.FirstReviewOnly)
+            return true;
+        var count = priorReviews >= 0 ? priorReviews : await SafeCountRoundtripsAsync(request, ct);
+        return count == 0;
     }
 
     // Fail-open wie das uebrige Grounding: ohne Uebersicht laeuft der Review einfach ohne

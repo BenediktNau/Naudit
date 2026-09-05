@@ -773,4 +773,67 @@ public class ReviewServiceTests
         Assert.Equal(ReviewVerdict.Approve, result.Verdict);
         Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
     }
+
+    private static FakeSastAnalyzer PreExistingAnalyzer() => new("opengrep",
+    [
+        new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg", "R-ALT", "fremd.cs", 9),
+    ]);
+
+    [Fact]
+    public async Task ReviewAsync_postsPreExistingReport_asSeparateNote_onFirstReview()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()], roundtrips: new FakeRoundtripCounter(0));
+
+        await service.ReviewAsync(Request);
+
+        var note = Assert.Single(git.PostedNotes);
+        Assert.Contains("fremd.cs:9", note);
+        Assert.DoesNotContain("fremd.cs:9", git.PostedMarkdown!);   // nicht in der Summary
+    }
+
+    [Fact]
+    public async Task ReviewAsync_skipsPreExistingReport_onLaterReviews()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()], roundtrips: new FakeRoundtripCounter(1));
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedNotes);   // Altlasten aendern sich zwischen Pushes nicht
+    }
+
+    [Fact]
+    public async Task ReviewAsync_doesNotPostReport_whenFeatureDisabled()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var options = new ReviewOptions { SystemPrompt = "SYS" };
+        options.PreExisting.Enabled = false;
+        var service = CreateService(chat, git, options, analyzers: [PreExistingAnalyzer()]);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedNotes);
+        Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_reportFailure_doesNotFailTheReview()
+    {
+        // Der Review ist zu diesem Zeitpunkt bereits gepostet — ein Fehler am Zusatzkommentar
+        // darf das Ergebnis nicht mehr kippen.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]) { NoteError = new InvalidOperationException("boom") };
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()]);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+    }
 }

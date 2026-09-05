@@ -109,6 +109,25 @@ public class BenchmarkCaptureTests
     }
 
     [Fact]
+    public async Task PostNoteAsync_zeichnet_auf_und_erscheint_in_Last_Notes()
+    {
+        // Reale Reihenfolge in ReviewService.ReviewAsync: PostReviewAsync (baut Last via Record())
+        // laeuft VOR PostNoteAsync (Altlasten-Bericht, Task 6). Last.Notes muss die Notiz trotzdem
+        // zeigen — sonst landet sie nur im Prozessspeicher (ReviewCapture.Notes) und nie im
+        // Benchmark-Ergebnis-JSON.
+        var inner = new FakeGitPlatform([]);
+        var capture = new ReviewCapture();
+        var sut = new CapturingGitPlatform(inner, capture);
+
+        await sut.PostReviewAsync(Request(), "Zusammenfassung", [], ReviewVerdict.Approve);
+        await sut.PostNoteAsync(Request(), "**Altlasten**");
+
+        Assert.Equal(0, inner.PostCallCount);   // auch die Notiz geht nicht ans echte Netz
+        var note = Assert.Single(capture.Last!.Notes);
+        Assert.Equal("**Altlasten**", note);
+    }
+
+    [Fact]
     public async Task PostReviewAsync_liefert_indexgleiche_leere_Ids_zurueck()
     {
         // Vertrag von IGitPlatform: je Eingabe-Kommentar ein PostedComment, Ids dürfen null sein.
