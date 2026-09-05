@@ -341,6 +341,28 @@ public class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_baselineSection_neverIncludes_findingMessage()
+    {
+        // Sicherheitsgarantie (siehe Warnkommentar in AppendBaseline): nur Regel-Id, Pfad, Zeile,
+        // Tool und Zaehler werden gerendert, NIE ScanFinding.Message. Bei einem Secrets-Detektor
+        // steht der Wert selbst in der Nachricht.
+        const string secretMarker = "sk-live-ZZTOPSECRETMARKER-1234567890";
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+        var baseline = PreExistingSummary.Build(
+            [
+                new ScanFinding("betterleaks", FindingCategory.Sast, FindingSeverity.High, secretMarker,
+                    "detected-generic-api-key", "config.yaml", 5),
+            ],
+            new PreExistingOptions());
+
+        var text = PromptBuilder.Build("SYS", request, changes, baseline: baseline)[1].Text;
+
+        Assert.Contains("config.yaml:5", text);                // Fund wird trotzdem verortet
+        Assert.DoesNotContain(secretMarker, text);
+    }
+
+    [Fact]
     public void Build_withoutBaseline_leavesPromptUnchanged()
     {
         var request = new ReviewRequest("1", 42, "T");

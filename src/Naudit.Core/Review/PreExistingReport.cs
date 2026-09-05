@@ -9,6 +9,14 @@ namespace Naudit.Core.Review;
 /// nicht.</summary>
 public static class PreExistingReport
 {
+    // Redaction: absichtlich WIRD HIER NUR Regel-Id, Pfad, Zeile, Tool und Zaehler gerendert,
+    // NIEMALS ScanFinding.Message — deshalb braucht dieser Kommentar keinen zusaetzlichen
+    // Redactor-Durchlauf. Das ist HIER sogar noch schaerfer als bei PromtBuilder.AppendBaseline:
+    // s.Detailed traegt UNREDIGIERTE ScanFinding-Objekte (die Redaction in ReviewService laeuft
+    // nur ueber reduction.Selected, nicht ueber reduction.PreExisting), und dieser Text landet als
+    // eigenstaendiger, dauerhafter Kommentar direkt im MR/PR — bei einem oeffentlichen Repo
+    // weltlesbar. Bei einem Secrets-Detektor steht der Wert selbst in der Nachricht. Die
+    // Fund-Nachricht hier NICHT ergaenzen, ohne diese Garantie neu zu pruefen.
     public static string Markdown(PreExistingSummary s)
     {
         var sb = new StringBuilder();

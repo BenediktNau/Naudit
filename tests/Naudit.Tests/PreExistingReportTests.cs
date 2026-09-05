@@ -29,4 +29,26 @@ public class PreExistingReportTests
         Assert.Contains("nicht durch diesen", md);            // Abgrenzung zum MR
         Assert.DoesNotContain("Verdict", md);                 // beeinflusst die Merge-Entscheidung nie
     }
+
+    [Fact]
+    public void Markdown_neverIncludes_findingMessage()
+    {
+        // Sicherheitsgarantie (siehe Warnkommentar in PreExistingReport.Markdown): s.Detailed
+        // traegt UNREDIGIERTE ScanFinding-Objekte (Redaction laeuft nur ueber reduction.Selected).
+        // Bei einem Secrets-Detektor steht der Wert selbst in ScanFinding.Message — die darf hier
+        // nie ausgegeben werden, sonst landet ein Secret unredigiert in einem dauerhaften,
+        // bei oeffentlichen Repos weltlesbaren PR-Kommentar.
+        const string secretMarker = "sk-live-ZZTOPSECRETMARKER-1234567890";
+        var summary = PreExistingSummary.Build(
+            [
+                new ScanFinding("betterleaks", FindingCategory.Sast, FindingSeverity.High, secretMarker,
+                    "detected-generic-api-key", "config.yaml", 5),
+            ],
+            new PreExistingOptions());
+
+        var md = PreExistingReport.Markdown(summary);
+
+        Assert.Contains("config.yaml:5", md);                 // Fund wird trotzdem verortet
+        Assert.DoesNotContain(secretMarker, md);
+    }
 }
