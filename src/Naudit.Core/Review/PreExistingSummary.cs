@@ -48,6 +48,13 @@ public sealed record PreExistingSummary(
         // befuellte Funde waeren "derselbe" und der Rest damit zu klein. Ueber die Position in
         // der Sortierung geht es exakt und ohne Comparer-Akrobatik. Funde, die der Deckel
         // schluckt, fallen in die Gruppierung: sie duerfen nicht spurlos verschwinden.
+        //
+        // Fix-Runde 1 (Determinismus-Bruch): Severity/FilePath/Line/RuleId bilden KEINE
+        // Totalordnung — zwei Funde, die sich nur in Category oder Tool unterscheiden (der
+        // Reducer dedupliziert auf (FilePath, Line, RuleId, Category), ueberleben solche Paare
+        // die Deduplizierung also), waren bei LINQs stabiler Sortierung dann von der
+        // Eingabereihenfolge abhaengig. Category/Tool als letzte Tiebreaker schliessen die
+        // Luecke: danach kann kein Gleichstand mehr uebrig sein.
         var detailed = new List<ScanFinding>();
         var rest = new List<ScanFinding>();
         var detailedOmitted = 0;
@@ -56,7 +63,9 @@ public sealed record PreExistingSummary(
                      .OrderByDescending(f => f.Severity)
                      .ThenBy(f => f.FilePath)
                      .ThenBy(f => f.Line)
-                     .ThenBy(f => f.RuleId))
+                     .ThenBy(f => f.RuleId)
+                     .ThenBy(f => f.Category)
+                     .ThenBy(f => f.Tool))
         {
             if (f.Severity < options.DetailSeverity)
                 rest.Add(f);
@@ -77,9 +86,14 @@ public sealed record PreExistingSummary(
                 return new PreExistingRuleGroup(g.Key.Rule, g.Key.Category,
                     g.Max(f => f.Severity), g.Count(), example.FilePath, example.Line);
             })
+            // Der Gruppenschluessel ist (RuleId ?? Tool, Category) — Category fehlte hier als
+            // Tiebreak, obwohl zwei Gruppen mit gleichem Rule-String (z.B. Trivy ueber
+            // mehrere Scan-Typen: Vuln/Secret/Misconfig kollabieren auf denselben Tool-Namen)
+            // bei gleicher Severity/Count sonst nicht unterscheidbar sind.
             .OrderByDescending(g => g.Severity)
             .ThenByDescending(g => g.Count)
             .ThenBy(g => g.Rule)
+            .ThenBy(g => g.Category)
             .ToList();
         var groups = groupsAll.Take(Math.Max(0, options.MaxRules)).ToList();
 

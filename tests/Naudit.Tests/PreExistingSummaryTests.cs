@@ -111,4 +111,30 @@ public class PreExistingSummaryTests
 
         Assert.Equal("trivy", Assert.Single(summary.Groups).Rule);
     }
+
+    [Fact]
+    public void Build_isOrderIndependent_whenFindingsDifferOnlyByCategory()
+    {
+        // Fix-Runde 1: Severity/FilePath/Line/RuleId (Einzelliste) bzw. Rule/Severity/Count
+        // (Gruppen) bilden ohne Category-Tiebreak KEINE Totalordnung. Der Reducer dedupliziert
+        // auf (FilePath, Line, RuleId, Category) — zwei Funde, die sich NUR in Category
+        // unterscheiden, ueberleben die Deduplizierung also und muessten trotzdem deterministisch
+        // sortiert werden. Realer Ausloeser fuer die Gruppen-Seite: Trivy liefert ueber mehrere
+        // Scan-Typen (Vuln/Secret/Misconfig) denselben Tool-Namen, aber verschiedene Category.
+        var detailA = F(FindingSeverity.Critical, "R-DUP", "a.cs", 1);           // -> Detailed (Default DetailSeverity=High)
+        var detailB = detailA with { Category = FindingCategory.Sca };
+        var groupA = new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.Medium, "msg");     // -> Gruppe (RuleId-Fallback auf Tool)
+        var groupB = groupA with { Category = FindingCategory.Secrets };
+
+        var forward = new[] { detailA, detailB, groupA, groupB };
+        var backward = new[] { groupB, groupA, detailB, detailA };
+
+        var summaryForward = PreExistingSummary.Build(forward, new PreExistingOptions());
+        var summaryBackward = PreExistingSummary.Build(backward, new PreExistingOptions());
+
+        Assert.Equal(2, summaryForward.Detailed.Count);
+        Assert.Equal(2, summaryForward.Groups.Count);
+        Assert.Equal(summaryForward.Detailed, summaryBackward.Detailed);
+        Assert.Equal(summaryForward.Groups, summaryBackward.Groups);
+    }
 }
