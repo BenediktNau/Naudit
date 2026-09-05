@@ -289,7 +289,8 @@ public static class DependencyInjection
         // eigenen Regelpfad ergänzt (statt die Defaults still zu ersetzen).
         sastOptions.OpengrepRules = SastOptions.ResolveOpengrepRules(sastOptions.OpengrepRules);
         services.AddSingleton<IProcessRunner, SystemProcessRunner>();
-        services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(sastOptions.MaxFindingsPerGroup));
+        services.AddSingleton<IFindingReducer>(_ => new DeterministicFindingReducer(
+            sastOptions.MaxFindingsPerGroup, sastOptions.MaxPreExistingPerGroup));
         services.AddScoped<IWorkspaceProvider, GitWorkspaceProvider>();
 
         // Kontext-Anreicherung: aus demselben Checkout wie SAST, gesteuert über reviewOptions.Context.

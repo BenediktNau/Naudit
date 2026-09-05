@@ -43,6 +43,13 @@ public sealed class SastOptions
     /// <summary>Timeout je Analyzer/Tool-Aufruf.</summary>
     public TimeSpan AnalyzerTimeout { get; set; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>Cap pro Category in der Verdichtung.</summary>
+    /// <summary>Cap pro Category in der Verdichtung — gilt für Funde auf kommentierbaren Diff-Zeilen.</summary>
     public int MaxFindingsPerGroup { get; set; } = 20;
+
+    /// <summary>Eigenes, kleines Cap pro Category für vorbestehende Funde in einer im MR geänderten
+    /// Datei (außerhalb der Hunks). Getrennt vom Diff-Kontingent, damit Altlasten nie Plätze
+    /// belegen, die Diff-Befunden zustehen. Funde in unberührten Dateien kommen gar nicht einzeln
+    /// in den Prompt — sie erscheinen nur im aggregierten Altlasten-Bericht
+    /// (<c>Naudit:Review:PreExisting</c>).</summary>
+    public int MaxPreExistingPerGroup { get; set; } = 5;
 }

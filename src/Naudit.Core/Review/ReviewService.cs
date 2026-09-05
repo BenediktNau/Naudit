@@ -47,7 +47,7 @@ public sealed class ReviewService(
         var commentable = DiffParser.Parse(changes);
 
         // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext + Architektur-Profil (je leer/null, wenn Feature aus).
-        var (findings, context, guidelines) = await GatherGroundingAsync(request, changes, commentable, ct);
+        var (reduction, context, guidelines) = await GatherGroundingAsync(request, changes, commentable, ct);
 
         // Projekt-Gedächtnis: Auswahl braucht kein Repo (unabhängig vom Checkout);
         // Fail-open lebt in der Implementierung — hier kommt schlimmstenfalls eine leere Liste an.
@@ -59,8 +59,11 @@ public sealed class ReviewService(
         foreach (var c in changes)
             redChanges.Add(c with { Diff = await redactor.RedactAsync(c.Diff, ct) });
 
-        var redFindings = new List<ScanFinding>(findings.Count);
-        foreach (var f in findings)
+        // Task 2: nur die Einzelbefunde (Diff + kleines Altlasten-Kontingent) gehen als
+        // ScanFinding-Liste in den Prompt; die vollstaendige Altlasten-Menge (reduction.PreExisting)
+        // wird erst ab Task 4/6 konsumiert (Aggregat-Bericht).
+        var redFindings = new List<ScanFinding>(reduction.Selected.Count);
+        foreach (var f in reduction.Selected)
             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
 
         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
@@ -177,13 +180,13 @@ public sealed class ReviewService(
     // Checkout nur, wenn mindestens eine Quelle aktiv ist. Checkout-Fehler ⇒ diff-only
     // (Infrastructure hat geloggt); das Architektur-Profil fragt reviewGuidelines dennoch ohne
     // Workspace ab — die Implementierung fällt dabei ggf. auf ein gespeichertes Profil zurück.
-    private async Task<(IReadOnlyList<ScanFinding> Findings, ReviewContext Context, string? Guidelines)> GatherGroundingAsync(
+    private async Task<(FindingReduction Reduction, ReviewContext Context, string? Guidelines)> GatherGroundingAsync(
         ReviewRequest request, IReadOnlyList<CodeChange> changes,
         IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable, CancellationToken ct)
     {
         var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
         if (!needCheckout)
-            return ([], ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
 
         IReviewWorkspace workspace;
         try
@@ -193,14 +196,14 @@ public sealed class ReviewService(
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             // Checkout fehlgeschlagen → diff-only
-            return ([], ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
         }
 
         await using (workspace)
         {
-            var findings = _analyzers.Count > 0
+            var reduction = _analyzers.Count > 0
                 ? await RunAnalyzersAsync(workspace, changes, commentable, ct)
-                : Array.Empty<ScanFinding>();
+                : FindingReduction.Empty;
 
             var context = options.Context.Enabled
                 ? await SafeCollectContextAsync(workspace, changes, ct)
@@ -208,11 +211,11 @@ public sealed class ReviewService(
 
             var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ct);
 
-            return (findings, context, guidelines);
+            return (reduction, context, guidelines);
         }
     }
 
-    private async Task<IReadOnlyList<ScanFinding>> RunAnalyzersAsync(
+    private async Task<FindingReduction> RunAnalyzersAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes,
         IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable, CancellationToken ct)
     {
