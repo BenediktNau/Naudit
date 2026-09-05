@@ -315,4 +315,41 @@ public class PromptBuilderTests
         Assert.Contains("injection surfaces", PromptBuilder.DefaultSystemPrompt);
         Assert.Contains("omit \"line\"", PromptBuilder.DefaultSystemPrompt);
     }
+
+    [Fact]
+    public void Build_rendersBaselineSection_withDetailedHighAndGroupedRest()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+        var baseline = PreExistingSummary.Build(
+            [
+                new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg",
+                    "detected-google-oauth-access-token", "apps/web/calendso.yaml", 402),
+                .. Enumerable.Range(0, 1763).Select(i => new ScanFinding("opengrep", FindingCategory.Sast,
+                    FindingSeverity.Medium, "msg", "i18next-key-format", $"f{i}.tsx", i)),
+            ],
+            new PreExistingOptions());
+
+        var text = PromptBuilder.Build("SYS", request, changes, baseline: baseline)[1].Text;
+
+        Assert.Contains("# Repository baseline", text);
+        Assert.Contains("NOT introduced by this MR", text);
+        Assert.Contains("apps/web/calendso.yaml:402", text);          // schwerer Fund bleibt verortet
+        Assert.Contains("i18next-key-format", text);
+        Assert.Contains("1763", text);                                 // Rest nur als Zaehler
+        Assert.DoesNotContain("f500.tsx", text);                       // keine Einzeltreffer der Gruppe
+    }
+
+    [Fact]
+    public void Build_withoutBaseline_leavesPromptUnchanged()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+
+        var withNull = PromptBuilder.Build("SYS", request, changes)[1].Text;
+        var withEmpty = PromptBuilder.Build("SYS", request, changes, baseline: PreExistingSummary.Empty)[1].Text;
+
+        Assert.DoesNotContain("Repository baseline", withNull);
+        Assert.Equal(withNull, withEmpty);
+    }
 }

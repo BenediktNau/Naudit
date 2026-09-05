@@ -61,7 +61,8 @@ public sealed class ReviewService(
 
         // Task 2: nur die Einzelbefunde (Diff + kleines Altlasten-Kontingent) gehen als
         // ScanFinding-Liste in den Prompt; die vollstaendige Altlasten-Menge (reduction.PreExisting)
-        // wird erst ab Task 4/6 konsumiert (Aggregat-Bericht).
+        // wird weiter unten zur aggregierten Baseline-Sektion verdichtet (Task 4) bzw. als
+        // eigener Kommentar gepostet (Task 6).
         var redFindings = new List<ScanFinding>(reduction.Selected.Count);
         foreach (var f in reduction.Selected)
             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
@@ -80,11 +81,19 @@ public sealed class ReviewService(
         // Architektur-Profil läuft — wie alles — vor dem Prompt durch den Redactor.
         var redGuidelines = guidelines is null ? null : await redactor.RedactAsync(guidelines, ct);
 
+        // Altlasten-Uebersicht: rein deterministisch aus den Funden, kein LLM. Fail-open —
+        // eine kaputte Verdichtung darf das Review nicht kippen. Sie traegt nur Regel-Id, Pfad,
+        // Zeile, Tool und Zaehler (siehe AppendBaseline) — keine Fund-Nachricht, daher hier
+        // keine Redaction noetig.
+        var baseline = options.PreExisting.Enabled
+            ? SafeBuildBaseline(reduction.PreExisting)
+            : PreExistingSummary.Empty;
+
         // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
         // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
         var tools = await toolProvider.GetToolsAsync(request, ct);
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
-            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines);
+            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines, baseline: baseline);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         if (tools.Count > 0)
@@ -253,6 +262,14 @@ public sealed class ReviewService(
     {
         try { return await roundtripCounter.CountAsync(request.ProjectId, request.MergeRequestIid, ct); }
         catch (Exception) when (!ct.IsCancellationRequested) { return 0; }
+    }
+
+    // Fail-open wie das uebrige Grounding: ohne Uebersicht laeuft der Review einfach ohne
+    // Baseline-Sektion und ohne Altlasten-Kommentar weiter.
+    private PreExistingSummary SafeBuildBaseline(IReadOnlyList<ScanFinding> preExisting)
+    {
+        try { return PreExistingSummary.Build(preExisting, options.PreExisting); }
+        catch (Exception) { return PreExistingSummary.Empty; }
     }
 
     // Ein Sammler-Fehler kippt den Review nicht: degradiert auf leeren Kontext (diff-only-Prompt).

@@ -40,7 +40,8 @@ public static class PromptBuilder
     public static IList<ChatMessage> Build(
         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
         IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
-        IReadOnlyList<MemoryEntry>? memory = null, bool toolsAvailable = false, string? guidelines = null)
+        IReadOnlyList<MemoryEntry>? memory = null, bool toolsAvailable = false, string? guidelines = null,
+        PreExistingSummary? baseline = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# Merge Request: {request.Title}");
@@ -55,6 +56,7 @@ public static class PromptBuilder
 
         AppendContext(sb, context);
         AppendFindings(sb, findings ?? []);
+        AppendBaseline(sb, baseline);
         AppendToolGuidance(sb, toolsAvailable);
         AppendGuidelines(sb, guidelines);
         AppendMemory(sb, memory);
@@ -182,6 +184,52 @@ public static class PromptBuilder
         AppendCategory(sb, "Secrets", findings.Where(f => f.Category == FindingCategory.Secrets));
         AppendCategory(sb, "Dependency / SCA", findings.Where(f => f.Category == FindingCategory.Sca));
         AppendCategory(sb, "SAST", findings.Where(f => f.Category == FindingCategory.Sast));
+    }
+
+    // Repo-Lage als Kontext, NICHT als Arbeitsliste: die schweren Funde bleiben verortet, der
+    // Rest steht nur als Regel + Anzahl. Ein Zaehler wie "1763x i18next-key-format" sagt dem
+    // Modell, dass das Hauskonvention ist und kein Fund — Einzeltreffer taeten das nicht.
+    // Redaction: absichtlich WIRD HIER NUR Regel-Id, Pfad, Zeile, Tool und Zaehler gerendert,
+    // NIEMALS ScanFinding.Message — deshalb braucht diese Sektion keinen zusaetzlichen
+    // Redactor-Durchlauf. Die Fund-Nachricht hier NICHT ergaenzen, ohne diese Garantie neu
+    // zu pruefen.
+    private static void AppendBaseline(StringBuilder sb, PreExistingSummary? baseline)
+    {
+        if (baseline is null || baseline.IsEmpty)
+            return;
+
+        sb.AppendLine();
+        sb.AppendLine("# Repository baseline (pre-existing tool findings, NOT introduced by this MR)");
+        var counts = string.Join(", ", baseline.BySeverity.Select(s => $"{s.Count} {s.Severity.ToString().ToLowerInvariant()}"));
+        sb.AppendLine($"{baseline.Total} findings already in the repository: {counts}.");
+        sb.AppendLine("Do NOT report these as findings of this MR. Use them as context: a rule with a high count is " +
+            "an established project pattern, not a defect; a known weakness class means a new occurrence in the diff matters.");
+
+        if (baseline.Detailed.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"## Highest severity, individually ({baseline.Detailed.Count}" +
+                (baseline.DetailedOmitted > 0 ? $" of {baseline.Detailed.Count + baseline.DetailedOmitted}" : "") + ")");
+            foreach (var f in baseline.Detailed)
+            {
+                var loc = f.FilePath is null ? "" : f.Line is int ln ? $" · {f.FilePath}:{ln}" : $" · {f.FilePath}";
+                var rule = f.RuleId is null ? "" : $" · {f.RuleId}";
+                sb.AppendLine($"- [{f.Severity.ToString().ToUpperInvariant()}] {f.Tool}{rule}{loc}");
+            }
+        }
+
+        if (baseline.Groups.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"## Remaining, grouped by rule ({baseline.GroupedTotal} findings" +
+                (baseline.GroupsOmitted > 0 ? $", {baseline.GroupsOmitted} further rules omitted" : "") + ")");
+            foreach (var g in baseline.Groups)
+            {
+                var example = g.ExampleFilePath is null ? "" :
+                    g.ExampleLine is int ln ? $", e.g. {g.ExampleFilePath}:{ln}" : $", e.g. {g.ExampleFilePath}";
+                sb.AppendLine($"- {g.Rule} ({g.Severity.ToString().ToUpperInvariant()}) — {g.Count}x{example}");
+            }
+        }
     }
 
     // Nur wenn dem Review Tools angeboten werden: knapper Hinweis, WANN das Docs-Werkzeug sinnvoll ist.
