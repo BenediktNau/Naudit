@@ -431,7 +431,18 @@ public sealed class DeterministicFindingReducer(
             .ToList();
 
         // Ungekappt: der Bericht zaehlt und gruppiert selbst, er braucht die volle Menge.
-        var preExisting = ordered.Where(f => !f.InDiff).ToList();
+        // Bewusst NEU nach Severity sortiert statt aus `ordered` uebernommen: dort steht die
+        // Stufe vorn, was hier einen Low-Fund aus einer geaenderten Datei vor einen
+        // Critical-Fund aus unberuehrtem Code stellen wuerde. Im Bericht zaehlt der Schweregrad.
+        var preExisting = ordered
+            .Where(f => !f.InDiff)
+            .OrderByDescending(f => f.Severity)
+            .ThenBy(f => f.Category)
+            .ThenBy(f => f.FilePath)
+            .ThenBy(f => f.Line)
+            .ThenBy(f => f.RuleId)
+            .ThenBy(f => f.Tool)
+            .ToList();
 
         return Task.FromResult(new FindingReduction(selected, preExisting));
     }
