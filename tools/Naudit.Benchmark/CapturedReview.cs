@@ -79,6 +79,12 @@ public sealed class ReviewCapture
 
     public void RecordChanges(int count) => ChangedFiles = count;
 
+    /// <summary>Aufgefangene Altlasten-Notizen (PostNoteAsync statt PostReviewAsync) — eigene Liste,
+    /// weil dieser Kommentar unabhängig von der Review-Summary gepostet wird (Task 6).</summary>
+    public List<string> Notes { get; } = [];
+
+    public void RecordNote(string markdown) => Notes.Add(markdown);
+
     public void RecordReviewPrompt(bool contextInPrompt, bool guidelinesInPrompt, long? inputTokens, long? outputTokens)
     {
         ReviewPromptSeen = true;
@@ -111,5 +117,6 @@ public sealed class ReviewCapture
         InputTokens = null;
         OutputTokens = null;
         ChangedFiles = 0;
+        Notes.Clear();
     }
 }

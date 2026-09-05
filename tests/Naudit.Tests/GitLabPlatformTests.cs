@@ -277,4 +277,20 @@ public class GitLabPlatformTests
 
         Assert.DoesNotContain(capture.Calls, c => c.Uri!.AbsolutePath.EndsWith("approve"));
     }
+
+    [Fact]
+    public async Task PostNoteAsync_postsStandaloneNote()
+    {
+        var capture = new StubHttpMessageHandler(_ => Ok());
+        var platform = new GitLabPlatform(
+            ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        await platform.PostNoteAsync(Request, "**Altlasten**");
+
+        var call = Assert.Single(capture.Calls);
+        Assert.Equal(HttpMethod.Post, call.Method);
+        Assert.Equal("https://gitlab.example.com/api/v4/projects/7/merge_requests/42/notes",
+            call.Uri!.ToString());
+        Assert.Contains("Altlasten", call.Body);
+    }
 }

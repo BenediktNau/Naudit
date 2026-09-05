@@ -404,4 +404,24 @@ public class GitHubPlatformTests
 
         Assert.Null(Assert.Single(posted).CommentId);   // kein Match ⇒ null, keine Exception
     }
+
+    [Fact]
+    public async Task PostNoteAsync_postsIssueComment()
+    {
+        var capture = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+        });
+        // Logger-Parameter ist optional (Default NullLogger) — wie in den bestehenden Tests weglassen.
+        var platform = new GitHubPlatform(
+            ClientReturning(HttpStatusCode.Created, "{}", capture), Tokens(), Opts());
+
+        await platform.PostNoteAsync(Request, "**Altlasten**");
+
+        var call = Assert.Single(capture.Calls);
+        Assert.Equal(HttpMethod.Post, call.Method);
+        Assert.Equal("https://api.github.com/repos/octo/hello-world/issues/42/comments",
+            call.Uri!.ToString());
+        Assert.Contains("Altlasten", call.Body);
+    }
 }

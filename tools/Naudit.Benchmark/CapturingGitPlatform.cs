@@ -47,4 +47,12 @@ public sealed class CapturingGitPlatform(IGitPlatform inner, ReviewCapture captu
         IReadOnlyList<PostedComment> ids = comments.Select(_ => new PostedComment(null, null)).ToList();
         return Task.FromResult(ids);
     }
+
+    /// <summary>Wie PostReviewAsync: nur mitschneiden, kein Netz — der Altlasten-Bericht (Task 6)
+    /// würde sonst denselben Weg in fremde MRs/PRs nehmen wie die Review-Summary.</summary>
+    public Task PostNoteAsync(ReviewRequest request, string markdown, CancellationToken ct = default)
+    {
+        capture.RecordNote(markdown);
+        return Task.CompletedTask;
+    }
 }

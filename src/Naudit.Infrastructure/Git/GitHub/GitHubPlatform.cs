@@ -143,6 +143,16 @@ public sealed class GitHubPlatform(
         return SendAsync(HttpMethod.Post, url, request.ProjectId, payload, ct);
     }
 
+    /// <summary>Postet einen eigenständigen Kommentar ohne Diff-Position über den Issue-Comments-Endpunkt:
+    /// ein Pull Request IST auf GitHub ein Issue, und nur diese Route erzeugt eine freistehende Notiz —
+    /// der Reviews-Endpunkt würde stattdessen einen zweiten Review-Status anlegen, das ist hier nicht gewollt.</summary>
+    public async Task PostNoteAsync(ReviewRequest request, string markdown, CancellationToken ct = default)
+    {
+        var url = $"repos/{request.ProjectId}/issues/{request.MergeRequestIid}/comments";
+        using var response = await SendAsync(HttpMethod.Post, url, request.ProjectId, new { body = markdown }, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
     {
         using var response = await SendAsync(HttpMethod.Get, $"repos/{request.ProjectId}", request.ProjectId, null, ct);
