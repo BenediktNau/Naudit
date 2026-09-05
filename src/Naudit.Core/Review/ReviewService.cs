@@ -259,8 +259,15 @@ public sealed class ReviewService(
         ScanFinding f, HashSet<string> changed,
         IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable)
     {
+        // Erzwingen statt nur voreinstellen: InDiff/InChangedFile gehoeren dem Orchestrator, nicht
+        // dem Analyzer. ISastAnalyzer ist ein dokumentierter Erweiterungspunkt (docs/sast-grounding.md)
+        // — eine kuenftige Implementierung koennte diese Flags bereits selbst befuellt liefern. Ein
+        // blosses "return f;" wuerde das unveraendert durchreichen: ein Fund aus einer unberuehrten
+        // Datei mit InDiff=true bekaeme faelschlich das volle Stufe-0-Kontingent im Prompt UND faellt
+        // aus PreExisting heraus (siehe unten in RunAnalyzersAsync) — exakt der Fehler, den dieser
+        // Branch beheben soll. Deshalb hier explizit ueberschreiben statt "with" nur additiv zu nutzen.
         if (f.FilePath is null || !changed.Contains(f.FilePath))
-            return f;
+            return f with { InDiff = false, InChangedFile = false };
 
         var inDiff = f.Line is not int line
             || (commentable.TryGetValue(f.FilePath, out var lines) && lines.ContainsKey(line));
