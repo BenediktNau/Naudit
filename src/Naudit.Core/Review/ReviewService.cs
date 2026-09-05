@@ -88,7 +88,7 @@ public sealed class ReviewService(
         // Zeile, Tool und Zaehler (siehe AppendBaseline) — keine Fund-Nachricht, daher hier
         // keine Redaction noetig.
         var baseline = options.PreExisting.Enabled
-            ? SafeBuildBaseline(reduction.PreExisting)
+            ? SafeBuildBaseline(reduction.PreExisting, ct)
             : PreExistingSummary.Empty;
 
         // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
@@ -298,11 +298,13 @@ public sealed class ReviewService(
     }
 
     // Fail-open wie das uebrige Grounding: ohne Uebersicht laeuft der Review einfach ohne
-    // Baseline-Sektion und ohne Altlasten-Kommentar weiter.
-    private PreExistingSummary SafeBuildBaseline(IReadOnlyList<ScanFinding> preExisting)
+    // Baseline-Sektion und ohne Altlasten-Kommentar weiter. "when (!ct.IsCancellationRequested)"
+    // wie ueberall sonst im Fail-open-Muster dieser Klasse: eine echte Abbruchanforderung soll
+    // durchschlagen statt hier verschluckt zu werden.
+    private PreExistingSummary SafeBuildBaseline(IReadOnlyList<ScanFinding> preExisting, CancellationToken ct)
     {
         try { return PreExistingSummary.Build(preExisting, options.PreExisting); }
-        catch (Exception) { return PreExistingSummary.Empty; }
+        catch (Exception) when (!ct.IsCancellationRequested) { return PreExistingSummary.Empty; }
     }
 
     // Ein Sammler-Fehler kippt den Review nicht: degradiert auf leeren Kontext (diff-only-Prompt).
