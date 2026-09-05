@@ -137,4 +137,15 @@ public class PreExistingSummaryTests
         Assert.Equal(summaryForward.Detailed, summaryBackward.Detailed);
         Assert.Equal(summaryForward.Groups, summaryBackward.Groups);
     }
+
+    [Fact]
+    public void NewKeys_areDbManaged()
+    {
+        Assert.True(Naudit.Infrastructure.Settings.SettingsCatalog.TryGet("Naudit:Sast:MaxPreExistingPerGroup", out _));
+        Assert.True(Naudit.Infrastructure.Settings.SettingsCatalog.TryGet("Naudit:Review:PreExisting:Enabled", out _));
+        Assert.True(Naudit.Infrastructure.Settings.SettingsCatalog.TryGet("Naudit:Review:PreExisting:DetailSeverity", out _));
+        Assert.True(Naudit.Infrastructure.Settings.SettingsCatalog.TryGet("Naudit:Review:PreExisting:MaxDetailed", out _));
+        Assert.True(Naudit.Infrastructure.Settings.SettingsCatalog.TryGet("Naudit:Review:PreExisting:MaxRules", out _));
+        Assert.True(Naudit.Infrastructure.Settings.SettingsCatalog.TryGet("Naudit:Review:PreExisting:FirstReviewOnly", out _));
+    }
 }
