@@ -33,6 +33,26 @@ public class DeterministicFindingReducerTests
     }
 
     [Fact]
+    public async Task Reduce_dedupPicksHighestSeverity_independentOfInputOrder()
+    {
+        // Zwei Tools melden denselben Fund (Datei, Zeile, Regel, Kategorie) mit verschiedener
+        // Severity. Der Repraesentant darf nicht davon abhaengen, wer zuerst im Input steht —
+        // sonst kippen Kontingent-Auswahl und die Severity-Zaehlung des Altlasten-Berichts je
+        // nach Analyzer-Reihenfolge.
+        var reducer = new DeterministicFindingReducer();
+        var low = Tiered("a.cs", 1, "R1", FindingSeverity.Low, inDiff: true) with { Tool = "zeta" };
+        var high = Tiered("a.cs", 1, "R1", FindingSeverity.High, inDiff: true) with { Tool = "alpha" };
+
+        var forward = await reducer.ReduceAsync(new[] { low, high }, []);
+        var backward = await reducer.ReduceAsync(new[] { high, low }, []);
+
+        var f = Assert.Single(forward.Selected);
+        var b = Assert.Single(backward.Selected);
+        Assert.Equal(FindingSeverity.High, f.Severity);
+        Assert.Equal(f, b);
+    }
+
+    [Fact]
     public async Task Reduce_sortsBySeverityDesc_thenInDiffFirst()
     {
         var reducer = new DeterministicFindingReducer();

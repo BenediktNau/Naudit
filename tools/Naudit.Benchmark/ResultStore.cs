@@ -63,7 +63,12 @@ public sealed class ResultStore
                 var loaded = JsonSerializer.Deserialize<List<BenchmarkRecord>>(json, JsonOpts);
                 if (loaded != null)
                 {
-                    _records.AddRange(loaded);
+                    // Altdateien (vor Task 6) kennen "notes" nicht — System.Text.Json setzt dann null
+                    // in ein nicht-nullbares Feld. Hier auf leere Liste normalisieren, damit weder
+                    // ein Leser noch der naechste Append mit "notes": null umgehen muss.
+                    _records.AddRange(loaded.Select(r => r.Review.Notes is null
+                        ? r with { Review = r.Review with { Notes = [] } }
+                        : r));
                 }
             }
             catch (JsonException ex)

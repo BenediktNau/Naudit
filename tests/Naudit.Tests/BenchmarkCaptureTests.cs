@@ -123,6 +123,7 @@ public class BenchmarkCaptureTests
         await sut.PostNoteAsync(Request(), "**Altlasten**");
 
         Assert.Equal(0, inner.PostCallCount);   // auch die Notiz geht nicht ans echte Netz
+        Assert.Empty(inner.PostedNotes);        // PostCallCount zaehlt nur PostReviewAsync
         var note = Assert.Single(capture.Last!.Notes);
         Assert.Equal("**Altlasten**", note);
     }

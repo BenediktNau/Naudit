@@ -47,6 +47,35 @@ public class BenchmarkResultStoreTests
     }
 
     [Fact]
+    public void Laden_normalisiert_fehlendes_notes_aus_Altdateien_auf_leere_Liste()
+    {
+        // Ergebnisdateien aus Laeufen vor Task 6 kennen das Feld "notes" nicht. Ohne Normalisierung
+        // liefe null in CapturedReview.Notes und beim naechsten Append als "notes": null zurueck
+        // auf die Platte — jeder Leser muesste dann mit beidem umgehen.
+        var dir = Directory.CreateTempSubdirectory("naudit-store-");
+        try
+        {
+            var path = Path.Combine(dir.FullName, "naudit-reviews.json");
+            File.WriteAllText(path, """
+                [{"url":"https://github.com/getsentry/sentry/pull/1",
+                  "review":{"projectId":"getsentry/sentry","mergeRequestIid":1,"summary":"s","verdict":"Approve","comments":[]},
+                  "diagnostics":{"checkoutRequested":true,"checkoutFailed":false,"headRef":"r","headSha":"0123456789abcdef0123456789abcdef01234567",
+                    "contextInPrompt":true,"guidelinesInPrompt":true,"inputTokens":1,"outputTokens":1,
+                    "changedFiles":1,"warnings":[],"durationSeconds":1.0,"error":null}}]
+                """);
+
+            var store = new ResultStore(path);
+            var legacy = Assert.Single(store.All());
+            Assert.NotNull(legacy.Review.Notes);
+            Assert.Empty(legacy.Review.Notes);
+
+            store.Append(Record("https://github.com/getsentry/sentry/pull/2", 2));
+            Assert.DoesNotContain("\"notes\": null", File.ReadAllText(path));
+        }
+        finally { dir.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void Append_schreibt_sofort_und_ein_neuer_Store_liest_es_wieder()
     {
         var dir = Directory.CreateTempSubdirectory("naudit-store-");

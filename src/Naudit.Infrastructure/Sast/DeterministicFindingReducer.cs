@@ -16,7 +16,10 @@ public sealed class DeterministicFindingReducer(
         // Dadurch ist sowohl die Kappung als auch die Ausgabe unabhaengig von der Input-Reihenfolge.
         var ordered = findings
             .GroupBy(f => (f.FilePath, f.Line, f.RuleId, f.Category))
-            .Select(g => g.First())                       // Erstes Vorkommen in Input gewinnt bei Duplikaten
+            // Repraesentant eines Duplikats: hoechste Severity, dann Tool/Message als stabile
+            // Tiebreaker — NICHT "erstes Vorkommen": das hinge an der Analyzer-Reihenfolge und
+            // kippte Kontingent-Auswahl und die Severity-Zaehlung des Altlasten-Berichts.
+            .Select(g => g.OrderByDescending(f => f.Severity).ThenBy(f => f.Tool).ThenBy(f => f.Message).First())
             .OrderBy(Tier)
             .ThenByDescending(f => f.Severity)
             .ThenBy(f => f.Category)
