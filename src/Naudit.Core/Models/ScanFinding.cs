@@ -16,6 +16,11 @@ public sealed record ScanFinding(
     string? FilePath = null,
     int? Line = null)
 {
-    /// <summary>Vom Orchestrator gesetzt: liegt der Fund in einer im MR geänderten Datei?</summary>
+    /// <summary>Vom Orchestrator gesetzt: liegt der Fund auf einer kommentierbaren Diff-Zeile
+    /// (hinzugefügt oder Kontext im Hunk)? Nur solche Funde kann das Modell verankern.</summary>
     public bool InDiff { get; init; }
+
+    /// <summary>Vom Orchestrator gesetzt: liegt der Fund in einer im MR geänderten Datei — auch
+    /// außerhalb der Hunks? <c>InDiff</c> impliziert immer <c>InChangedFile</c>.</summary>
+    public bool InChangedFile { get; init; }
 }

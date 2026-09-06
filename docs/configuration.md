@@ -143,12 +143,18 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Sast:Enabled` | SAST/SCA grounding on/off — default `false`; off ⇒ exactly diff-only (see [SAST grounding](sast-grounding.md)) |
 | `Naudit:Sast:Analyzers` | Active analyzers — `opengrep` \| `betterleaks` \| `osv-scanner` \| `trivy` \| `dotnet-sca`; **list-shaped** (see [List-shaped settings](#list-shaped-settings)); empty ⇒ `opengrep,trivy` |
 | `Naudit:Sast:AnalyzerTimeout` | Timeout per analyzer run (default `00:05:00`) |
-| `Naudit:Sast:MaxFindingsPerGroup` | Cap per category when condensing findings (default `20`) |
+| `Naudit:Sast:MaxFindingsPerGroup` | Cap per category for findings on a commentable diff line, when condensing findings (default `30`; findings beyond the cap are dropped without replacement — see [SAST grounding](sast-grounding.md#pre-existing-findings)) |
+| `Naudit:Sast:MaxPreExistingPerGroup` | Separate, smaller cap per category for findings in a changed file but outside the diff hunks (default `5`); see [Pre-existing findings](sast-grounding.md#pre-existing-findings) |
 | `Naudit:Sast:Reducer` | Reducer strategy — currently only `deterministic` |
 | `Naudit:Review:Memory:Enabled` | Inject per-project maintainer guidance (false positives + conventions) as a read-only prompt section — **default `true`** (see [Review memory](review-memory.md)) |
 | `Naudit:Review:Memory:MaxEntries` | Cap on memory entries injected per review — conventions first, then false positives, newest-first (default `50`) |
 | `Naudit:Review:Resolution:Enabled` | Enable finding-resolution tracking — `@naudit ok`/`fp` replies and the LLM classifier write `ResolutionStatus` — **default `true`** (see [Review analytics](review-analytics.md)) |
 | `Naudit:Review:Resolution:RenderHint` | Advertise the `@naudit fp` / `@naudit ok` reply commands in every posted review — hidden HTML comment inline, collapsed `<details>` on the summary. **Default `true`** (see [Review memory](review-memory.md)) |
+| `Naudit:Review:PreExisting:Enabled` | Aggregate "Repository baseline" prompt section plus a separate pre-existing-findings PR/MR comment — **default `true`**; `false` ⇒ neither (see [Pre-existing findings](sast-grounding.md#pre-existing-findings)) |
+| `Naudit:Review:PreExisting:DetailSeverity` | Minimum severity listed individually with file + line; below it, findings are grouped by rule — `Info` \| `Low` \| `Medium` \| `High` \| `Critical` (default `High`) |
+| `Naudit:Review:PreExisting:MaxDetailed` | Cap on the individually-listed findings; the rest falls back into the rule groups (default `50`) |
+| `Naudit:Review:PreExisting:MaxRules` | Cap on the number of rule groups shown (default `30`) |
+| `Naudit:Review:PreExisting:FirstReviewOnly` | Post the standalone pre-existing-findings comment only on a PR/MR's first review — the baseline does not change between pushes — **default `true`** |
 | `Naudit:Redaction:Enabled` | Mask secrets/IPs/e-mails before the prompt — **default `true`** (see [Prompt redaction](redaction.md)) |
 | `Naudit:Redaction:EntropyThreshold` | Shannon bits/char for the high-entropy secret fallback (default `4.0`) |
 | `Naudit:Redaction:MinEntropyTokenLength` | Minimum token length checked by the entropy pass (default `20`) |

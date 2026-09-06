@@ -23,11 +23,12 @@ public class ReviewServiceTests
         IReviewToolProvider? toolProvider = null,
         IReviewRoundtripCounter? roundtrips = null,
         IReviewMemory? memory = null,
-        IReviewGuidelines? guidelines = null)
+        IReviewGuidelines? guidelines = null,
+        IFindingReducer? findingReducer = null)
         => new(router ?? new SingleClientRouter(chat), git, options,
             workspace ?? new FakeWorkspaceProvider(),
             analyzers ?? Array.Empty<ISastAnalyzer>(),
-            new FakeFindingReducer(),
+            findingReducer ?? new FakeFindingReducer(),
             redactor ?? new NullPromptRedactor(),
             contextCollector ?? new FakeContextCollector(),
             auditSink ?? new FakeReviewAuditSink(),
@@ -311,7 +312,10 @@ public class ReviewServiceTests
     public async Task ReviewAsync_groundsFindings_inPrompt_andAnnotatesInDiff()
     {
         var chat = new FakeChatClient("""{"summary":"ok","verdict":"approve"}""");
-        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        // Die Markierung ist seit Task 1 zeilengenau: der Stub-Header "@@ +1 @@" (ohne Hunk-Inhalt,
+        // wie ihn andere Tests hier nur als "Datei geaendert"-Platzhalter nutzen) traefe keine
+        // Zeile 5 -> der Fund wuerde faelschlich "pre-existing". Der Diff muss Zeile 5 also wirklich beruehren.
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -5,1 +5,1 @@\n+touched")]);
         var finding = new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "sqli", "rule.sqli", "a.cs", 5);
         var analyzers = new[] { new FakeSastAnalyzer("opengrep", new[] { finding }) };
         var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers);
@@ -688,5 +692,165 @@ public class ReviewServiceTests
 
         Assert.DoesNotContain("naudit:commands", Assert.Single(git.PostedComments).Body);
         Assert.DoesNotContain("Naudit-Kommandos", git.PostedMarkdown!);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_marksFindingOutsideHunk_asPreExisting_evenInChangedFile()
+    {
+        // Diff berührt nur Zeile 10; der Fund sitzt auf Zeile 500 derselben Datei.
+        // Frueher: InDiff=true (Datei-Regel) und damit faelschlich prompt-priorisiert.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -10,1 +10,1 @@\n+touched")]);
+        var analyzer = new FakeSastAnalyzer("opengrep",
+        [
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "im-hunk", "R-IN", "a.cs", 10),
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "ausserhalb", "R-OUT", "a.cs", 500),
+            new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "andere-datei", "R-FAR", "b.cs", 3),
+        ]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers: [analyzer]);
+
+        await service.ReviewAsync(Request);
+
+        var prompt = chat.LastMessages![1].Text;
+        Assert.Contains("[in diff] opengrep · R-IN", prompt);
+        Assert.Contains("[pre-existing] opengrep · R-OUT", prompt);
+        Assert.Contains("[pre-existing] opengrep · R-FAR", prompt);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_keepsFileLevelFinding_inDiff_whenLineIsUnknown()
+    {
+        // SCA-Funde (Trivy/OSV auf einer Lockfile) tragen oft keine Zeile. Sie duerfen nicht
+        // zur Altlast werden, nur weil die Zeilennummer fehlt — sonst faellt jeder Dependency-Fund
+        // einer im MR geaenderten Lockfile hinten runter.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("package-lock.json", "@@ -1,1 +1,1 @@\n+dep")]);
+        var analyzer = new FakeSastAnalyzer("trivy",
+        [
+            new ScanFinding("trivy", FindingCategory.Sca, FindingSeverity.High, "CVE", "CVE-1", "package-lock.json"),
+        ]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers: [analyzer]);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Contains("[in diff] trivy · CVE-1", chat.LastMessages![1].Text);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_preExistingDisabled_omitsBaselineSection()
+    {
+        // "other.cs" ist nicht Teil der Aenderungen -> die identische FakeFindingReducer-Logik
+        // stuft den Fund als PreExisting ein. Bei Enabled=false darf daraus dennoch keine
+        // Baseline-Sektion im Prompt werden.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var finding = new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.Low, "x", "r", "other.cs", 1);
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", new[] { finding }) };
+        var options = new ReviewOptions { SystemPrompt = "SYS", PreExisting = new PreExistingOptions { Enabled = false } };
+        var service = CreateService(chat, git, options, analyzers);
+
+        await service.ReviewAsync(Request);
+
+        Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_baselineAggregationThrows_failsOpen()
+    {
+        // PreExistingSummary.Build wirft beim ersten Feldzugriff (f.Severity) eine
+        // NullReferenceException, wenn die PreExisting-Liste einen null-Eintrag enthaelt.
+        // Genau das muss SafeBuildBaseline abfangen: das Review laeuft trotzdem durch, nur
+        // ohne Baseline-Sektion — der Fehler darf es nicht kippen.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var analyzers = new[] { new FakeSastAnalyzer("opengrep", Array.Empty<ScanFinding>()) };
+        var brokenReducer = new FakeFindingReducer(preExistingOverride: new List<ScanFinding> { null! });
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, analyzers,
+            findingReducer: brokenReducer);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+        Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
+    }
+
+    private static FakeSastAnalyzer PreExistingAnalyzer() => new("opengrep",
+    [
+        new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg", "R-ALT", "fremd.cs", 9),
+    ]);
+
+    [Fact]
+    public async Task ReviewAsync_postsPreExistingReport_asSeparateNote_onFirstReview()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()], roundtrips: new FakeRoundtripCounter(0));
+
+        await service.ReviewAsync(Request);
+
+        var note = Assert.Single(git.PostedNotes);
+        Assert.Contains("fremd.cs:9", note);
+        Assert.DoesNotContain("fremd.cs:9", git.PostedMarkdown!);   // nicht in der Summary
+    }
+
+    [Fact]
+    public async Task ReviewAsync_skipsPreExistingReport_onLaterReviews()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()], roundtrips: new FakeRoundtripCounter(1));
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedNotes);   // Altlasten aendern sich zwischen Pushes nicht
+    }
+
+    [Fact]
+    public async Task ReviewAsync_doesNotPostReport_whenCounterThrows()
+    {
+        // Zaehlerfehler (DB weg): das Review laeuft fail-open weiter, aber "erstes Review" laesst
+        // sich nicht mehr entscheiden — lieber kein Altlasten-Kommentar als bei jedem Push einer.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()], roundtrips: new FakeRoundtripCounter(throws: true));
+
+        await service.ReviewAsync(Request);
+
+        Assert.NotNull(git.PostedMarkdown);   // Review selbst weiterhin gepostet
+        Assert.Empty(git.PostedNotes);
+        Assert.Contains("Repository baseline", chat.LastMessages![1].Text);   // Prompt-Sektion unberuehrt
+    }
+
+    [Fact]
+    public async Task ReviewAsync_doesNotPostReport_whenFeatureDisabled()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var options = new ReviewOptions { SystemPrompt = "SYS" };
+        options.PreExisting.Enabled = false;
+        var service = CreateService(chat, git, options, analyzers: [PreExistingAnalyzer()]);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Empty(git.PostedNotes);
+        Assert.DoesNotContain("Repository baseline", chat.LastMessages![1].Text);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_reportFailure_doesNotFailTheReview()
+    {
+        // Der Review ist zu diesem Zeitpunkt bereits gepostet — ein Fehler am Zusatzkommentar
+        // darf das Ergebnis nicht mehr kippen.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]) { NoteError = new InvalidOperationException("boom") };
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()]);
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
     }
 }

@@ -43,6 +43,20 @@ public sealed class SastOptions
     /// <summary>Timeout je Analyzer/Tool-Aufruf.</summary>
     public TimeSpan AnalyzerTimeout { get; set; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>Cap pro Category in der Verdichtung.</summary>
-    public int MaxFindingsPerGroup { get; set; } = 20;
+    /// <summary>Cap pro Category in der Verdichtung — gilt für Funde auf kommentierbaren Diff-Zeilen.
+    /// 30 statt vormals 20: der gemessene Referenzfall (cal.com #10600) hat rund 21 Befunde auf
+    /// kommentierbaren Diff-Zeilen — bei einem Deckel von 20 fiele der 21. ersatzlos heraus, denn
+    /// er ist InDiff und landet deshalb NICHT in PreExisting (Stufe 0 kennt keine Baseline als
+    /// Auffangbecken — siehe ReviewService.Annotate). Seit dieser Umstellung belegen Altlasten kein
+    /// eigenes Kontingent mehr auf dieser Stufe (eigenes, kleineres Kontingent: siehe
+    /// <see cref="MaxPreExistingPerGroup"/>) — der Platz, den vorher Altlasten hier belegten, ist
+    /// jetzt frei fuer echte Diff-Befunde.</summary>
+    public int MaxFindingsPerGroup { get; set; } = 30;
+
+    /// <summary>Eigenes, kleines Cap pro Category für vorbestehende Funde in einer im MR geänderten
+    /// Datei (außerhalb der Hunks). Getrennt vom Diff-Kontingent, damit Altlasten nie Plätze
+    /// belegen, die Diff-Befunden zustehen. Funde in unberührten Dateien kommen gar nicht einzeln
+    /// in den Prompt — sie erscheinen nur im aggregierten Altlasten-Bericht
+    /// (<c>Naudit:Review:PreExisting</c>).</summary>
+    public int MaxPreExistingPerGroup { get; set; } = 5;
 }

@@ -315,4 +315,95 @@ public class PromptBuilderTests
         Assert.Contains("injection surfaces", PromptBuilder.DefaultSystemPrompt);
         Assert.Contains("omit \"line\"", PromptBuilder.DefaultSystemPrompt);
     }
+
+    [Fact]
+    public void Build_rendersBaselineSection_withDetailedHighAndGroupedRest()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+        var baseline = PreExistingSummary.Build(
+            [
+                new ScanFinding("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg",
+                    "detected-google-oauth-access-token", "apps/web/calendso.yaml", 402),
+                .. Enumerable.Range(0, 1763).Select(i => new ScanFinding("opengrep", FindingCategory.Sast,
+                    FindingSeverity.Medium, "msg", "i18next-key-format", $"f{i}.tsx", i)),
+            ],
+            new PreExistingOptions());
+
+        var text = PromptBuilder.Build("SYS", request, changes, baseline: baseline)[1].Text;
+
+        Assert.Contains("# Repository baseline", text);
+        Assert.Contains("NOT introduced by this MR", text);
+        Assert.Contains("apps/web/calendso.yaml:402", text);          // schwerer Fund bleibt verortet
+        Assert.Contains("i18next-key-format", text);
+        Assert.Contains("1763", text);                                 // Rest nur als Zaehler
+        Assert.DoesNotContain("f500.tsx", text);                       // keine Einzeltreffer der Gruppe
+    }
+
+    [Fact]
+    public void Build_baselineSection_hidesLocation_forSecretsFindings_inBothPaths()
+    {
+        // Gleiche Sonderbehandlung wie PreExistingReport.Markdown: fuer FindingCategory.Secrets nie
+        // Datei:Zeile — weder in der Einzelliste noch als Beispielort einer Gruppe. Der Fundort
+        // nuetzt dem Modell bei einem Fund in einer unberuehrten Datei nichts (dort kann es nicht
+        // kommentieren), koennte aber ueber Summary/Kommentar oeffentlich wiedergegeben werden.
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+        var findings = new List<ScanFinding>
+        {
+            new("betterleaks", FindingCategory.Secrets, FindingSeverity.High, "msg",
+                "detected-generic-api-key", "config/secrets.yaml", 5),
+            new("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg",
+                "sql-injection", "src/Db.cs", 77),
+        };
+        // Secrets-Gruppe unterhalb von DetailSeverity ⇒ landet in den Regel-Gruppen mit Beispielort.
+        for (var i = 0; i < 3; i++)
+            findings.Add(new("betterleaks", FindingCategory.Secrets, FindingSeverity.Low, "msg",
+                "low-entropy-token", $"fixtures/f{i}.env", 1 + i));
+        var baseline = PreExistingSummary.Build(findings, new PreExistingOptions());
+
+        var text = PromptBuilder.Build("SYS", request, changes, baseline: baseline)[1].Text;
+
+        Assert.Contains("detected-generic-api-key", text);      // Regel + Severity bleiben
+        Assert.Contains("low-entropy-token", text);
+        Assert.Contains("3x", text);
+        Assert.DoesNotContain("config/secrets.yaml", text);     // kein Fundort fuer Secrets ...
+        Assert.DoesNotContain("fixtures/f", text);
+        Assert.Contains("src/Db.cs:77", text);                  // ... andere Kategorien bleiben verortet
+    }
+
+    [Fact]
+    public void Build_baselineSection_neverIncludes_findingMessage()
+    {
+        // Sicherheitsgarantie (siehe Warnkommentar in AppendBaseline): nur Regel-Id, Pfad, Zeile,
+        // Tool und Zaehler werden gerendert, NIE ScanFinding.Message. Bei einem Secrets-Detektor
+        // steht der Wert selbst in der Nachricht.
+        const string secretMarker = "sk-live-ZZTOPSECRETMARKER-1234567890";
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+        var baseline = PreExistingSummary.Build(
+            [
+                new ScanFinding("betterleaks", FindingCategory.Sast, FindingSeverity.High, secretMarker,
+                    "detected-generic-api-key", "config.yaml", 5),
+            ],
+            new PreExistingOptions());
+
+        var text = PromptBuilder.Build("SYS", request, changes, baseline: baseline)[1].Text;
+
+        Assert.Contains("config.yaml:5", text);                // Fund wird trotzdem verortet
+        Assert.DoesNotContain(secretMarker, text);
+    }
+
+    [Fact]
+    public void Build_withoutBaseline_leavesPromptUnchanged()
+    {
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+
+        var withNull = PromptBuilder.Build("SYS", request, changes)[1].Text;
+        var withEmpty = PromptBuilder.Build("SYS", request, changes, baseline: PreExistingSummary.Empty)[1].Text;
+
+        Assert.DoesNotContain("Repository baseline", withNull);
+        Assert.Equal(withNull, withEmpty);
+    }
 }

@@ -29,12 +29,18 @@ public sealed class ReviewService(
     {
         // Roundtrip-Limit: nur Webhook-Reviews drosseln — das CI-Gate braucht immer ein frisches
         // Verdict und ist zugleich der Weg, ein weiteres Review zu erzwingen. Der Zähler sind die
-        // bereits geposteten Reviews (Audit-Zeilen); fail-open bei Zählerfehlern.
-        var priorReviews = -1; // -1 = Limit inaktiv (Ci-Trigger oder MaxRoundtrips <= 0)
+        // bereits geposteten Reviews (Audit-Zeilen); fail-open bei Zählerfehlern (null ⇒ Limit
+        // greift nicht). priorReviews wird weiter unten fuer eine zweite Frage wiederverwendet, wenn
+        // hier schon gezaehlt wurde (IsFirstReviewAsync) — fuer den Altlasten-Bericht, der nur beim
+        // ersten Review gepostet wird. counted unterscheidet "nicht gezaehlt" (Ci-Trigger oder
+        // MaxRoundtrips <= 0) von "gezaehlt, aber Zaehler kaputt" (counted && null).
+        int? priorReviews = null;
+        var counted = false;
         if (request.Trigger == ReviewTrigger.Webhook && options.MaxRoundtrips > 0)
         {
+            counted = true;
             priorReviews = await SafeCountRoundtripsAsync(request, ct);
-            if (priorReviews >= options.MaxRoundtrips)
+            if ((priorReviews ?? 0) >= options.MaxRoundtrips)
                 return new ReviewResult(string.Empty, ReviewVerdict.Approve, Skipped: true);
         }
 
@@ -42,8 +48,12 @@ public sealed class ReviewService(
         if (changes.Count == 0)
             return new ReviewResult(string.Empty, ReviewVerdict.Approve);
 
+        // Einmal parsen, zweimal gebraucht: fuer die zeilengenaue Fund-Markierung (Grounding)
+        // und weiter unten fuer die Verankerung der Modell-Kommentare.
+        var commentable = DiffParser.Parse(changes);
+
         // Grounding aus EINEM geteilten Checkout: SAST-Funde + Kontext + Architektur-Profil (je leer/null, wenn Feature aus).
-        var (findings, context, guidelines) = await GatherGroundingAsync(request, changes, ct);
+        var (reduction, context, guidelines) = await GatherGroundingAsync(request, changes, commentable, ct);
 
         // Projekt-Gedächtnis: Auswahl braucht kein Repo (unabhängig vom Checkout);
         // Fail-open lebt in der Implementierung — hier kommt schlimmstenfalls eine leere Liste an.
@@ -55,8 +65,12 @@ public sealed class ReviewService(
         foreach (var c in changes)
             redChanges.Add(c with { Diff = await redactor.RedactAsync(c.Diff, ct) });
 
-        var redFindings = new List<ScanFinding>(findings.Count);
-        foreach (var f in findings)
+        // Task 2: nur die Einzelbefunde (Diff + kleines Altlasten-Kontingent) gehen als
+        // ScanFinding-Liste in den Prompt; die vollstaendige Altlasten-Menge (reduction.PreExisting)
+        // wird weiter unten zur aggregierten Baseline-Sektion verdichtet (Task 4) bzw. als
+        // eigener Kommentar gepostet (Task 6).
+        var redFindings = new List<ScanFinding>(reduction.Selected.Count);
+        foreach (var f in reduction.Selected)
             redFindings.Add(f with { Message = await redactor.RedactAsync(f.Message, ct) });
 
         var redRequest = request with { Title = await redactor.RedactAsync(request.Title, ct) };
@@ -73,11 +87,19 @@ public sealed class ReviewService(
         // Architektur-Profil läuft — wie alles — vor dem Prompt durch den Redactor.
         var redGuidelines = guidelines is null ? null : await redactor.RedactAsync(guidelines, ct);
 
+        // Altlasten-Uebersicht: rein deterministisch aus den Funden, kein LLM. Fail-open —
+        // eine kaputte Verdichtung darf das Review nicht kippen. Sie traegt nur Regel-Id, Pfad,
+        // Zeile, Tool und Zaehler (siehe AppendBaseline) — keine Fund-Nachricht, daher hier
+        // keine Redaction noetig.
+        var baseline = options.PreExisting.Enabled
+            ? SafeBuildBaseline(reduction.PreExisting, ct)
+            : PreExistingSummary.Empty;
+
         // MCP-Tools (leer ⇒ Feature aus): identischer Single-Shot. Nicht-leer ⇒ agentischer Loop
         // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
         var tools = await toolProvider.GetToolsAsync(request, ct);
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
-            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines);
+            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines, baseline: baseline);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         if (tools.Count > 0)
@@ -96,7 +118,6 @@ public sealed class ReviewService(
 
         // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
         // Gate auswerten: blockt nur ein BESTÄTIGTER High/Critical-Fund (≥ konfigurierter Schwelle).
-        var commentable = DiffParser.Parse(changes);
         var inline = new List<InlineComment>();
         var orphans = new List<OrphanComment>();
         var blocking = false;
@@ -121,7 +142,7 @@ public sealed class ReviewService(
         }
 
         var verdict = blocking ? ReviewVerdict.RequestChanges : ReviewVerdict.Approve;
-        var lastRoundtrip = priorReviews >= 0 && priorReviews + 1 == options.MaxRoundtrips;
+        var lastRoundtrip = priorReviews is int prior && prior + 1 == options.MaxRoundtrips;
         var summary = ComposeSummary(parsed.Summary, verdict, inline.Count, orphans, lastRoundtrip);
 
         // Der Kommando-Hinweis haengt NUR an der geposteten Kopie: Audit-Bodies (und damit
@@ -134,6 +155,16 @@ public sealed class ReviewService(
         var postSummary = summary + ReviewCommandHint.Summary(options.Resolution);
 
         var posted = await gitPlatform.PostReviewAsync(request, postSummary, postInline, verdict, ct);
+
+        // Eigenstaendiger Kommentar statt Summary-Anhang: der Bericht ist lang und aendert sich
+        // zwischen zwei Pushes nicht. Best-effort — der Review ist bereits gepostet, ein Fehler
+        // am Zusatzkommentar darf das Ergebnis nicht mehr kippen.
+        if (options.PreExisting.Enabled && !baseline.IsEmpty && await IsFirstReviewAsync(request, counted, priorReviews, ct))
+        {
+            try { await gitPlatform.PostNoteAsync(request, PreExistingReport.Markdown(baseline), ct); }
+            catch (Exception) when (!ct.IsCancellationRequested) { /* bewusst geschluckt */ }
+        }
+
         await RecordAuditAsync(request, verdict, summary, inline, orphans, posted, response, selection.UsedSessionAccountId(), ct);
         return new ReviewResult(summary, verdict);
     }
@@ -174,12 +205,13 @@ public sealed class ReviewService(
     // Checkout nur, wenn mindestens eine Quelle aktiv ist. Checkout-Fehler ⇒ diff-only
     // (Infrastructure hat geloggt); das Architektur-Profil fragt reviewGuidelines dennoch ohne
     // Workspace ab — die Implementierung fällt dabei ggf. auf ein gespeichertes Profil zurück.
-    private async Task<(IReadOnlyList<ScanFinding> Findings, ReviewContext Context, string? Guidelines)> GatherGroundingAsync(
-        ReviewRequest request, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+    private async Task<(FindingReduction Reduction, ReviewContext Context, string? Guidelines)> GatherGroundingAsync(
+        ReviewRequest request, IReadOnlyList<CodeChange> changes,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable, CancellationToken ct)
     {
         var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
         if (!needCheckout)
-            return ([], ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
 
         IReviewWorkspace workspace;
         try
@@ -189,14 +221,14 @@ public sealed class ReviewService(
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             // Checkout fehlgeschlagen → diff-only
-            return ([], ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
         }
 
         await using (workspace)
         {
-            var findings = _analyzers.Count > 0
-                ? await RunAnalyzersAsync(workspace, changes, ct)
-                : Array.Empty<ScanFinding>();
+            var reduction = _analyzers.Count > 0
+                ? await RunAnalyzersAsync(workspace, changes, commentable, ct)
+                : FindingReduction.Empty;
 
             var context = options.Context.Enabled
                 ? await SafeCollectContextAsync(workspace, changes, ct)
@@ -204,30 +236,83 @@ public sealed class ReviewService(
 
             var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ct);
 
-            return (findings, context, guidelines);
+            return (reduction, context, guidelines);
         }
     }
 
-    private async Task<IReadOnlyList<ScanFinding>> RunAnalyzersAsync(
-        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct)
+    private async Task<FindingReduction> RunAnalyzersAsync(
+        IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable, CancellationToken ct)
     {
         var results = await Task.WhenAll(_analyzers.Select(a => SafeAnalyzeAsync(a, workspace, changes, ct)));
 
         var changed = new HashSet<string>(changes.Select(c => c.FilePath));
         var annotated = results
             .SelectMany(r => r)
-            .Select(f => f.FilePath is not null && changed.Contains(f.FilePath) ? f with { InDiff = true } : f)
+            .Select(f => Annotate(f, changed, commentable))
             .ToList();
 
         return await findingReducer.ReduceAsync(annotated, changes, ct);
     }
 
-    // Fail-open: ein Zählerfehler (DB weg) darf das Review nicht verhindern — Count 0 heißt
-    // "Limit greift nicht", das Review läuft.
-    private async Task<int> SafeCountRoundtripsAsync(ReviewRequest request, CancellationToken ct)
+    // Zweistufige Markierung. InDiff meint zeilengenau "auf einer kommentierbaren Diff-Zeile" —
+    // nur dort kann das Modell ueberhaupt einen Kommentar verankern. Ein Fund OHNE Zeilennummer
+    // (typisch SCA auf einer Lockfile) faellt auf die Datei-Regel zurueck, sonst waere jeder
+    // Dependency-Fund einer im MR geaenderten Lockfile faelschlich eine Altlast.
+    private static ScanFinding Annotate(
+        ScanFinding f, HashSet<string> changed,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<int, int?>> commentable)
+    {
+        // Erzwingen statt nur voreinstellen: InDiff/InChangedFile gehoeren dem Orchestrator, nicht
+        // dem Analyzer. ISastAnalyzer ist ein dokumentierter Erweiterungspunkt (docs/sast-grounding.md)
+        // — eine kuenftige Implementierung koennte diese Flags bereits selbst befuellt liefern. Ein
+        // blosses "return f;" wuerde das unveraendert durchreichen: ein Fund aus einer unberuehrten
+        // Datei mit InDiff=true bekaeme faelschlich das volle Stufe-0-Kontingent im Prompt UND faellt
+        // aus PreExisting heraus (siehe unten in RunAnalyzersAsync) — exakt der Fehler, den dieser
+        // Branch beheben soll. Deshalb hier explizit ueberschreiben statt "with" nur additiv zu nutzen.
+        if (f.FilePath is null || !changed.Contains(f.FilePath))
+            return f with { InDiff = false, InChangedFile = false };
+
+        var inDiff = f.Line is not int line
+            || (commentable.TryGetValue(f.FilePath, out var lines) && lines.ContainsKey(line));
+
+        return f with { InChangedFile = true, InDiff = inDiff };
+    }
+
+    // Fail-open: ein Zählerfehler (DB weg) darf das Review nicht verhindern — null heißt "unbekannt",
+    // das Limit greift dann nicht und das Review läuft. Bewusst null statt 0: die beiden Verbraucher
+    // ziehen aus "unbekannt" gegensaetzliche Schluesse (Limiter: durchlassen; Altlasten-Bericht:
+    // NICHT posten), eine 0 koennte das nicht ausdruecken.
+    private async Task<int?> SafeCountRoundtripsAsync(ReviewRequest request, CancellationToken ct)
     {
         try { return await roundtripCounter.CountAsync(request.ProjectId, request.MergeRequestIid, ct); }
-        catch (Exception) when (!ct.IsCancellationRequested) { return 0; }
+        catch (Exception) when (!ct.IsCancellationRequested) { return null; }
+    }
+
+    // "Erstes Review" heisst: keine vorherigen Audit-Zeilen fuer diesen PR. priorReviews wird
+    // wiederverwendet, wenn das Roundtrip-Limit oben schon gezaehlt hat (Webhook-Trigger mit
+    // aktivem Limit) — sonst (Ci-Trigger oder MaxRoundtrips <= 0) wird HIER zum ersten Mal
+    // gezaehlt, aber bewusst erst an dieser Stelle: der Aufrufer prueft vorher schon
+    // options.PreExisting.Enabled && !baseline.IsEmpty, der Zaehler-Roundtrip lohnt sich also nur,
+    // wenn tatsaechlich ein Bericht zu posten waere. Zaehlerfehler (null) ⇒ false: laesst sich
+    // "erstes Review" nicht entscheiden, ist ein fehlender Bericht (reiner Kontext, nie
+    // verdikt-relevant) das kleinere Uebel gegenueber einem, der bei jedem Push erneut erscheint.
+    private async Task<bool> IsFirstReviewAsync(ReviewRequest request, bool counted, int? priorReviews, CancellationToken ct)
+    {
+        if (!options.PreExisting.FirstReviewOnly)
+            return true;
+        var count = counted ? priorReviews : await SafeCountRoundtripsAsync(request, ct);
+        return count == 0;
+    }
+
+    // Fail-open wie das uebrige Grounding: ohne Uebersicht laeuft der Review einfach ohne
+    // Baseline-Sektion und ohne Altlasten-Kommentar weiter. "when (!ct.IsCancellationRequested)"
+    // wie ueberall sonst im Fail-open-Muster dieser Klasse: eine echte Abbruchanforderung soll
+    // durchschlagen statt hier verschluckt zu werden.
+    private PreExistingSummary SafeBuildBaseline(IReadOnlyList<ScanFinding> preExisting, CancellationToken ct)
+    {
+        try { return PreExistingSummary.Build(preExisting, options.PreExisting); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return PreExistingSummary.Empty; }
     }
 
     // Ein Sammler-Fehler kippt den Review nicht: degradiert auf leeren Kontext (diff-only-Prompt).

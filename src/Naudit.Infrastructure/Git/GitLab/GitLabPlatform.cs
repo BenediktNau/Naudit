@@ -120,6 +120,15 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
         }
     }
 
+    /// <summary>Postet einen eigenständigen Kommentar ohne Diff-Position — dieselbe Notiz-Route, die
+    /// PostReviewAsync oben schon für die Summary nutzt (GitLab kennt keinen separaten Endpunkt).</summary>
+    public async Task PostNoteAsync(ReviewRequest request, string markdown, CancellationToken ct = default)
+    {
+        var url = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}/notes";
+        using var response = await SendAsync(HttpMethod.Post, url, request.ProjectId, new { body = markdown }, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
     {
         using var response = await SendAsync(HttpMethod.Get, $"api/v4/projects/{request.ProjectId}", request.ProjectId, null, ct);

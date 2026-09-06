@@ -15,6 +15,12 @@ public interface IGitPlatform
     /// kommen null-Ids, nie eine Exception.</summary>
     Task<IReadOnlyList<PostedComment>> PostReviewAsync(ReviewRequest request, string summaryMarkdown, IReadOnlyList<InlineComment> comments, ReviewVerdict verdict, CancellationToken ct = default);
 
+    /// <summary>Postet einen eigenständigen MR/PR-Kommentar ohne Inline-Position — für Inhalte,
+    /// die sich an keiner Diff-Zeile verankern lassen (Altlasten-Bericht). Bewusst getrennt von
+    /// <see cref="PostReviewAsync"/>: der Bericht gehört nicht in die Review-Summary und trägt
+    /// keine Kommentar-Ids, die zugeordnet werden müssten.</summary>
+    Task PostNoteAsync(ReviewRequest request, string markdown, CancellationToken ct = default);
+
     /// <summary>Liefert Klon-URL (inkl. Auth) und Head-Ref des MR/PR für den lokalen Checkout.</summary>
     Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default);
 }
