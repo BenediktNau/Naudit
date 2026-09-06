@@ -808,6 +808,23 @@ public class ReviewServiceTests
     }
 
     [Fact]
+    public async Task ReviewAsync_doesNotPostReport_whenCounterThrows()
+    {
+        // Zaehlerfehler (DB weg): das Review laeuft fail-open weiter, aber "erstes Review" laesst
+        // sich nicht mehr entscheiden — lieber kein Altlasten-Kommentar als bei jedem Push einer.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -1 +1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" },
+            analyzers: [PreExistingAnalyzer()], roundtrips: new FakeRoundtripCounter(throws: true));
+
+        await service.ReviewAsync(Request);
+
+        Assert.NotNull(git.PostedMarkdown);   // Review selbst weiterhin gepostet
+        Assert.Empty(git.PostedNotes);
+        Assert.Contains("Repository baseline", chat.LastMessages![1].Text);   // Prompt-Sektion unberuehrt
+    }
+
+    [Fact]
     public async Task ReviewAsync_doesNotPostReport_whenFeatureDisabled()
     {
         var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");

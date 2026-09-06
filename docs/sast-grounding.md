@@ -148,7 +148,7 @@ before this feature existed.
 | `DetailSeverity` | `High` | Minimum severity listed individually (file + line); below it, findings are grouped by rule. |
 | `MaxDetailed` | `50` | Cap on the individually-listed findings; anything beyond falls back into the rule groups instead of being dropped. |
 | `MaxRules` | `30` | Cap on the number of rule groups shown. |
-| `FirstReviewOnly` | `true` | Post the standalone comment only on a PR/MR's first review. `false` ⇒ every review. |
+| `FirstReviewOnly` | `true` | Post the standalone comment only on a PR/MR's first review (decided from the existing audit rows, same counter as the roundtrip limit). If that counter fails, the review still runs (fail-open) but the comment is **not** posted — a missing baseline is harmless, one re-posted on every push is noise. `false` ⇒ every review. |
 
 These five keys are DB-managed, same as the SAST keys above. `DetailSeverity`
 has `AllowedValues` in the Settings catalog (`Info`/`Low`/`Medium`/`High`/`Critical`)

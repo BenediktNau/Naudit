@@ -125,8 +125,8 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
     public async Task PostNoteAsync(ReviewRequest request, string markdown, CancellationToken ct = default)
     {
         var url = $"api/v4/projects/{request.ProjectId}/merge_requests/{request.MergeRequestIid}/notes";
-        (await SendAsync(HttpMethod.Post, url, request.ProjectId, new { body = markdown }, ct))
-            .EnsureSuccessStatusCode();
+        using var response = await SendAsync(HttpMethod.Post, url, request.ProjectId, new { body = markdown }, ct);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
