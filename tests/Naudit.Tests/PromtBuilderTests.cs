@@ -341,6 +341,38 @@ public class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_baselineSection_hidesLocation_forSecretsFindings_inBothPaths()
+    {
+        // Gleiche Sonderbehandlung wie PreExistingReport.Markdown: fuer FindingCategory.Secrets nie
+        // Datei:Zeile — weder in der Einzelliste noch als Beispielort einer Gruppe. Der Fundort
+        // nuetzt dem Modell bei einem Fund in einer unberuehrten Datei nichts (dort kann es nicht
+        // kommentieren), koennte aber ueber Summary/Kommentar oeffentlich wiedergegeben werden.
+        var request = new ReviewRequest("1", 42, "T");
+        var changes = new[] { new CodeChange("a.cs", "@@ -1 +1 @@\n+x") };
+        var findings = new List<ScanFinding>
+        {
+            new("betterleaks", FindingCategory.Secrets, FindingSeverity.High, "msg",
+                "detected-generic-api-key", "config/secrets.yaml", 5),
+            new("opengrep", FindingCategory.Sast, FindingSeverity.High, "msg",
+                "sql-injection", "src/Db.cs", 77),
+        };
+        // Secrets-Gruppe unterhalb von DetailSeverity ⇒ landet in den Regel-Gruppen mit Beispielort.
+        for (var i = 0; i < 3; i++)
+            findings.Add(new("betterleaks", FindingCategory.Secrets, FindingSeverity.Low, "msg",
+                "low-entropy-token", $"fixtures/f{i}.env", 1 + i));
+        var baseline = PreExistingSummary.Build(findings, new PreExistingOptions());
+
+        var text = PromptBuilder.Build("SYS", request, changes, baseline: baseline)[1].Text;
+
+        Assert.Contains("detected-generic-api-key", text);      // Regel + Severity bleiben
+        Assert.Contains("low-entropy-token", text);
+        Assert.Contains("3x", text);
+        Assert.DoesNotContain("config/secrets.yaml", text);     // kein Fundort fuer Secrets ...
+        Assert.DoesNotContain("fixtures/f", text);
+        Assert.Contains("src/Db.cs:77", text);                  // ... andere Kategorien bleiben verortet
+    }
+
+    [Fact]
     public void Build_baselineSection_neverIncludes_findingMessage()
     {
         // Sicherheitsgarantie (siehe Warnkommentar in AppendBaseline): nur Regel-Id, Pfad, Zeile,

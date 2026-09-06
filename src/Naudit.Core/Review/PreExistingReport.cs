@@ -34,9 +34,9 @@ public static class PreExistingReport
             sb.AppendLine(head);
             sb.AppendLine();
 
-            // Secrets-Kategorie: NIE einzeln mit Fundort — nur als Regel + Anzahl. Grund für die
-            // Asymmetrie zur Prompt-Sektion (PromtBuilder.AppendBaseline bleibt hier bewusst
-            // vollständig — die geht ans Modell, nicht an die Öffentlichkeit): BetterleaksAnalyzer
+            // Secrets-Kategorie: NIE einzeln mit Fundort — nur als Regel + Anzahl. Dieselbe
+            // Sonderbehandlung gilt in PromtBuilder.AppendBaseline (das Modell koennte den Fundort
+            // sonst ueber Summary/Kommentar oeffentlich wiedergeben). Grund: BetterleaksAnalyzer
             // stuft JEDEN Secrets-Fund pauschal auf High ein, landet also komplett in dieser
             // Einzelliste. Ohne diese Sonderbehandlung waeren das bis zu MaxDetailed Zeilen der
             // Form "`pfad:zeile` detected-generic-api-key (High)" — eine durchsuchbare Landkarte

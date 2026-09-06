@@ -192,7 +192,8 @@ public static class PromptBuilder
     // Redaction: absichtlich WIRD HIER NUR Regel-Id, Pfad, Zeile, Tool und Zaehler gerendert,
     // NIEMALS ScanFinding.Message — deshalb braucht diese Sektion keinen zusaetzlichen
     // Redactor-Durchlauf. Die Fund-Nachricht hier NICHT ergaenzen, ohne diese Garantie neu
-    // zu pruefen.
+    // zu pruefen. Fuer FindingCategory.Secrets entfaellt zusaetzlich der Fundort (beide Pfade),
+    // spiegelbildlich zu PreExistingReport.Markdown.
     private static void AppendBaseline(StringBuilder sb, PreExistingSummary? baseline)
     {
         if (baseline is null || baseline.IsEmpty)
@@ -210,9 +211,14 @@ public static class PromptBuilder
             sb.AppendLine();
             sb.AppendLine($"## Highest severity, individually ({baseline.Detailed.Count}" +
                 (baseline.DetailedOmitted > 0 ? $" of {baseline.Detailed.Count + baseline.DetailedOmitted}" : "") + ")");
+            // Secrets: wie in PreExistingReport.Markdown NIE mit Fundort. Der Fundort nuetzt dem
+            // Modell bei einem Fund in einer unberuehrten Datei nichts (dort kann es nicht
+            // kommentieren), koennte aber ueber Summary/Kommentar oeffentlich wiedergegeben werden
+            // — und damit die Sonderbehandlung des geposteten Berichts unterlaufen.
             foreach (var f in baseline.Detailed)
             {
-                var loc = f.FilePath is null ? "" : f.Line is int ln ? $" · {f.FilePath}:{ln}" : $" · {f.FilePath}";
+                var loc = f.Category == FindingCategory.Secrets || f.FilePath is null ? ""
+                    : f.Line is int ln ? $" · {f.FilePath}:{ln}" : $" · {f.FilePath}";
                 var rule = f.RuleId is null ? "" : $" · {f.RuleId}";
                 sb.AppendLine($"- [{f.Severity.ToString().ToUpperInvariant()}] {f.Tool}{rule}{loc}");
             }
@@ -225,7 +231,7 @@ public static class PromptBuilder
                 (baseline.GroupsOmitted > 0 ? $", {baseline.GroupsOmitted} further rules omitted" : "") + ")");
             foreach (var g in baseline.Groups)
             {
-                var example = g.ExampleFilePath is null ? "" :
+                var example = g.Category == FindingCategory.Secrets || g.ExampleFilePath is null ? "" :
                     g.ExampleLine is int ln ? $", e.g. {g.ExampleFilePath}:{ln}" : $", e.g. {g.ExampleFilePath}";
                 sb.AppendLine($"- {g.Rule} ({g.Severity.ToString().ToUpperInvariant()}) — {g.Count}x{example}");
             }
