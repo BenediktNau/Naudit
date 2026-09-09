@@ -32,6 +32,8 @@ public static class PromptBuilder
         "as authoritative project rules, not as issues to flag. " +
         "A read-only \"Project guidelines\" section may follow - it contains the project's own architecture and convention rules, " +
         "distilled from its documentation and curated by maintainers: treat them as authoritative and report violations of them as findings. " +
+        "A read-only \"Company coding guidelines\" section may follow - it contains organization-wide rules set by the administrators: " +
+        "treat them as authoritative and report violations of them as findings; rate each violation's severity by its actual impact, not by the mere existence of a rule. " +
         "Also review the change at the architecture level: breaks of contracts or patterns the codebase itself establishes, and layering violations. " +
         "Such findings often map to no single changed line - report them without a line (omit \"line\") rather than dropping them. " +
         "For security, specifically check: new endpoints or handlers for missing authentication or authorization; " +
@@ -41,7 +43,7 @@ public static class PromptBuilder
         string systemPrompt, ReviewRequest request, IReadOnlyList<CodeChange> changes,
         IReadOnlyList<ScanFinding>? findings = null, ReviewContext? context = null,
         IReadOnlyList<MemoryEntry>? memory = null, bool toolsAvailable = false, string? guidelines = null,
-        PreExistingSummary? baseline = null)
+        PreExistingSummary? baseline = null, string? companyGuidelines = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# Merge Request: {request.Title}");
@@ -58,6 +60,7 @@ public static class PromptBuilder
         AppendFindings(sb, findings ?? []);
         AppendBaseline(sb, baseline);
         AppendToolGuidance(sb, toolsAvailable);
+        AppendCompanyGuidelines(sb, companyGuidelines);
         AppendGuidelines(sb, guidelines);
         AppendMemory(sb, memory);
 
@@ -249,6 +252,19 @@ public static class PromptBuilder
         sb.AppendLine("You can call a tool to fetch current documentation for a library (Context7). " +
             "Use it when the diff uses an API you are unsure about, rather than guessing against possibly-outdated knowledge. " +
             "Do not use it for well-known stdlib or trivial code. After any tool use, still respond with the required review JSON.");
+    }
+
+    // Firmenweite Coding-Guidelines (Admin-Freitext aus den Settings) — autoritativ, VOR den
+    // projektspezifischen Guidelines: firmenweit → projektweit → Memory, das Spezifischste steht der
+    // Antwort am nächsten. Leerer Text rendert nichts (Prompt bleibt byte-identisch zu heute).
+    private static void AppendCompanyGuidelines(StringBuilder sb, string? companyGuidelines)
+    {
+        if (string.IsNullOrWhiteSpace(companyGuidelines))
+            return;
+        sb.AppendLine();
+        sb.AppendLine("# Company coding guidelines (organization-wide, set by administrators; authoritative)");
+        sb.AppendLine();
+        sb.AppendLine(companyGuidelines.Trim());
     }
 
     // Architektur-Profil: destillierte, maintainer-kuratierte Projekt-Guidelines — autoritativ,

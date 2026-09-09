@@ -172,6 +172,42 @@ and that next review are treated as the baseline rather than as a change — the
 alternative (flagging "docs changed" for every first curation) would be wrong
 100% of the time, so the rare swallowed signal is the better trade-off.
 
+## Company coding guidelines
+
+The architecture profile is **per project** and distilled from that project's own
+docs. Many organizations additionally have rules that apply to *every* repository
+— naming, logging, error handling, forbidden APIs, license headers — and those are
+usually not written down inside each repo. `Naudit:Review:CompanyGuidelines` is the
+place for them: one free-text setting (Markdown or plain text), edited on the
+Settings page under *Review rules → Company coding guidelines* and stored in the
+`Settings` table like every other DB-managed key.
+
+When set, `PromptBuilder` renders it as its own section, *"Company coding
+guidelines (organization-wide, set by administrators; authoritative)"*, placed
+**before** the project profile and the project memory — so the prompt reads
+company-wide → project-wide → maintainer decisions, with the most specific
+guidance closest to the response. The system prompt instructs the model to treat
+the section as authoritative and report violations as findings, but to rate each
+violation's severity by its **actual impact**, not by the mere existence of a rule:
+a style rule yields `low`/`info`, a rule about credentials or input validation can
+yield `high`. Together with the [severity-aware gate](review-gate.md) this means
+company style rules surface as comments without blocking a merge.
+
+Differences from the profile and from memory:
+
+| | Company guidelines | Architecture profile | Project memory |
+|---|---|---|---|
+| Scope | whole instance | one project | one project |
+| Source | admin-typed | distilled from repo docs | maintainer decisions / `@naudit fp` |
+| Storage | `Settings` row (`Naudit:Review:CompanyGuidelines`) | `ProjectGuidelines` row | `MemoryEntries` rows |
+| Redaction | **not** redacted (admin config, like the system prompt) | redacted | redacted |
+| Cap | 20 000 characters (~5k tokens), enforced by `PUT /api/settings` | `MaxProfileChars` | `MaxEntries` |
+
+The cap exists because the text travels with **every** review prompt; the DB column
+itself is unbounded. An empty or whitespace-only value renders nothing — the prompt
+stays byte-identical to a deployment without the setting. Changing the value marks
+a restart as pending, like every other DB-managed setting.
+
 ## Configuration
 
 ```jsonc
