@@ -99,7 +99,8 @@ public sealed class ReviewService(
         // über den Function-Invocation-Wrapper des Clients (Infrastructure) + Hinweis im Prompt.
         var tools = await toolProvider.GetToolsAsync(request, ct);
         var messages = PromptBuilder.Build(options.SystemPrompt, redRequest, redChanges, redFindings, redContext,
-            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines, baseline: baseline);
+            redMemory, toolsAvailable: tools.Count > 0, guidelines: redGuidelines, baseline: baseline,
+            companyGuidelines: options.CompanyGuidelines);
 
         var chatOptions = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
         if (tools.Count > 0)

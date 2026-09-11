@@ -126,6 +126,8 @@ export interface SettingItem {
   value: string | null;
   kind: "scalar" | "list";
   allowedValues: string[] | null;
+  /** Zeichen-Deckel aus dem Katalog (Freitext-Keys), sonst null. */
+  maxLength: number | null;
 }
 
 export interface SettingsDto {

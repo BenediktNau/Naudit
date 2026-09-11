@@ -308,6 +308,48 @@ public class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_withCompanyGuidelines_rendersAuthoritativeSection_beforeProjectGuidelines()
+    {
+        var request = new ReviewRequest("7", 1, "Titel");
+        var changes = new List<CodeChange> { new("src/A.cs", "@@ -0,0 +1 @@\n+x") };
+        var memory = new List<MemoryEntry> { new(MemoryKind.Convention, null, "Konvention X", null) };
+
+        var messages = PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes,
+            memory: memory, guidelines: "- Projektregel.", companyGuidelines: "- Never log personal data.");
+        var text = string.Join("\n", messages.Select(m => m.Text));
+
+        Assert.Contains("# Company coding guidelines (organization-wide, set by administrators; authoritative)", text);
+        Assert.Contains("Never log personal data.", text);
+        // Firmenweit vor projektspezifisch vor Memory: das Spezifischste steht der Antwort am nächsten.
+        Assert.True(text.IndexOf("# Company coding guidelines", StringComparison.Ordinal)
+                  < text.IndexOf("# Project guidelines", StringComparison.Ordinal));
+        Assert.True(text.IndexOf("# Project guidelines", StringComparison.Ordinal)
+                  < text.IndexOf("# Project memory", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_withoutCompanyGuidelines_isByteIdentical()
+    {
+        var request = new ReviewRequest("7", 1, "Titel");
+        var changes = new List<CodeChange> { new("src/A.cs", "@@ -0,0 +1 @@\n+x") };
+
+        var without = string.Join("\n", PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes).Select(m => m.Text));
+        var withNull = string.Join("\n", PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes, companyGuidelines: null).Select(m => m.Text));
+        var withBlank = string.Join("\n", PromptBuilder.Build(PromptBuilder.DefaultSystemPrompt, request, changes, companyGuidelines: "  \n ").Select(m => m.Text));
+
+        Assert.Equal(without, withNull);
+        Assert.Equal(without, withBlank);
+    }
+
+    [Fact]
+    public void DefaultSystemPrompt_mentionsCompanyGuidelines_withImpactBasedSeverity()
+    {
+        Assert.Contains("Company coding guidelines", PromptBuilder.DefaultSystemPrompt);
+        // Eine Stil-Regel darf das Gate nicht kippen: Severity nach Auswirkung, nicht nach Regel-Existenz.
+        Assert.Contains("not by the mere existence of a rule", PromptBuilder.DefaultSystemPrompt);
+    }
+
+    [Fact]
     public void DefaultSystemPrompt_containsAltitudeAndSecurityInstructions()
     {
         Assert.Contains("architecture level", PromptBuilder.DefaultSystemPrompt);
