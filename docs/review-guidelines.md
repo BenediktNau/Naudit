@@ -180,7 +180,8 @@ docs. Many organizations additionally have rules that apply to *every* repositor
 usually not written down inside each repo. `Naudit:Review:CompanyGuidelines` is the
 place for them: one free-text setting (Markdown or plain text), edited on the
 Settings page under *Review rules → Company coding guidelines* and stored in the
-`Settings` table like every other DB-managed key.
+`Settings` table like every other DB-managed key. The setting is capped at
+20 000 characters; longer texts are rejected by `PUT /api/settings`.
 
 When set, `PromptBuilder` renders it as its own section, *"Company coding
 guidelines (organization-wide, set by administrators; authoritative)"*, placed
