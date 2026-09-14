@@ -340,6 +340,12 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   also instructs architecture-altitude (file-less findings) and a security checklist.
   `Naudit:Review:Guidelines:Enabled=false` swaps in `NullReviewGuidelines`. Fail-open like
   memory/SAST. See `docs/review-guidelines.md`.
+  **Company coding guidelines (instance-wide, admin free text):** `Naudit:Review:CompanyGuidelines`
+  (DB-managed, `SettingDefinition.MaxLength = 20_000`, enforced by `PUT /api/settings`) binds to
+  `ReviewOptions.CompanyGuidelines` and is rendered by `PromptBuilder` as its own authoritative
+  "Company coding guidelines" section **before** the project profile (company → project → memory).
+  Deliberately **not** redacted (admin config like the system prompt). Settings page panel under
+  "Review rules". No new table, no migration. See `docs/review-guidelines.md#company-coding-guidelines`.
 - **Review analytics (PR 3 — resolution tracking + dashboard):** `ReviewFindingEntity` gained
   four nullable columns (`ResolutionStatus`: `"Accepted"`/`"Rejected"`/null=unanswered;
   `ResolutionSource`; `ResolvedBy`; `ResolvedAtUtc`), written exclusively through

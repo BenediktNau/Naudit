@@ -11,6 +11,7 @@ export interface SettingsCtx {
   locked(key: string): boolean;   // env-gesetzt (editable === false)
   secretSet(key: string): boolean;
   options(key: string): string[];  // allowedValues aus dem Katalog, [] wenn frei
+  maxLength(key: string): number | null; // Zeichen-Deckel aus dem Katalog, null wenn unbegrenzt
   openWizard(w: NonNullable<WizardState>): void;
 }
 

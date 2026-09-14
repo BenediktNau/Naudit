@@ -37,6 +37,7 @@ public static class SettingsEndpoints
                         value = def.IsSecret ? null : SettingsValues.Read(config, def),
                         kind = def.IsList ? "list" : "scalar",
                         allowedValues = def.AllowedValues,
+                        maxLength = def.MaxLength,
                     };
                 }),
             });
@@ -58,6 +59,8 @@ public static class SettingsEndpoints
                     return Results.BadRequest(new { error = $"'{change.Key}' is not a managed setting." });
                 if (SettingsValues.IsSet(env.Root, def))
                     return Results.BadRequest(new { error = $"'{change.Key}' is set via environment and cannot be edited here." });
+                if (change.Value is not null && def.MaxLength is int max && change.Value.Length > max)
+                    return Results.BadRequest(new { error = $"'{change.Key}' must be at most {max} characters (got {change.Value.Length})." });
                 if (change.Value is null || def.AllowedValues is not { } allowed) continue;
                 // Ungültige Werte würden erst beim nächsten Start auffallen — und den Host dann
                 // in den Recovery-Modus zwingen. Deshalb hier hart ablehnen.

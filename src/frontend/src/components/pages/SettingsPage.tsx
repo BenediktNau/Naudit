@@ -60,6 +60,7 @@ export function SettingsPage() {
       locked: (k) => byKey.get(k)?.editable === false,
       secretSet: (k) => byKey.get(k)?.isSet ?? false,
       options: (k) => byKey.get(k)?.allowedValues ?? [],
+      maxLength: (k) => byKey.get(k)?.maxLength ?? null,
       openWizard: (w) => setWizard(w),
     }),
     [drafts, byKey],

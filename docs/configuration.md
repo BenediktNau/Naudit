@@ -126,6 +126,7 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Ai:Endpoint` | Ollama URL or base URL of an OpenAI-compatible service |
 | `Naudit:Ai:ApiKey` | API key (required for Anthropic / OpenAI-compatible) |
 | `Naudit:Review:SystemPrompt` | Global review prompt; empty = built-in default |
+| `Naudit:Review:CompanyGuidelines` | Organization-wide coding guidelines (free text, Markdown or plain); rendered as an authoritative prompt section in every review. Max 20 000 characters, enforced by the Settings API. Empty = no section (see [Company guidelines](review-guidelines.md#company-coding-guidelines)) |
 | `Naudit:Review:Gate:MinSeverity` | Lowest finding severity that can block the merge — `Info` \| `Low` \| `Medium` \| `High` \| `Critical` (default `High`) (see [Review gate](review-gate.md)) |
 | `Naudit:Review:Gate:MinConfidence` | Lowest LLM confidence that can block the merge — `Low` \| `Medium` \| `High` (default `Medium`) |
 | `Naudit:Review:MaxRoundtrips` | Max automatic (webhook-triggered) reviews per MR/PR; further pushes are skipped and the last allowed review notes it in its summary — `0` = unlimited (default `3`). The synchronous CI trigger `POST /review` is never limited itself, but reviews it records also count toward this per-PR total. |

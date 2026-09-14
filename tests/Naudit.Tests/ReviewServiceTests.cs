@@ -618,6 +618,35 @@ public class ReviewServiceTests
         Assert.Contains("[MASKED]", user);
     }
 
+    [Fact]
+    public async Task ReviewAsync_rendersCompanyGuidelines_fromOptions_withoutRedaction()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var options = new ReviewOptions { SystemPrompt = "SYS", CompanyGuidelines = "- Never log TOPSECRET values." };
+        var service = CreateService(chat, git, options, redactor: new MarkerRedactor());
+
+        await service.ReviewAsync(Request);
+
+        var user = chat.LastMessages![1].Text;
+        Assert.Contains("# Company coding guidelines", user);
+        // Admin-Konfiguration wie der System-Prompt, kein Repo-Inhalt: läuft NICHT durch den Redactor
+        // (sonst würde "never log secrets" zum maskierten Regeltext).
+        Assert.Contains("Never log TOPSECRET values.", user);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_withoutCompanyGuidelines_promptUnchanged()
+    {
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+x")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await service.ReviewAsync(Request);
+
+        Assert.DoesNotContain("Company coding guidelines", chat.LastMessages![1].Text);
+    }
+
     // Test-Redactor: ersetzt ein Markerwort — genug, um "Memory läuft durch den Redactor" zu beweisen.
     private sealed class MarkerRedactor : IPromptRedactor
     {

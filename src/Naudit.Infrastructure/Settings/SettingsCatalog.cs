@@ -4,12 +4,14 @@ namespace Naudit.Infrastructure.Settings;
 /// Write-only-Verhalten der Settings-API. IsList ⇒ eine CSV-Zeile in der DB, die der
 /// DbSettingsLoader zu indizierten Config-Keys expandiert. AllowedValues ⇒ die Settings-API
 /// lehnt alles andere ab (ein ungültiger Wert würde den nächsten Start in den Recovery-Modus
-/// zwingen).</summary>
+/// zwingen). MaxLength ⇒ die Settings-API lehnt längere Werte ab (Freitext, der bei jedem
+/// Review mit in den Prompt geht — die DB-Spalte selbst ist unbegrenzt).</summary>
 public sealed record SettingDefinition(
     string Key,
     bool IsSecret,
     bool IsList = false,
-    IReadOnlyList<string>? AllowedValues = null);
+    IReadOnlyList<string>? AllowedValues = null,
+    int? MaxLength = null);
 
 /// <summary>Whitelist der DB-verwaltbaren Keys. Bootstrap-Keys (Naudit:Db:*, ForwardedHeaders,
 /// Ports) fehlen hier bewusst — sie müssen vor dem DB-Zugriff bekannt sein und bleiben env-only.
@@ -59,6 +61,8 @@ public static class SettingsCatalog
         new("Naudit:Sast:MaxPreExistingPerGroup", false),
         new("Naudit:Sast:Reducer", false, AllowedValues: ["deterministic"]),
         new("Naudit:Review:SystemPrompt", false),
+        // Firmenweite Coding-Guidelines (Freitext). Deckel ~5k Tokens: geht bei jedem Review in den Prompt.
+        new("Naudit:Review:CompanyGuidelines", false, MaxLength: 20_000),
         new("Naudit:Review:Gate:MinSeverity", false),
         new("Naudit:Review:Gate:MinConfidence", false),
         new("Naudit:Review:Mcp:Enabled", false),

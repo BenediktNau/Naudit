@@ -6,6 +6,11 @@ public sealed class ReviewOptions
 {
     public string SystemPrompt { get; set; } = PromptBuilder.DefaultSystemPrompt;
 
+    /// <summary>Firmenweite Coding-Guidelines (Admin-Freitext, Naudit:Review:CompanyGuidelines).
+    /// Landen als eigene autoritative Prompt-Sektion vor dem Projektprofil; leer ⇒ keine Sektion.
+    /// Admin-Konfiguration wie der System-Prompt: wird NICHT redigiert.</summary>
+    public string? CompanyGuidelines { get; set; }
+
     /// <summary>Severity-bewusste Gate-Policy (Naudit:Review:Gate).</summary>
     public ReviewGateOptions Gate { get; set; } = new();
 

@@ -140,6 +140,45 @@ public class SettingsEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Get_liefertMaxLength_fuerCompanyGuidelines()
+    {
+        var (client, _) = CreateLoggedInAdmin();
+        var doc = JsonDocument.Parse(await client.GetStringAsync("/api/settings"));
+        var settings = doc.RootElement.GetProperty("settings").EnumerateArray().ToList();
+
+        var guidelines = settings.Single(s => s.GetProperty("key").GetString() == "Naudit:Review:CompanyGuidelines");
+        Assert.Equal(20_000, guidelines.GetProperty("maxLength").GetInt32());
+
+        var model = settings.Single(s => s.GetProperty("key").GetString() == "Naudit:Ai:Model");
+        Assert.Equal(JsonValueKind.Null, model.GetProperty("maxLength").ValueKind);
+    }
+
+    [Fact]
+    public async Task Put_companyGuidelinesUeberMaxLength_wirdAbgelehnt()
+    {
+        var (client, restarter) = CreateLoggedInAdmin();
+        var res = await client.PutAsJsonAsync("/api/settings", new
+        {
+            changes = new[] { new { key = "Naudit:Review:CompanyGuidelines", value = (string?)new string('x', 20_001) } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Contains("20000", await res.Content.ReadAsStringAsync());
+        Assert.False(restarter.RestartPending);
+    }
+
+    [Fact]
+    public async Task Put_companyGuidelinesBisMaxLength_wirdGespeichert()
+    {
+        var (client, restarter) = CreateLoggedInAdmin();
+        var res = await client.PutAsJsonAsync("/api/settings", new
+        {
+            changes = new[] { new { key = "Naudit:Review:CompanyGuidelines", value = (string?)new string('x', 20_000) } },
+        });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.True(restarter.RestartPending);
+    }
+
+    [Fact]
     public async Task Restart_ruftRestarter_undGibt204()
     {
         var (client, restarter) = CreateLoggedInAdmin();
