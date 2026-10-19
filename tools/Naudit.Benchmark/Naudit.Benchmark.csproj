@@ -16,7 +16,7 @@
          unter Linux bei Groß-/Kleinschreibungs-Duplikaten (z. B. PATH neben Path) im
          case-insensitiven Config-Wörterbuch. Version an die übrigen Microsoft.Extensions.*-Pakete
          der Solution angeglichen (Naudit.Infrastructure.csproj). -->
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.13" />
     <ProjectReference Include="..\..\src\Naudit.Core\Naudit.Core.csproj" />
     <ProjectReference Include="..\..\src\Naudit.Infrastructure\Naudit.Infrastructure.csproj" />
   </ItemGroup>
