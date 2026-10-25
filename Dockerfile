@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Build-Stage: SDK kompiliert und published das Web-Projekt ---
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:ed034a8bf0b24ded0cbbac07e17825d8e9ebfe21e308191d0f7421eaf5ad4664 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:afd0ccff9d306812a69ef0f47458376b6acb544ae866cfc4b8d28ff0eef35ea7 AS build
 WORKDIR /src
 
 # Zuerst nur die Projektdateien kopieren und restoren -> stabiler Layer-Cache,
@@ -32,67 +32,83 @@ RUN npm run build
 
 # --- Betterleaks aus Quelle bauen ---
 # Zwei unabhaengige Gruende, das offizielle Release-Binary NICHT zu ziehen:
-# 1. TOOLCHAIN: die betterleaks-Releases sind mit Go 1.25.10 gebaut und tragen dessen stdlib-CVEs
-#    (CVE-2026-27145 crypto/x509 + CVE-2026-42504 net/textproto -> fixed in Go 1.25.11;
-#    CVE-2026-39822 os.Root Symlink-Following/Directory-Traversal -> fixed in Go 1.25.12).
-#    GOTOOLCHAIN=local zwingt den Build auf das Image-Go und ignoriert die (aeltere)
-#    `toolchain`-Direktive in go.mod (sonst wuerde die alte Toolchain nachgeladen = wieder verwundbar).
-# 2. DEPENDENCY: betterleaks pinnt bis einschliesslich v1.7.3 golang.org/x/text v0.38.0 und damit
-#    CVE-2026-56852 (norm.Iter kann bei praeparierter Eingabe in eine Endlosschleife laufen -> DoS,
-#    HIGH, fixed in 0.39.0). Ein Bump der betterleaks-Version behebt das NICHT -- der Build hebt die
-#    indirekte Dependency daher selbst an (XTEXT_VERSION).
+# 1. TOOLCHAIN: die betterleaks-Releases deklarieren eine veraltete Build-Toolchain (v1.7.3
+#    `toolchain go1.25.10`, v1.8.1 `toolchain go1.25.12`). GOTOOLCHAIN=local zwingt den Build
+#    deshalb auf das Image-Go und ignoriert diese Direktive (sonst wuerde die alte Toolchain
+#    nachgeladen = wieder verwundbar). Das Image-Go selbst muss mitwandern: mit golang:1.25.12
+#    trug das Binary 11 HIGH aus der Go-stdlib (u. a. CVE-2026-111943 crypto/x509-MITM, fixed in
+#    1.26.10/1.27.3, und CVE-2026-78667 net/http, fixed in 1.26.9/1.27.2). Go 1.27.3 deckt alle elf.
+# 2. DEPENDENCIES: betterleaks pinnt DREI verwundbare indirekte Dependencies (Versionen aus
+#    v1.7.3; v1.8.1 hebt davon nur x/text auf 0.39.0 und bleibt damit ebenfalls unter dem Fix --
+#    ein Bump der betterleaks-Version behebt also keine der drei). Der Build hebt sie selbst an:
+#      golang.org/x/text             v0.38.0  CVE-2026-56851 (DoS)          fixed in 0.41.0
+#      golang.org/x/crypto           v0.53.0  CVE-2026-56854 (Auth-Bypass)  fixed in 0.55.0
+#      github.com/klauspost/compress v1.18.6  CVE-2026-63209                fixed in 1.18.7
+#    x/text und x/crypto gehen auf die aktuelle Version (golang.org/x/* haelt Kompatibilitaet),
+#    compress bewusst nur auf die minimale Fix-Version: der Sprung auf 1.20.x waere deutlich mehr
+#    API-Flaeche ohne Sicherheitsgewinn.
 # Beides ist damit ECHT behoben (kein Suppress/keine VEX-Gate-Ausnahme noetig). Tag UND Digest des
 # golang-Images mit jeder neuen stdlib-CVE nachziehen (Digest:
-# `docker buildx imagetools inspect golang:1.25.x`), XTEXT_VERSION mit jeder neuen x/text-CVE --
-# solange betterleaks keine Releases mit aktueller Toolchain und aktuellen Dependencies herausgibt.
+# `docker buildx imagetools inspect golang:1.27.x`), die drei Dependency-ARGs mit jeder neuen CVE
+# der jeweiligen Dependency -- solange betterleaks keine Releases mit aktueller Toolchain und
+# aktuellen Dependencies herausgibt.
 # Der golang-Builder landet NICHT im finalen Image, das erzeugte Binary aber schon: die Modul-Integritaet
 # garantiert die Go-Checksum-DB (go.sum / sum.golang.org), die Toolchain-/Base-Image-Integritaet der
 # sha256-Digest-Pin (ein umgehaengter Tag koennte sonst die Go-Toolchain manipulieren).
-FROM golang:1.25.12@sha256:d2e20dc1b35aefd666909163e4ace41efb521359aa2ce31fff59d86837050f6f AS betterleaks-build
+FROM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS betterleaks-build
 ARG BETTERLEAKS_VERSION=1.7.3
-ARG XTEXT_VERSION=0.39.0
+ARG XTEXT_VERSION=0.43.0
+ARG XCRYPTO_VERSION=0.58.0
+ARG XCOMPRESS_VERSION=1.18.7
 # -mod=mod: der Build darf fehlende go.sum-Eintraege des Hilfsmoduls selbst nachtragen (die
 # Pruefsummen kommen weiterhin aus der Checksum-DB -- das lockert die Integritaet nicht, nur die
-# Buchfuehrung im Wegwerf-Modul). Auch die Aufloesung bleibt deterministisch: BEIDE Eingaben von
-# MVS sind hier versionsgepinnt (BETTERLEAKS_VERSION + XTEXT_VERSION), der restliche Modulgraph
-# steht in betterleaks' eigener go.mod. Gleiche ARGs -> gleicher Graph, ein committetes go.sum
-# fuer das Wegwerf-Modul brauchte es nur fuer Offline-Builds -- die Stage laedt ohnehin ueber den
-# Modul-Proxy, wie die Runtime-Stage ihre Tool-Binaries ueber curl.
+# Buchfuehrung im Wegwerf-Modul). Auch die Aufloesung bleibt deterministisch: ALLE Eingaben von
+# MVS sind hier versionsgepinnt (BETTERLEAKS_VERSION + die drei Dependency-ARGs), der restliche
+# Modulgraph steht in betterleaks' eigener go.mod. Gleiche ARGs -> gleicher Graph, ein committetes
+# go.sum fuer das Wegwerf-Modul brauchte es nur fuer Offline-Builds -- die Stage laedt ohnehin ueber
+# den Modul-Proxy, wie die Runtime-Stage ihre Tool-Binaries ueber curl.
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS="-trimpath -mod=mod"
 WORKDIR /build
 # Umweg ueber ein Wegwerf-Hilfsmodul statt `go install pkg@version`: NUR im Modulkontext laesst sich
 # eine indirekte Dependency anheben -- `go install pkg@version` baut strikt nach der go.mod des
 # Zielmoduls und ignoriert jeden Override. Quelle bleibt in beiden Faellen der Modul-Proxy.
-# `go mod edit -require` statt `go get`: reines Schreiben der beiden Requirements, ohne Netz und
+# `go mod edit -require` statt `go get`: reines Schreiben der Requirements, ohne Netz und
 # ohne die Sonderregeln, die `go get` auf ein Main-Package-Modul anwendet. Den Rest des Modulgraphen
-# (inkl. go.sum, gegen die Checksum-DB geprueft) loest der Build dank -mod=mod selbst auf; x/text
-# gewinnt per MVS, weil 0.39.0 > die 0.38.0 aus betterleaks' go.mod.
+# (inkl. go.sum, gegen die Checksum-DB geprueft) loest der Build dank -mod=mod selbst auf; die drei
+# Overrides gewinnen per MVS, weil jede hoeher liegt als die Version aus betterleaks' go.mod.
 RUN go mod init naudit/betterleaks-build \
  && go mod edit -require="github.com/betterleaks/betterleaks@v${BETTERLEAKS_VERSION}" \
  && go mod edit -require="golang.org/x/text@v${XTEXT_VERSION}" \
+ && go mod edit -require="golang.org/x/crypto@v${XCRYPTO_VERSION}" \
+ && go mod edit -require="github.com/klauspost/compress@v${XCOMPRESS_VERSION}" \
  && go build -o /go/bin/betterleaks "github.com/betterleaks/betterleaks"
-# Fail-closed: greift der Override nicht mehr (z. B. weil betterleaks x/text spaeter direkt pinnt),
-# bricht der Image-Build hier ab -- statt das CVE still wieder ins Image zu lassen, wo es erst das
-# Release-Gate (und damit jedes Release) reisst. `go version -m` liest die im Binary eingebettete
-# Modulliste, also exakt die Quelle, aus der auch Trivy seine Funde ableitet.
-# Bewusst EXAKTER Match auf XTEXT_VERSION, nicht ">= 0.39.0": ein hoeheres, ebenfalls sicheres
-# x/text (weil betterleaks es spaeter selbst anhebt) laesst den Build damit auch scheitern. Das ist
+# Fail-closed: greift einer der Overrides nicht mehr (z. B. weil betterleaks die Dependency spaeter
+# direkt pinnt), bricht der Image-Build hier ab -- statt das CVE still wieder ins Image zu lassen,
+# wo es erst das Release-Gate (und damit jedes Release) reisst. `go version -m` liest die im Binary
+# eingebettete Modulliste, also exakt die Quelle, aus der auch Trivy seine Funde ableitet.
+# Bewusst EXAKTER Match auf die ARG-Version, nicht ">=": eine hoehere, ebenfalls sichere Version
+# (weil betterleaks sie spaeter selbst anhebt) laesst den Build damit auch scheitern. Das ist
 # gewollt -- der Pin oben waere dann wirkungslos geworden, ohne dass es jemand merkt. Fix in dem
-# Fall: XTEXT_VERSION auf die neue Version ziehen (oder, wenn betterleaks weit genug ist, den
-# ganzen Override samt Hilfsmodul wieder ausbauen).
+# Fall: das ARG auf die neue Version ziehen (oder, wenn betterleaks weit genug ist, den
+# betreffenden Override wieder ausbauen -- und mit dem letzten auch das Hilfsmodul).
 # Beide Grenzen sind noetig, aus demselben Grund in zwei Richtungen -- ein Teilstring-Treffer
 # taeuscht den Guard:
-#   rechts fehlend: v0.39.0-rc1 enthaelt "v0.39.0", liegt semver-maessig aber VOR 0.39.0 und
+#   rechts fehlend: v0.43.0-rc1 enthaelt "v0.43.0", liegt semver-maessig aber VOR 0.43.0 und
 #                   traegt den Fix gar nicht;
-#   links fehlend:  example.com/golang.org/x/text v0.39.0 wuerde als Modulpfad durchgehen,
+#   links fehlend:  example.com/golang.org/x/text v0.43.0 wuerde als Modulpfad durchgehen,
 #                   obwohl das echte golang.org/x/text gar nicht in der Liste steht.
 # Beides haette die CVE still wieder ins Image gelassen -- genau das, was der Guard verhindert.
 # Whitespace-oder-Rand statt harter ^/$: `go version -m` rahmt die Zeile mit Tabs (dep-Marker
 # davor, Hash dahinter).
-RUN go version -m /go/bin/betterleaks | grep -qE "(^|[[:space:]])golang\.org/x/text[[:space:]]+v${XTEXT_VERSION}([[:space:]]|\$)"
+# Drei einzelne greps statt einer Shell-Loop ueber Paare: in einem RUN wuerde Docker `${pair%:*}`
+# selbst als Build-Arg-Expansion lesen und -- weil es keines ist -- zu Leerstring aufloesen; der
+# Guard liefe dann ins Leere, ohne zu meckern.
+RUN go version -m /go/bin/betterleaks | grep -qE "(^|[[:space:]])golang\.org/x/text[[:space:]]+v${XTEXT_VERSION}([[:space:]]|\$)" \
+ && go version -m /go/bin/betterleaks | grep -qE "(^|[[:space:]])golang\.org/x/crypto[[:space:]]+v${XCRYPTO_VERSION}([[:space:]]|\$)" \
+ && go version -m /go/bin/betterleaks | grep -qE "(^|[[:space:]])github\.com/klauspost/compress[[:space:]]+v${XCOMPRESS_VERSION}([[:space:]]|\$)"
 
 # --- Runtime-Stage: schlankes ASP.NET-Image, non-root ---
-FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:1fa23fc4872d95fd71c2833ebe65d7e84a43b2d51a31d119516852f13d9505a7 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:d247d17dd429d96580eeb96cfce220c1089d860dbbf9f94d599ca64cf3604fe4 AS runtime
 WORKDIR /app
 
 # SAST/SCA/Secrets-Tools: Trivy + OpenGrep + OSV-Scanner als sha256-gepinnte Release-Binaries;
@@ -100,7 +116,7 @@ WORKDIR /app
 # installieren, dann auf non-root wechseln. Versionen UND Regelset sind fest gepinnt
 # (sha256-verifiziert) fuer Reproduzierbarkeit und Supply-Chain-Haertung. Kein Semgrep/pip mehr:
 # spart Python im Image und vermeidet die lizenzbelastete Semgrep-Registry (`--config auto`).
-ARG TRIVY_VERSION=0.72.0
+ARG TRIVY_VERSION=0.76.1
 ARG OPENGREP_VERSION=1.26.0
 ARG OPENGREP_RULES_REF=f1d2b562b414783763fd02a6ed2736eaed622efa
 ARG OSV_SCANNER_VERSION=2.4.0
@@ -108,7 +124,7 @@ USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
  && curl -sfL -o /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
- && echo "bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea  /tmp/trivy.tar.gz" | sha256sum -c - \
+ && echo "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0  /tmp/trivy.tar.gz" | sha256sum -c - \
  && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
  && rm /tmp/trivy.tar.gz \
  && curl -sfL -o /usr/local/bin/opengrep "https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/opengrep_manylinux_x86" \
