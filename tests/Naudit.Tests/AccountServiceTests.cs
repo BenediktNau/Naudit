@@ -153,6 +153,31 @@ public class AccountServiceTests
     }
 
     [Fact]
+    public async Task MaterializeExternal_adminList_notGranted_whenUsernameCollisionRenamed()
+    {
+        // Ein zweiter IdP-Nutzer, der sich den Admin-Namen "boss" als (mutablen) Claim setzt,
+        // landet als "boss-2" — und darf NICHT über Ui:Admins Admin werden.
+        await using var db = NewDb();
+        var svc = NewService(db, new UiOptions { Admins = ["boss"] });
+        var first = await svc.MaterializeExternalAsync(AccountProvider.Oidc, "sub-1", "boss", null);
+        var impostor = await svc.MaterializeExternalAsync(AccountProvider.Oidc, "sub-2", "boss", null);
+
+        Assert.True(first.IsAdmin);
+        Assert.Equal("boss-2", impostor.Username);
+        Assert.False(impostor.IsAdmin);
+    }
+
+    [Fact]
+    public async Task VerifyPassword_unknownUser_returnsNull()
+    {
+        await using var db = NewDb();
+        var svc = NewService(db);
+        await svc.CreateLocalAsync("u1", "passwort123", false, []);
+        Assert.Null(await svc.VerifyPasswordAsync("gibtsnicht", "passwort123"));
+        Assert.NotNull(await svc.VerifyPasswordAsync("u1", "passwort123"));
+    }
+
+    [Fact]
     public async Task SetStatus_andSetGitHubLinks_work()
     {
         await using var db = NewDb();

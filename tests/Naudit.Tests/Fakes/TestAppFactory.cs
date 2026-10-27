@@ -35,6 +35,10 @@ public sealed class TestAppFactory : WebApplicationFactory<Program>
 
         builder.UseSetting("Naudit:Db:ConnectionString", $"Data Source={Path.Combine(_dbDir, "naudit.db")}");
 
+        // Login-Rate-Limit im Test praktisch aus: TestServer-Requests teilen sich eine (leere)
+        // Client-IP, und viele Tests loggen pro Host mehrfach ein. WebSecurityTests setzt es gezielt.
+        builder.UseSetting("Naudit:Ui:LoginRateLimit:PermitLimit", "100000");
+
         // Baseline: Minimal-Config, mit der SetupStatus BEIDE Plattformen als "konfiguriert" sieht —
         // sonst starteten alle bestehenden WAF-Tests im Setup-Modus und die Webhook-Endpoints fehlten.
         // (appsettings.json liefert Ai:Model und GitLab:BaseUrl bereits.) Einzelne Tests

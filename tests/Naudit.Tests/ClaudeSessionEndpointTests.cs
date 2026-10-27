@@ -65,6 +65,38 @@ public class ClaudeSessionEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_loginClaimedByOtherAccount_returns409()
+    {
+        var db = $"Data Source={Path.Combine(Path.GetTempPath(), $"naudit-cs-{Guid.NewGuid():N}.db")}";
+        var factory = _factory.WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Naudit:Db:ConnectionString", db);
+            b.UseSetting("Naudit:Ui:Admin:Username", "root");
+            b.UseSetting("Naudit:Ui:Admin:InitialPassword", "passwort123");
+        });
+        var client = factory.CreateDefaultClient(new CookieContainerHandler());
+        await client.PostAsJsonAsync("/auth/login", new { username = "root", password = "passwort123" });
+
+        // Ein anderer Account beansprucht "bob" bereits.
+        using (var scope = factory.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<Naudit.Infrastructure.Data.NauditDbContext>();
+            ctx.Accounts.Add(new Naudit.Infrastructure.Data.AccountEntity
+            {
+                Username = "bob", Provider = Naudit.Infrastructure.Data.AccountProvider.Local,
+                Status = Naudit.Infrastructure.Data.AccountStatus.Active, GitAuthorLogin = "bob", CreatedAt = DateTime.UtcNow,
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        var put = await client.PutAsJsonAsync("/api/me/claude-session", new { token = "tok", gitAuthorLogin = "Bob" });
+        Assert.Equal(HttpStatusCode.Conflict, put.StatusCode);
+        var me = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
+        Assert.False(me.GetProperty("configured").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, me.GetProperty("gitAuthorLogin").ValueKind);
+    }
+
+    [Fact]
     public async Task Put_blankTokenWithoutStoredToken_returns400()
     {
         var client = await LoggedInApp();

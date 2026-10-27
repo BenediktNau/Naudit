@@ -15,6 +15,9 @@ namespace Naudit.Web.Endpoints;
 /// solange KEIN Admin existiert — danach ist Login Pflicht.</summary>
 public static class SetupEndpoints
 {
+    /// <summary>Serialisiert die Erst-Admin-Anlage (statisch: überlebt die Host-Neustartschleife).</summary>
+    private static readonly SemaphoreSlim AdminCreationLock = new(1, 1);
+
     public static void MapSetupEndpoints(this WebApplication app, SetupStatusResult setup)
     {
         app.MapGet("/api/setup/status", async (HttpContext ctx, NauditDbContext db) =>
@@ -35,21 +38,29 @@ public static class SetupEndpoints
         app.MapPost("/api/setup/admin", async (SetupAdminRequest body, AccountService accounts,
             NauditDbContext db, HttpContext ctx) =>
         {
-            if (await db.Accounts.AnyAsync(a => a.IsAdmin, ctx.RequestAborted))
-                return Results.Conflict(new { error = "An admin account already exists — sign in instead." });
             AccountEntity acct;
+            // Check ("noch kein Admin?") und Anlegen atomar: ohne Sperre legen parallele Requests
+            // mehrere Admins an (TOCTOU). Prozessweite Sperre reicht — Naudit läuft als EINE Instanz,
+            // und sie funktioniert ohne Isolationslevel-Tricks gleich auf SQLite und Postgres.
+            await AdminCreationLock.WaitAsync(ctx.RequestAborted);
             try
             {
+                if (await db.Accounts.AnyAsync(a => a.IsAdmin, ctx.RequestAborted))
+                    return Results.Conflict(new { error = "An admin account already exists — sign in instead." });
                 acct = await accounts.CreateLocalAsync(body.Username, body.Password, isAdmin: true, [], ctx.RequestAborted);
             }
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+            finally
+            {
+                AdminCreationLock.Release();
+            }
             // Direkt einloggen — die weiteren Wizard-Schritte sind RequireAuthorization + Admin-Check.
             await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, AuthEndpoints.BuildPrincipal(acct));
             return Results.Ok(new { username = acct.Username });
-        });
+        }).RequireRateLimiting(WebSecurity.LoginRateLimitPolicy);
 
         // Browser-Redirect von GitHub — bewusst OHNE Cookie-Pflicht: Credential ist der
         // unratbare, an den Draft gebundene, einmal verwendbare state (CSRF). So bricht der

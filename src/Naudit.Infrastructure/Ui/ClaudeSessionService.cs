@@ -16,28 +16,51 @@ public sealed class ClaudeSessionService(
 {
     public const string ProtectorPurpose = "Naudit.AiSessions";
 
+    /// <exception cref="GitAuthorLoginConflictException">Login gehört bereits einem anderen Account.</exception>
     public async Task SetTokenAsync(int accountId, string token, string? gitAuthorLogin, CancellationToken ct = default)
     {
         var account = await db.Accounts.SingleAsync(a => a.Id == accountId, ct);
-        account.ClaudeSessionToken = dataProtection.CreateProtector(ProtectorPurpose).Protect(token);
-        account.ClaudeSessionUpdatedAtUtc = DateTime.UtcNow;
 
         // Login-Zuordnung: explizit gesetzt gewinnt; sonst bei GitHub-Accounts der Username
         // (dort ist Username = GitHub-Login). Immer lowercased (case-insensitiver Match).
-        var login = !string.IsNullOrWhiteSpace(gitAuthorLogin) ? gitAuthorLogin
-            : account.GitAuthorLogin ?? (account.Provider == AccountProvider.GitHub ? account.Username : null);
-        account.GitAuthorLogin = login?.Trim().ToLowerInvariant();
+        var login = (!string.IsNullOrWhiteSpace(gitAuthorLogin) ? gitAuthorLogin
+            : account.GitAuthorLogin ?? (account.Provider == AccountProvider.GitHub ? account.Username : null))
+            ?.Trim().ToLowerInvariant();
+        // Konfliktprüfung VOR jeder Änderung am (getrackten) Entity — ein 409 hinterlässt nichts.
+        if (login is not null)
+            await EnsureLoginUnclaimedAsync(accountId, login, ct);
+
+        account.ClaudeSessionToken = dataProtection.CreateProtector(ProtectorPurpose).Protect(token);
+        account.ClaudeSessionUpdatedAtUtc = DateTime.UtcNow;
+        account.GitAuthorLogin = login;
 
         await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Nur den Login ändern (Token unangetastet) — leer/null ⇒ No-Op.</summary>
+    /// <exception cref="GitAuthorLoginConflictException">Login gehört bereits einem anderen Account.</exception>
     public async Task SetLoginAsync(int accountId, string? gitAuthorLogin, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(gitAuthorLogin)) return;
+        var login = gitAuthorLogin.Trim().ToLowerInvariant();
+        await EnsureLoginUnclaimedAsync(accountId, login, ct);
         var account = await db.Accounts.SingleAsync(a => a.Id == accountId, ct);
-        account.GitAuthorLogin = gitAuthorLogin.Trim().ToLowerInvariant();
+        account.GitAuthorLogin = login;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>True, wenn ein ANDERER Account den (normalisierten) Login bereits beansprucht.
+    /// Sonst könnte jeder Nutzer fremde Logins "claimen" und deren MRs auf sein Abo umleiten.</summary>
+    public Task<bool> IsLoginClaimedByOtherAsync(int accountId, string gitAuthorLogin, CancellationToken ct = default)
+    {
+        var login = gitAuthorLogin.Trim().ToLowerInvariant();
+        return db.Accounts.AnyAsync(a => a.Id != accountId && a.GitAuthorLogin == login, ct);
+    }
+
+    private async Task EnsureLoginUnclaimedAsync(int accountId, string login, CancellationToken ct)
+    {
+        if (await IsLoginClaimedByOtherAsync(accountId, login, ct))
+            throw new GitAuthorLoginConflictException(login);
     }
 
     public async Task RemoveTokenAsync(int accountId, CancellationToken ct = default)
@@ -49,15 +72,25 @@ public sealed class ClaudeSessionService(
         await RemoveSandboxAsync(accountId, ct);
     }
 
-    /// <summary>Aktiver Account mit Token zum Autor-Login, oder null. Bei (fehlkonfigurierten)
-    /// Duplikaten gewinnt deterministisch die kleinste Id.</summary>
-    public Task<AccountEntity?> FindByAuthorLoginAsync(string authorLogin, CancellationToken ct = default)
+    /// <summary>Aktiver Account mit Token zum Autor-Login, oder null. Mehrdeutige Altdaten
+    /// (mehrere Accounts mit demselben Login, vor der Konfliktprüfung entstanden) ⇒ null + Warnung:
+    /// lieber der globale Client als still das "falsche" Abo (Routing-Hijack).</summary>
+    public async Task<AccountEntity?> FindByAuthorLoginAsync(string authorLogin, CancellationToken ct = default)
     {
         var login = authorLogin.Trim().ToLowerInvariant();
-        return db.Accounts
+        var matches = await db.Accounts
             .Where(a => a.GitAuthorLogin == login && a.Status == AccountStatus.Active && a.ClaudeSessionToken != null)
             .OrderBy(a => a.Id)
-            .FirstOrDefaultAsync(ct);
+            .Take(2)
+            .ToListAsync(ct);
+        if (matches.Count > 1)
+        {
+            logger?.LogWarning(
+                "Autor-Login {Login} ist mehreren Accounts zugeordnet — mehrdeutig, Review läuft über den globalen Client. " +
+                "Doppelte Zuordnung im Profil bereinigen.", login);
+            return null;
+        }
+        return matches.SingleOrDefault();
     }
 
     /// <summary>Pool-Kandidaten fürs Round-Robin: aktive Konten mit Token UND Opt-in, Id-sortiert
@@ -104,4 +137,11 @@ public sealed class ClaudeSessionService(
                 "Session-Sandbox: Container-Abbau für Konto {AccountId} fehlgeschlagen (best-effort).", accountId);
         }
     }
+}
+
+/// <summary>Der Autor-Login ist bereits einem anderen Account zugeordnet (⇒ HTTP 409).</summary>
+public sealed class GitAuthorLoginConflictException(string login)
+    : InvalidOperationException($"Autor-Login '{login}' ist bereits einem anderen Account zugeordnet.")
+{
+    public string Login { get; } = login;
 }

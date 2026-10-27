@@ -16,6 +16,12 @@ public sealed class AccountService(
 {
     private static readonly PasswordHasher<AccountEntity> Hasher = new();
 
+    // Platzhalter für den Timing-Ausgleich bei unbekannten Usernames (gleiches Hash-Format/
+    // gleiche Iterationen wie echte Hashes). Lazy: der erste Hash kostet einmalig PBKDF2-Zeit.
+    private static readonly AccountEntity DummyAccount = new() { Username = "", CreatedAt = DateTime.UnixEpoch };
+    private static readonly Lazy<string> DummyHash =
+        new(() => Hasher.HashPassword(DummyAccount, Guid.NewGuid().ToString("N")));
+
     public async Task<AccountEntity> CreateLocalAsync(
         string username, string password, bool isAdmin, IReadOnlyList<string> gitHubLogins, CancellationToken ct = default)
     {
@@ -48,10 +54,16 @@ public sealed class AccountService(
     {
         var acct = await db.Accounts.SingleOrDefaultAsync(
             a => a.Username == username && a.Provider == AccountProvider.Local, ct);
-        if (acct?.PasswordHash is null || acct.Status != AccountStatus.Active)
+        if (acct?.PasswordHash is null)
+        {
+            // Unbekannter Nutzer: trotzdem einen PBKDF2-Vergleich rechnen — sonst verrät die
+            // Antwortzeit (kein Hash ⇒ sofort zurück), welche Usernames existieren.
+            Hasher.VerifyHashedPassword(DummyAccount, DummyHash.Value, password);
             return null;
+        }
+        // Erst verifizieren, dann den Status prüfen: gleiche Rechenzeit für aktive und inaktive Accounts.
         var result = Hasher.VerifyHashedPassword(acct, acct.PasswordHash, password);
-        if (result == PasswordVerificationResult.Failed)
+        if (result == PasswordVerificationResult.Failed || acct.Status != AccountStatus.Active)
             return null;
         if (result == PasswordVerificationResult.SuccessRehashNeeded)
         {
@@ -91,7 +103,10 @@ public sealed class AccountService(
             Provider = provider,
             ExternalId = externalId,
             Status = AccountStatus.Pending, // Self-Service wartet auf Admin-Freigabe
-            IsAdmin = options.Admins.Contains(username, StringComparer.OrdinalIgnoreCase),
+            // Ui:Admins matcht den (mutablen) IdP-Username. Nach einer Kollisions-Umbenennung
+            // ("boss" ⇒ "boss-2") ist das ein ZWEITER Nutzer mit demselben Claim — der darf nicht
+            // über die Admin-Liste Admin werden. Nur der exakte, unumbenannte Name zählt.
+            IsAdmin = name == username && options.Admins.Contains(username, StringComparer.OrdinalIgnoreCase),
             CreatedAt = DateTime.UtcNow,
         };
         if (!string.IsNullOrWhiteSpace(gitHubLogin))

@@ -44,10 +44,15 @@ promise is part of the profile UI and of this document.
   `POST /review`. The **account-side** `gitAuthorLogin` (which login an account claims), by
   contrast, is trusted as declared: it is auto-filled from the verified username for
   GitHub-OAuth accounts but can be overridden, and is fully self-asserted for GitLab/OIDC/
-  local accounts (Naudit cannot verify an external identity against a local account). The
-  worst case is self-inflicted — a user who claims a login they do not own only spends
-  **their own** subscription on someone else's MRs; a token is never used against its
-  owner's wishes and never leaks.
+  local accounts (Naudit cannot verify an external identity against a local account). A
+  login can be claimed by **one account only** (case-insensitive): `PUT /api/me/claude-session`
+  answers `409 Conflict` when another account already holds it, so nobody can redirect an
+  existing user's MRs to their own subscription. If old data still contains duplicates, the
+  router treats the login as ambiguous — no author session, the review runs on the global
+  client, and a warning is logged (clean up the duplicate on the profile page). The
+  remaining worst case is self-inflicted — a user who claims a *free* login they do not own
+  only spends **their own** subscription on someone else's MRs; a token is never used
+  against its owner's wishes and never leaks.
 - **Storage:** tokens are encrypted at rest with ASP.NET Data Protection (purpose
   `Naudit.AiSessions`) and are write-only — the API never returns them.
 - **Isolation:** every CLI run gets its own `CLAUDE_CONFIG_DIR`; parallel runs with
