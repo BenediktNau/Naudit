@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: das PR-Gate checkt nur aus, baut und testet — kein Job schreibt zurück
+# (keine Test-Reports/Kommentare/Checks über die API). Explizit, damit der GITHUB_TOKEN nicht
+# vom Repo-/Org-Default (ggf. "write-all") abhängt.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
