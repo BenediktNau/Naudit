@@ -226,4 +226,69 @@ public class WorkspaceContextCollectorTests
         Assert.True(env.Content.Length <= 50, $"content length {env.Content.Length} exceeds budget 50");
         Assert.Null(ctx.Overview);                          // Budget nach Umgebung erschöpft
     }
+
+    // ---- Symlink-Ausbruch (nur POSIX: echte Symlinks) ---------------------
+    private static bool Posix => OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
+
+    private static string OutsideSecret()
+    {
+        var dir = NewTempDir();
+        var p = Path.Combine(dir, "environ");
+        File.WriteAllText(p, "def leaked_secret():\n    Naudit__GitHub__Token=SUPERSECRET\n");
+        return p;
+    }
+
+    [Fact]
+    public async Task Collect_symlinkedChangedFile_isNeverRead()
+    {
+        if (!Posix) return;
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        File.CreateSymbolicLink(Path.Combine(root, "app.py"), OutsideSecret());
+        var changes = new[] { new CodeChange("app.py", "@@ -0,0 +1,1 @@\n+def leaked_secret():") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.Empty(ctx.Environments);
+        Assert.DoesNotContain("SUPERSECRET", ctx.Overview ?? "");
+    }
+
+    [Fact]
+    public async Task Collect_symlinkedReadme_isNotInOverview()
+    {
+        if (!Posix) return;
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        WriteFile(root, "src/App.cs", "class App { }\n");
+        File.CreateSymbolicLink(Path.Combine(root, "README.md"), OutsideSecret());
+        var changes = new[] { new CodeChange("src/App.cs", "@@ -1,0 +1,1 @@\n+class App { }") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.NotNull(ctx.Overview);
+        Assert.DoesNotContain("SUPERSECRET", ctx.Overview!);
+    }
+
+    [Fact]
+    public async Task Collect_symlinkedSourceFilesAndDirs_areSkippedForUsagesAndTree()
+    {
+        if (!Posix) return;
+        var root = NewTempDir();
+        await using var ws = new TestWorkspace(root);
+        var secret = OutsideSecret();
+        WriteFile(root, "svc.py", "def leaked_secret():\n    return 1\n");
+        File.CreateSymbolicLink(Path.Combine(root, "caller.py"), secret);
+        Directory.CreateSymbolicLink(Path.Combine(root, "linked"), Path.GetDirectoryName(secret)!);
+        var changes = new[] { new CodeChange("svc.py", "@@ -1,0 +1,1 @@\n+def leaked_secret():") };
+        var sut = new WorkspaceContextCollector(new ReviewContextOptions());
+
+        var ctx = await sut.CollectAsync(ws, changes);
+
+        Assert.DoesNotContain(ctx.Usages, u => u.Snippet.Contains("SUPERSECRET"));
+        Assert.Empty(ctx.Usages);
+        Assert.DoesNotContain("linked/", ctx.Overview ?? "");
+        Assert.DoesNotContain("environ", ctx.Overview ?? "");
+    }
 }
