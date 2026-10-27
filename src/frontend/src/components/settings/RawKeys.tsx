@@ -21,6 +21,10 @@ function RawRow({ item, ctx }: { item: SettingItem; ctx: SettingsCtx }) {
   // Katalog schlaegt die lokale Tabelle: allowedValues kommen aus derselben Quelle, gegen die
   // die API validiert. Mehrwertige Listen passen nicht in ein <select> und bleiben Freitext.
   const options = item.kind === "list" ? undefined : item.allowedValues ?? ENUMS[item.key];
+  // Gespeicherter Wert ausserhalb der Optionen (z. B. Alt-Wert RoundRobin): sichtbar als deaktivierte
+  // Option zeigen, statt dass das <select> still "(default)" anzeigt.
+  const current = ctx.get(item.key);
+  const unmatched = options && current !== "" && !options.includes(current) ? current : undefined;
   return (
     <div className="flex items-center justify-between gap-4 border-b border-hairline px-5 py-3 last:border-b-0">
       <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
@@ -33,9 +37,10 @@ function RawRow({ item, ctx }: { item: SettingItem; ctx: SettingsCtx }) {
       ) : options ? (
         <select
           className="w-[300px] rounded border border-hairline bg-transparent px-2 py-1 font-mono text-[12.5px] text-ink2"
-          value={ctx.get(item.key)} onChange={(e) => ctx.set(item.key, e.target.value)}
+          value={current} onChange={(e) => ctx.set(item.key, e.target.value)}
         >
           <option value="">(default)</option>
+          {unmatched && <option value={unmatched} disabled>{unmatched} (unsupported)</option>}
           {options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : (

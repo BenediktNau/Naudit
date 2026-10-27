@@ -20,8 +20,12 @@ public sealed class SessionRoutingConverter : EnumConverter
 
     public SessionRoutingConverter() : base(typeof(SessionRouting)) { }
 
+    /// <summary>Einzige Stelle der Alt-Wert-Erkennung (Converter + AiOptions.LegacyWarnings).</summary>
+    public static bool IsLegacyRoundRobin(string? value)
+        => string.Equals(value?.Trim(), LegacyRoundRobin, StringComparison.OrdinalIgnoreCase);
+
     public override object? ConvertFrom(ITypeDescriptorContext? context, CultureInfo? culture, object value)
-        => value is string s && string.Equals(s.Trim(), LegacyRoundRobin, StringComparison.OrdinalIgnoreCase)
+        => value is string s && IsLegacyRoundRobin(s)
             ? SessionRouting.Author
             : base.ConvertFrom(context, culture, value);
 }
@@ -55,8 +59,7 @@ public sealed class AiOptions
     /// <summary>Warnungen zu entfernten Alt-Werten, die still umgedeutet werden (Start-Log + Settings-Seite).</summary>
     public static IReadOnlyList<string> LegacyWarnings(IConfiguration config)
     {
-        var routing = config["Naudit:Ai:SessionRouting"];
-        return string.Equals(routing?.Trim(), SessionRoutingConverter.LegacyRoundRobin, StringComparison.OrdinalIgnoreCase)
+        return SessionRoutingConverter.IsLegacyRoundRobin(config["Naudit:Ai:SessionRouting"])
             ? ["Naudit:Ai:SessionRouting=RoundRobin wird nicht mehr unterstützt (Session-Pool entfernt) — "
                 + "es greift Author: jede Session reviewt nur noch MRs/PRs ihres eigenen Autors. "
                 + "Bitte auf Author oder Single umstellen."]

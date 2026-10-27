@@ -44,4 +44,18 @@ public class AiClientRouterWiringTests
         settings["Naudit:Ai:SessionRouting"] = mode;
         AssertRouterType(settings, expected);
     }
+
+    [Theory]
+    [InlineData("RoundRobin", true)]
+    [InlineData(" roundrobin ", true)]
+    [InlineData("Author", false)]
+    [InlineData(null, false)]
+    public void IsLegacyRoundRobin_isSharedByConverterAndWarnings(string? value, bool expected)
+    {
+        Assert.Equal(expected, Naudit.Infrastructure.Ai.SessionRoutingConverter.IsLegacyRoundRobin(value));
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Naudit:Ai:SessionRouting"] = value })
+            .Build();
+        Assert.Equal(expected, Naudit.Infrastructure.Ai.AiOptions.LegacyWarnings(config).Count == 1);
+    }
 }
