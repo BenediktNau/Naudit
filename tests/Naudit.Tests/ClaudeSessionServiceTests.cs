@@ -102,6 +102,42 @@ public class ClaudeSessionServiceTests
     }
 
     [Fact]
+    public async Task SetLogin_claimedByOtherAccount_throwsConflict_caseInsensitive()
+    {
+        using var db = new TestDb();
+        var alice = Account(db, "alice");
+        var mallory = Account(db, "mallory");
+        var svc = Service(db);
+        await svc.SetTokenAsync(alice.Id, "tok", "alice");
+
+        await Assert.ThrowsAsync<GitAuthorLoginConflictException>(() => svc.SetLoginAsync(mallory.Id, "ALICE"));
+        await Assert.ThrowsAsync<GitAuthorLoginConflictException>(() => svc.SetTokenAsync(mallory.Id, "tok2", "Alice"));
+        Assert.Null(mallory.GitAuthorLogin);
+        Assert.Null(mallory.ClaudeSessionToken);
+
+        // Der eigene Login darf erneut gesetzt werden (kein Konflikt mit sich selbst).
+        await svc.SetLoginAsync(alice.Id, "Alice");
+        Assert.Equal("alice", alice.GitAuthorLogin);
+    }
+
+    [Fact]
+    public async Task FindByAuthorLogin_ambiguousDuplicates_returnsNull()
+    {
+        // Altdaten: zwei aktive Accounts mit Token beanspruchen denselben Login. Statt still einen
+        // zu wählen (Routing-Hijack), gilt das als "kein Treffer" ⇒ globaler Client.
+        using var db = new TestDb();
+        var a = Account(db, "a");
+        var b = Account(db, "b");
+        var svc = Service(db);
+        await svc.SetTokenAsync(a.Id, "tok", "shared");
+        await svc.SetTokenAsync(b.Id, "tok", "other");
+        b.GitAuthorLogin = "shared"; // Altdaten direkt in die DB, am Konfliktcheck vorbei
+        await db.Context.SaveChangesAsync();
+
+        Assert.Null(await svc.FindByAuthorLoginAsync("shared"));
+    }
+
+    [Fact]
     public async Task RemoveToken_clearsTokenAndTimestamp_keepsLogin()
     {
         using var db = new TestDb();

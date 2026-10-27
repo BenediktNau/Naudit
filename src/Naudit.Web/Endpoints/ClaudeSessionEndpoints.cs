@@ -14,6 +14,9 @@ public static class ClaudeSessionEndpoints
 {
     public sealed record ClaudeSessionUpdate(string? Token, string? GitAuthorLogin, bool? ShareInPool);
 
+    private static IResult LoginConflict() =>
+        Results.Conflict(new { error = "git author login is already claimed by another account" });
+
     public static void MapClaudeSessionEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/me/claude-session").RequireAuthorization();
@@ -40,6 +43,12 @@ public static class ClaudeSessionEndpoints
             var acct = await CurrentAccount.GetActiveAsync(ctx, db);
             if (acct is null) return Results.Unauthorized();
 
+            // Fremden Login beanspruchen ⇒ 409, BEVOR irgendetwas (auch das Pool-Opt-in) geschrieben
+            // wird. Sonst könnte jeder die MRs eines anderen Autors auf sein eigenes Abo umleiten.
+            if (!string.IsNullOrWhiteSpace(body.GitAuthorLogin)
+                && await sessions.IsLoginClaimedByOtherAsync(acct.Id, body.GitAuthorLogin, ctx.RequestAborted))
+                return LoginConflict();
+
             // Pool-Opt-in ist unabhängig vom Token — zuerst anwenden.
             if (body.ShareInPool is bool share)
                 await sessions.SetShareInPoolAsync(acct.Id, share, ctx.RequestAborted);
@@ -64,7 +73,15 @@ public static class ClaudeSessionEndpoints
                 return Results.NoContent();
             }
 
-            await sessions.SetTokenAsync(acct.Id, body.Token, body.GitAuthorLogin, ctx.RequestAborted);
+            try
+            {
+                await sessions.SetTokenAsync(acct.Id, body.Token, body.GitAuthorLogin, ctx.RequestAborted);
+            }
+            catch (GitAuthorLoginConflictException)
+            {
+                // Impliziter Login (GitHub-Username) ist schon vergeben, oder Rennen seit der Vorprüfung.
+                return LoginConflict();
+            }
             return Results.NoContent();
         });
 
