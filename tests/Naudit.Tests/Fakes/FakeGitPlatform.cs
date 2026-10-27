@@ -12,9 +12,6 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
     public IReadOnlyList<PostedComment> PostedIds { get; set; } = [];
     public List<string> PostedNotes { get; } = [];
 
-    /// <summary>Gesetzt ⇒ GetCheckoutAsync wirft diese Ausnahme (realer Fall: GitHub-Rate-Limit).</summary>
-    public Exception? CheckoutError { get; set; }
-
     /// <summary>Gesetzt ⇒ PostNoteAsync wirft diese Ausnahme — damit lässt sich prüfen, dass ein
     /// Fehler am Zusatzkommentar (Altlasten-Bericht) das bereits gepostete Review nicht mehr kippen kann.</summary>
     public Exception? NoteError { get; set; }
@@ -44,7 +41,5 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
     }
 
     public Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
-        => CheckoutError is not null
-            ? Task.FromException<RepoCheckoutInfo>(CheckoutError)
-            : Task.FromResult(new RepoCheckoutInfo("https://token@host/repo.git", "refs/test/head"));
+        => Task.FromResult(new RepoCheckoutInfo("https://token@host/repo.git", "refs/test/head"));
 }
