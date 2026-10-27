@@ -153,6 +153,48 @@ installation state and clears itself once the app is installed.
 
 Unauthorized webhooks are dropped silently; the project simply gets no review comment.
 
+### `Ui:Admins` and external sign-in
+
+`Naudit:Ui:Admins` matches the **username claim** the provider hands over (GitHub: `login`;
+OIDC: `preferred_username`, falling back to `name`/`sub`). Only the account created **under
+exactly that name** gets the admin role: if the name is already taken, the new account is
+renamed (`boss` → `boss-2`) and is **not** made admin. Still, only use `Ui:Admins` with an
+IdP where users **cannot choose that claim freely** (GitHub logins are unique; in Keycloak,
+disable "edit username" for the realm). If users can set their own `preferred_username`,
+whoever registers first under an admin's name becomes admin — leave `Ui:Admins` empty and
+create admins as local accounts (*Approvals → Add user*) instead.
+
+## Security
+
+The WebUI is a cookie-session BFF; on top of `HttpOnly`/`Secure`/`SameSite=Lax` cookies it
+adds:
+
+- **CSRF / same-origin guard.** Every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`)
+  on `/api/*` and `/auth/*` must come from Naudit's own origin: if the browser sends
+  `Sec-Fetch-Site`, only `same-origin` (or `none`) passes; otherwise a present `Origin` must
+  equal the request's own scheme + host (as seen after the forwarded headers). Anything else
+  is `403`. `SameSite=Lax` alone does not stop this from a **sibling subdomain**
+  (`evil.example.com` → `naudit.example.com` is *same-site*). Requests without both headers
+  (curl, scripts) are not browser requests and pass. Not covered (by design): `/webhook/*`
+  and `POST /review` (machine endpoints with their own secrets) and `/auth/callback/*`
+  (the OAuth/OIDC return leg, which legitimately arrives cross-site and is protected by
+  `state`/nonce). In `Development`, loopback origins are allowed so the Vite dev proxy works.
+- **Login rate limit.** `POST /auth/login` and `POST /api/setup/admin` are limited per client
+  IP (fixed window, default **10 attempts per 60 s**, then `429`). Tune with
+  `Naudit__Ui__LoginRateLimit__PermitLimit` / `__WindowSeconds` (env-only). The client IP is
+  taken after `X-Forwarded-For` processing — pin `Naudit:ForwardedHeaders:KnownProxies` (see
+  [Deployment](deployment.md#reverse-proxy--https)) if clients can reach Naudit directly, or
+  they could spoof the header to dodge the limit. Unknown usernames cost the same PBKDF2 work
+  as known ones, so response timing does not reveal which accounts exist.
+- **First admin.** `POST /api/setup/admin` serializes its "no admin yet?" check and the
+  account creation, so concurrent requests create exactly one admin.
+- **Security headers** on every response: `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY` + `Content-Security-Policy: frame-ancestors 'none'` (no framing /
+  clickjacking), `Referrer-Policy: strict-origin-when-cross-origin`, and HSTS outside
+  `Development` (only on HTTPS requests, i.e. behind a proxy sending `X-Forwarded-Proto: https`).
+  `no-referrer` is deliberately not used: it would make browsers send `Origin: null` on
+  same-origin form posts. No script CSP yet.
+
 ## Settings are editable
 
 The Settings screen shows every DB-managed key (platform, AI provider/model, review/gate

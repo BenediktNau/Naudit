@@ -147,6 +147,12 @@ Naudit__ForwardedHeaders__KnownProxies__0=10.0.0.5        # trusted proxy IP(s)
 Naudit__ForwardedHeaders__KnownNetworks__0=10.0.0.0/8     # or trusted CIDR network(s)
 ```
 
+Pinning matters most when clients can reach the container directly (bypassing the proxy):
+the WebUI's login rate limit is keyed on the client IP from `X-Forwarded-For`, and HSTS /
+the same-origin (CSRF) check rely on the forwarded scheme. Naudit sends HSTS outside
+`Development` on HTTPS requests, plus `nosniff`, `X-Frame-Options: DENY` and a
+`frame-ancestors 'none'` CSP; see [WebUI → Security](webui.md#security).
+
 ## Claude Code CLI provider (subscription)
 
 The `ClaudeCode` AI provider (and [author sessions](author-sessions.md)) do not call an
