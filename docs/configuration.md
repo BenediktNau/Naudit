@@ -167,8 +167,11 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Ui:Auth:GitHub:Enabled` / `:ClientId` / `:ClientSecret` | GitHub-OAuth self-service sign-in (opt-in; secret!) |
 | `Naudit:Ui:Auth:Oidc:Enabled` / `:Authority` / `:ClientId` / `:ClientSecret` | OIDC/Keycloak self-service sign-in (opt-in; secret!) |
 
-> With `Naudit:GitHub:Auth = App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are
-> **ignored** — every request uses a freshly minted GitHub App installation token instead. See
+> With `Naudit:GitHub:Auth = App`, every request uses a freshly minted GitHub App installation
+> token. If `Naudit:GitHub:Token` and/or `Naudit:GitHub:ProjectTokens` are set as well, they become
+> an opt-in **PAT fallback**: a listed `ProjectTokens` entry always wins, otherwise the app token
+> is used, and the global `Token` only for repos where the app is not installed (see
+> [PAT fallback](github-app.md#pat-fallback-for-repos-without-the-app)). See
 > [GitHub App setup](github-app.md) for creating the app, its permissions, and the install step.
 
 ## MCP tools (review runtime)
@@ -268,3 +271,8 @@ Naudit__GitHub__ProjectTokens__1__Token   = github_pat_...
 
 > The token map is read **once at startup**. Adding or changing a per-project token
 > takes effect after a **restart/redeploy** of the service.
+
+> **GitHub App mode:** with `Naudit:GitHub:Auth = App`, the same keys act as a
+> [PAT fallback](github-app.md#pat-fallback-for-repos-without-the-app): a listed
+> `ProjectTokens` entry still wins, otherwise the app token is used, and the global
+> `Token` only for repos without the app installed.

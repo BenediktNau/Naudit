@@ -120,8 +120,10 @@ Naudit__GitHub__WebhookSecret=<random-secret>          # 🔒 secret
 Naudit__GitHub__PostVerdict=true                        # optional
 ```
 
-With `Auth=App`, `Naudit:GitHub:Token` and `Naudit:GitHub:ProjectTokens` are **ignored** — every
-API call and every checkout clone uses a freshly minted installation token instead.
+With `Auth=App` and no PAT configured, every API call and every checkout clone uses a freshly
+minted installation token. If you also set `Naudit:GitHub:Token` and/or
+`Naudit:GitHub:ProjectTokens`, they act as a fallback for repos without the app — see
+[PAT fallback for repos without the App](#pat-fallback-for-repos-without-the-app).
 
 ## Install from the Naudit WebUI
 
@@ -168,7 +170,57 @@ App**), click **Install**, then pick the repositories (or "All repositories") fo
 That's the entire per-repo integration step — no further webhook or token setup needed per repo.
 
 If Naudit sees a PR for a repo where the app is not installed, it fails fast with an error that
-names the repo (`GET .../installation` returns 404) — install the app there and retry.
+names the repo (`GET .../installation` returns 404) — install the app there and retry, or
+configure a [PAT fallback](#pat-fallback-for-repos-without-the-app).
+
+## PAT fallback for repos without the App
+
+Sometimes the app can't be installed everywhere (e.g. a repo owned by someone else, or an org
+whose admins haven't approved the app yet). For those repos Naudit can fall back to a personal
+access token while every other repo keeps using the app.
+
+**When it applies.** The fallback is **opt-in**: it is active only when `Naudit:GitHub:Auth=App`
+**and** a PAT is configured — a non-empty `Naudit:GitHub:Token` and/or at least one
+`Naudit:GitHub:ProjectTokens` entry. With `Auth=App` and no PAT, behaviour is exactly the plain
+app mode above; `Auth=Pat` is unchanged. The startup log shows `Auth: App + PAT fallback` when it
+is active.
+
+```bash
+Naudit__GitHub__Auth=App
+Naudit__GitHub__App__AppId=123456
+Naudit__GitHub__App__PrivateKey=<base64-encoded-PEM>   # 🔒 secret
+Naudit__GitHub__Token=github_pat_...                    # 🔒 secret — fallback for repos without the app
+```
+
+**Resolution order** (per repo, on every token lookup):
+
+1. an explicit per-project PAT from `Naudit:GitHub:ProjectTokens` — a deliberate override, used
+   even if the app is installed there;
+2. the app installation token, if the app is installed on the repo;
+3. the global `Naudit:GitHub:Token` — **only** when the app is not installed on the repo
+   (`GET /repos/{owner}/{repo}/installation` returns 404);
+4. otherwise the "app not installed" error, as without the fallback.
+
+Only "not installed" falls back. Any other app error (JWT/private key problems, network errors,
+GitHub 5xx, a failed token mint) is surfaced as an error — Naudit never silently switches identity
+because GitHub had a hiccup. A "not installed" result is cached for **5 minutes** per repo, so
+non-app repos don't hit the installation API on every request; if you install the app there
+later, Naudit picks it up within a few minutes (no restart). The first fallback per repo logs a
+warning (repo name only, never the token).
+
+**Trade-offs.**
+
+- Comments and reviews on fallback repos appear as **the PAT's user**, not `Naudit[bot]`, and a
+  real verdict ([`PostVerdict`](configuration.md)) is rejected by GitHub on that user's own PRs.
+- A PAT's permissions are usually broader and longer-lived than an installation token's — prefer
+  installing the app wherever you can and keep the fallback PAT fine-grained and scoped to the
+  repos that need it (or use per-repo `ProjectTokens`).
+
+**Webhooks.** The app's central webhook only fires for repos where the app is installed. Repos
+on the PAT fallback need their **own repository webhook** (`https://<your-host>/webhook/github`,
+same `Naudit:GitHub:WebhookSecret`, events `Pull request` and `Pull request review comment`).
+Repos that have the app installed must **not** also have a repository webhook — otherwise every
+event arrives twice and each PR is reviewed twice.
 
 ## GitLab analogue
 
