@@ -21,9 +21,11 @@ public interface IGitPlatform
     /// keine Kommentar-Ids, die zugeordnet werden müssten.</summary>
     Task PostNoteAsync(ReviewRequest request, string markdown, CancellationToken ct = default);
 
-    /// <summary>Liefert Klon-URL (inkl. Auth) und Head-Ref des MR/PR für den lokalen Checkout.</summary>
+    /// <summary>Liefert Klon-URL (ohne Token), Auth-Header und Head-Ref des MR/PR für den lokalen Checkout.</summary>
     Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default);
 }
 
-/// <summary>Checkout-Koordinaten. CloneUrl enthält das Token — NICHT loggen.</summary>
-public sealed record RepoCheckoutInfo(string CloneUrl, string HeadRef);
+/// <summary>Checkout-Koordinaten. <paramref name="CloneUrl"/> ist bewusst token-frei (sie landet in
+/// argv und .git/config); das Token steckt ausschließlich in <paramref name="AuthorizationHeader"/>
+/// (kompletter Header-Wert, z. B. "Basic …") — NICHT loggen. null ⇒ anonymer Klon.</summary>
+public sealed record RepoCheckoutInfo(string CloneUrl, string HeadRef, string? AuthorizationHeader = null);

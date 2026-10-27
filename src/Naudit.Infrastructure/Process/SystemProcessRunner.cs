@@ -21,9 +21,17 @@ public sealed class SystemProcessRunner : IProcessRunner
         };
         foreach (var arg in spec.Arguments)
             psi.ArgumentList.Add(arg);
+        if (spec.InheritedEnvironment is { } allowlist)
+        {
+            // Minimal-Env: psi.Environment ist mit der Eltern-Env vorbefüllt — alles außerhalb der
+            // Allowlist entfernen, damit Host-Secrets (Naudit__*) nicht in fremde Werkzeuge leaken.
+            foreach (var key in psi.Environment.Keys.ToList())
+                if (!ProcessEnvironment.IsAllowed(key, allowlist))
+                    psi.Environment.Remove(key);
+        }
         if (spec.Environment is not null)
             foreach (var kv in spec.Environment)
-                psi.Environment[kv.Key] = kv.Value; // psi.Environment ist bereits mit der Eltern-Env vorbefüllt
+                psi.Environment[kv.Key] = kv.Value; // additiv zur (ggf. gefilterten) Eltern-Env
 
         using var process = new OsProcess { StartInfo = psi };
         try

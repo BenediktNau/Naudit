@@ -202,14 +202,16 @@ public class GitLabPlatformTests
     }
 
     [Fact]
-    public async Task GetCheckoutAsync_buildsCloneUrlWithToken_andMrRef()
+    public async Task GetCheckoutAsync_keepsTokenOutOfCloneUrl_andPassesItAsBasicAuthHeader()
     {
         const string json = """{ "http_url_to_repo": "https://gitlab.example.com/group/proj.git" }""";
         var platform = new GitLabPlatform(ClientReturning(HttpStatusCode.OK, json), Tokens(), Opts());
 
         var info = await platform.GetCheckoutAsync(Request);
 
-        Assert.Equal("https://oauth2:tok@gitlab.example.com/group/proj.git", info.CloneUrl);
+        Assert.Equal("https://gitlab.example.com/group/proj.git", info.CloneUrl);
+        Assert.Equal("Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("oauth2:tok")),
+            info.AuthorizationHeader);
         Assert.Equal("refs/merge-requests/42/head", info.HeadRef);
     }
 

@@ -55,4 +55,49 @@ public class SystemProcessRunnerTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(spec));
     }
+
+    [Fact]
+    public async Task RunAsync_defaultSpec_inheritsHostEnvironment()
+    {
+        if (!Posix) return;
+        Environment.SetEnvironmentVariable("NAUDIT_TEST_INHERIT_PROBE", "geerbt");
+        try
+        {
+            var spec = new ProcessSpec("env", Array.Empty<string>(), StdIn: null,
+                Environment: null, WorkingDirectory: null, Timeout: TimeSpan.FromSeconds(10));
+
+            var result = await new SystemProcessRunner().RunAsync(spec);
+
+            Assert.Contains("NAUDIT_TEST_INHERIT_PROBE=geerbt", result.StdOut);
+        }
+        finally { Environment.SetEnvironmentVariable("NAUDIT_TEST_INHERIT_PROBE", null); }
+    }
+
+    [Fact]
+    public async Task RunAsync_inheritedEnvironmentAllowlist_dropsEverythingElse_butKeepsExplicitEnv()
+    {
+        if (!Posix) return;
+        Environment.SetEnvironmentVariable("Naudit__GitHub__Token", "geheim");
+        Environment.SetEnvironmentVariable("TRIVY_TEST_PROBE", "durch");
+        try
+        {
+            var spec = new ProcessSpec("env", Array.Empty<string>(), StdIn: null,
+                Environment: new Dictionary<string, string?> { ["EXTRA"] = "1" },
+                WorkingDirectory: null, Timeout: TimeSpan.FromSeconds(10),
+                InheritedEnvironment: [.. ProcessEnvironment.Minimal, "TRIVY_*"]);
+
+            var result = await new SystemProcessRunner().RunAsync(spec);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.DoesNotContain("geheim", result.StdOut);
+            Assert.Contains("TRIVY_TEST_PROBE=durch", result.StdOut);   // Präfix-Eintrag
+            Assert.Contains("EXTRA=1", result.StdOut);                  // explizite Env bleibt additiv
+            Assert.Contains("PATH=", result.StdOut);                    // Basis bleibt erhalten
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Naudit__GitHub__Token", null);
+            Environment.SetEnvironmentVariable("TRIVY_TEST_PROBE", null);
+        }
+    }
 }
