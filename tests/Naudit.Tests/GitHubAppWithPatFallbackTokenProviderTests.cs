@@ -159,6 +159,33 @@ public class GitHubAppWithPatFallbackTokenProviderTests
         Assert.Equal(expected, options.UsesAppWithPatFallback());
     }
 
+    [Theory]
+    [InlineData(false, false)] // fester InstallationId + nur globaler PAT ⇒ kein Fallback
+    [InlineData(true, true)]   // Per-Projekt-Overrides wirken weiter
+    public void UsesAppWithPatFallback_fixedInstallationId_ignoresGlobalToken(bool projectToken, bool expected)
+    {
+        var options = new GitHubOptions { Auth = GitHubAuthKind.App, Token = "pat" };
+        options.App.InstallationId = 42;
+        if (projectToken)
+            options.ProjectTokens.Add(new ProjectTokenEntry { Project = "octo/repo", Token = "proj-pat" });
+
+        Assert.Equal(expected, options.UsesAppWithPatFallback());
+        Assert.True(options.GlobalPatFallbackIgnored());
+    }
+
+    [Theory]
+    [InlineData(GitHubAuthKind.App, "pat", null, false)]
+    [InlineData(GitHubAuthKind.App, "", 42L, false)]
+    [InlineData(GitHubAuthKind.Pat, "pat", 42L, false)]
+    [InlineData(GitHubAuthKind.App, "pat", 42L, true)]
+    public void GlobalPatFallbackIgnored_onlyForAppWithFixedInstallationAndToken(
+        GitHubAuthKind auth, string token, long? installationId, bool expected)
+    {
+        var options = new GitHubOptions { Auth = auth, Token = token };
+        options.App.InstallationId = installationId;
+        Assert.Equal(expected, options.GlobalPatFallbackIgnored());
+    }
+
     [Fact]
     public void UsesAppWithPatFallback_ignoresBlankProjectTokenEntries()
     {

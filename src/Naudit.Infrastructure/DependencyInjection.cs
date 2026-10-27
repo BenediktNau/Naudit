@@ -190,10 +190,17 @@ public static class DependencyInjection
                             sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
                             gitHubOptions.App,
                             sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>());
+                        var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                        // Fester InstallationId ⇒ kein Per-Repo-Lookup ⇒ globaler PAT-Fallback nicht unterstützt.
+                        if (gitHubOptions.GlobalPatFallbackIgnored())
+                            loggerFactory.CreateLogger<GitHubAppWithPatFallbackTokenProvider>().LogWarning(
+                                "Naudit:GitHub:Token wird als PAT-Fallback ignoriert: mit festem Naudit:GitHub:App:InstallationId "
+                                + "ist \"App nicht installiert\" nicht erkennbar. Per-Projekt-ProjectTokens wirken weiter.");
                         // Opt-in: mit konfiguriertem PAT fallen Repos ohne App-Installation darauf zurück.
                         return gitHubOptions.UsesAppWithPatFallback()
-                            ? new GitHubAppWithPatFallbackTokenProvider(app, gitHubOptions.Token, gitHubOptions.ProjectTokens,
-                                sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppWithPatFallbackTokenProvider>())
+                            ? new GitHubAppWithPatFallbackTokenProvider(app,
+                                gitHubOptions.GlobalPatFallbackIgnored() ? "" : gitHubOptions.Token, gitHubOptions.ProjectTokens,
+                                loggerFactory.CreateLogger<GitHubAppWithPatFallbackTokenProvider>())
                             : app;
                     });
 

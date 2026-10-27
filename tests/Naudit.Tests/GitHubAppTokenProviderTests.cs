@@ -201,6 +201,36 @@ public class GitHubAppTokenProviderTests
     }
 
     [Fact]
+    public async Task ResolveTokenAsync_cachedInstallation_appUninstalled_throwsNotInstalled()
+    {
+        // Gecachte Installation-Id, App danach aus dem Repo entfernt: Mint 404 ⇒ Cache verwerfen,
+        // frischer Lookup 404 ⇒ GitHubAppNotInstalledException (damit der PAT-Fallback greifen kann).
+        using var rsa = RSA.Create(2048);
+        var time = new FakeTime(T0);
+        var uninstalled = false;
+        var stub = new StubHttpMessageHandler(req =>
+        {
+            if (uninstalled)
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            var json = req.RequestUri!.AbsolutePath.EndsWith("/installation")
+                ? """{"id":123}"""
+                : $$"""{"token":"ghs_old","expires_at":"{{T0.AddHours(1):O}}"}""";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+        });
+        var provider = Provider(rsa, stub, time);
+
+        Assert.Equal("ghs_old", await provider.ResolveTokenAsync("octo/hello-world"));
+
+        uninstalled = true;
+        time.Now = T0.AddHours(2);
+        await Assert.ThrowsAsync<GitHubAppNotInstalledException>(
+            () => provider.ResolveTokenAsync("octo/hello-world").AsTask());
+    }
+
+    [Fact]
     public async Task Minting_neverLogsPrivateKeyOrToken()
     {
         using var rsa = RSA.Create(2048);

@@ -208,6 +208,17 @@ non-app repos don't hit the installation API on every request; if you install th
 later, Naudit picks it up within a few minutes (no restart). The first fallback per repo logs a
 warning (repo name only, never the token).
 
+**Not with a fixed `App:InstallationId`.** The global-PAT fallback relies on the per-repo
+installation lookup to detect "not installed". With `Naudit:GitHub:App:InstallationId` set, that
+lookup never happens, so the global `Naudit:GitHub:Token` is **ignored** as a fallback: the startup
+log warns once and the status line reads `(global PAT ignored: fixed InstallationId)`. Explicit
+per-project `Naudit:GitHub:ProjectTokens` overrides still apply. Leave `InstallationId` unset if
+you need the fallback.
+
+A cached installation id behaves like the lookup: if the token mint for it returns 404 (app
+uninstalled or reinstalled), Naudit drops the cached id and looks the repo up again — a 404 there
+triggers the fallback as described above.
+
 **Trade-offs.**
 
 - Comments and reviews on fallback repos appear as **the PAT's user**, not `Naudit[bot]`, and a

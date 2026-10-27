@@ -117,6 +117,42 @@ public class GitTokenWiringTests
     }
 
     [Fact]
+    public void GitHub_authApp_fixedInstallationId_withGlobalToken_staysPlainAppProvider()
+    {
+        // Fester InstallationId ⇒ kein Per-Repo-Lookup ⇒ "nicht installiert" ist nicht erkennbar,
+        // der globale PAT-Fallback wird ignoriert (statt still nie zu greifen).
+        using var sp = Build(new()
+        {
+            ["Naudit:Git:Platform"] = "GitHub",
+            ["Naudit:GitHub:Auth"] = "App",
+            ["Naudit:GitHub:App:AppId"] = "12345",
+            ["Naudit:GitHub:App:PrivateKey"] = TestPem,
+            ["Naudit:GitHub:App:InstallationId"] = "42",
+            ["Naudit:GitHub:Token"] = "fallback-pat",
+        });
+        Assert.IsType<GitHubAppTokenProvider>(sp.GetRequiredService<IGitTokenProvider>());
+    }
+
+    [Fact]
+    public async Task GitHub_authApp_fixedInstallationId_projectTokensStillWin()
+    {
+        using var sp = Build(new()
+        {
+            ["Naudit:Git:Platform"] = "GitHub",
+            ["Naudit:GitHub:Auth"] = "App",
+            ["Naudit:GitHub:App:AppId"] = "12345",
+            ["Naudit:GitHub:App:PrivateKey"] = TestPem,
+            ["Naudit:GitHub:App:InstallationId"] = "42",
+            ["Naudit:GitHub:Token"] = "fallback-pat",
+            ["Naudit:GitHub:ProjectTokens:0:Project"] = "octo/repo",
+            ["Naudit:GitHub:ProjectTokens:0:Token"] = "proj-pat",
+        });
+        var provider = sp.GetRequiredService<IGitTokenProvider>();
+        Assert.IsType<GitHubAppWithPatFallbackTokenProvider>(provider);
+        Assert.Equal("proj-pat", await provider.ResolveTokenAsync("octo/repo"));
+    }
+
+    [Fact]
     public void GitHub_defaultAuth_resolvesConfiguredGitTokenProvider()
     {
         using var sp = Build(new()
