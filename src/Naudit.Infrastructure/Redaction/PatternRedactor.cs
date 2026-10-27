@@ -90,7 +90,8 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
     };
 
     // Member-Zugriff `options.ClientSecret`, `request?.Token`, `cfg.Secret!`.
-    private static readonly Regex MemberAccess = R(@"^[A-Za-z_$@][A-Za-z0-9_$]*(?:[?!]?\.[A-Za-z_$][A-Za-z0-9_$]*)+[!?]*$");
+    // Optional mit offenem Indexer am Ende (`context.Request.Headers[` — der Wert endet am Quote).
+    private static readonly Regex MemberAccess = R(@"^[A-Za-z_$@][A-Za-z0-9_$]*(?:[?!]?\.[A-Za-z_$][A-Za-z0-9_$]*)+[!?]*\[?$");
 
     // Reiner Bezeichner ohne Ziffer (`lookupValue`, `ct`, `token`).
     private static readonly Regex PlainIdentifier = R(@"^[A-Za-z_$][A-Za-z_$]*$");
@@ -232,6 +233,10 @@ public sealed class PatternRedactor(RedactionOptions options) : IPromptRedactor
         var core = val.TrimEnd(')', ']', '}');
         if (!core.Any(char.IsLetterOrDigit))
             return true;                                   // reine Interpunktion (`$`, `@`, `{`)
+        if (val[0] is '{' or '<')
+            return true;                                   // JSX/Template `{hasToken}`, Platzhalter `<secret>`
+        if (val.StartsWith("${", StringComparison.Ordinal))
+            return true;                                   // `${{ secrets.X }}`, `${DB_PASSWORD}`: Referenz, kein Wert
         if (CodeLiterals.Contains(core))
             return true;                                   // null/true/false, `await …`, `new …`
         if (val.Contains('('))

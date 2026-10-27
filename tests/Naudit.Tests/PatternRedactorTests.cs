@@ -447,6 +447,11 @@ public class PatternRedactorTests
     [InlineData("WebhookSecret: null")]
     [InlineData("var hasToken = true;")]
     [InlineData("The webhook secret is validated in constant time.")]
+    [InlineData("var token = context.Request.Headers[\"X-Gitlab-Token\"].ToString();")]
+    [InlineData("<StepAi hasAiApiKey={hasAiApiKey} update={update} />")]
+    [InlineData("-e Naudit__GitHub__WebhookSecret=<random-secret> \\")]
+    [InlineData("NAUDIT_TOKEN: ${{ secrets.NAUDIT_TOKEN }}")]
+    [InlineData("var token = await tokens.ResolveTokenAsync(request.ProjectId, ct);")]
     [InlineData("Set `WebhookSecret` in the settings text field.")]
     public async Task CodeMentioningSecretKeys_isNotRedacted(string code)
     {
