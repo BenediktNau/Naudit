@@ -92,6 +92,25 @@ public class SetupEndpointTests
     }
 
     [Fact]
+    public async Task AdminAnlegen_parallel_legtGenauEinenAdminAn()
+    {
+        // TOCTOU: Check ("kein Admin da?") und Anlegen muessen serialisiert sein — sonst entstehen
+        // bei gleichzeitigen Requests mehrere Admins.
+        using var app = new TestAppFactory();
+        var factory = SetupMode(app);
+        var client = factory.CreateClient();
+        var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
+            client.PostAsJsonAsync("/api/setup/admin", new { username = $"admin{i}", password = "pw-123456" })));
+
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.All(responses.Where(r => r.StatusCode != HttpStatusCode.OK),
+            r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NauditDbContext>();
+        Assert.Equal(1, await db.Accounts.CountAsync(a => a.IsAdmin));
+    }
+
+    [Fact]
     public async Task AdminAnlegen_kurzesPasswort_ist400()
     {
         using var app = new TestAppFactory();

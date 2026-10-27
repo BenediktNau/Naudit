@@ -125,6 +125,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
             o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
         });
     builder.Services.AddAuthorization();
+    builder.Services.AddNauditLoginRateLimiter(builder.Configuration);
 
     // Data-Protection-Keys (Session-Cookie-Signatur) in die DB: überleben Container-Neustarts
     // auf beiden Backends, kein Key-Verzeichnis/Volume nötig. AddNauditDatabase garantiert den DbContext.
@@ -254,6 +255,14 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     foreach (var cidr in fhSection.GetSection("KnownNetworks").Get<string[]>() ?? [])
         forwardedHeaders.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr));
     app.UseForwardedHeaders(forwardedHeaders);
+
+    // Web-Härtung (nach ForwardedHeaders: Scheme/Client-IP sind dann die öffentlichen Werte).
+    // HSTS nur außerhalb von Development; UseHsts setzt den Header ohnehin nur auf HTTPS-Requests.
+    if (!app.Environment.IsDevelopment())
+        app.UseHsts();
+    app.UseNauditSecurityHeaders();
+    app.UseNauditSameOriginGuard(app.Environment.IsDevelopment());
+    app.UseRateLimiter();
 
     // Migration passiert im DbSettingsLoader (vor dem Host-Bau) — kein zweiter MigrateAsync-Block hier.
     // Der Seed-Admin läuft in der Host-Schleife (immer, auch im Recovery-Modus).

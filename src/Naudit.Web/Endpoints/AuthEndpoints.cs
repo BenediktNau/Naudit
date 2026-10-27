@@ -19,7 +19,7 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, BuildPrincipal(acct));
             return Results.Ok(new { username = acct.Username });
-        });
+        }).RequireRateLimiting(WebSecurity.LoginRateLimitPolicy); // Brute-Force-Bremse pro Client-IP
 
         app.MapPost("/auth/logout", async (HttpContext ctx) =>
         {
