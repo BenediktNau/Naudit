@@ -204,7 +204,7 @@ public class SessionContainerManagerTests
         Assert.Null(manager.LastUsed(4));
     }
 
-    /// <summary>Der Aufruf hängt am HTTP-Request (Token löschen/Pool-Austritt/Suspend): er darf nicht
+    /// <summary>Der Aufruf hängt am HTTP-Request (Token löschen/Suspend): er darf nicht
     /// auf einen laufenden Review-Exec warten. Nach RemoveTimeout gibt er auf — aufgeräumt wird dann
     /// verzögert von der Reconciliation im Sweeper.</summary>
     [Fact]

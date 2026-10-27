@@ -84,7 +84,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     // 3) Basis immer: DB, Auth/Cookies, DataProtection, UI. Review-Teile nur bei gesunder Config.
     builder.Services.AddSingleton<IAppRestarter>(restarter);
     builder.Services.AddSingleton(envOverrides);
-    builder.Services.AddSingleton(new StartupState(configError?.Message, load.Warnings));
+    builder.Services.AddSingleton(new StartupState(configError?.Message, [.. load.Warnings, .. AiOptions.LegacyWarnings(builder.Configuration)]));
     builder.Services.AddSingleton(setup);
     // Lambda statt Method-Group: AiClientFactory.Create hat jetzt einen optionalen 2. Parameter (McpOptions?),
     // und Method-Group-Konvertierung zu Func<AiOptions, IChatClient> verlangt exakte Arity (kompiliert sonst nicht).
@@ -489,7 +489,7 @@ static WebApplication BuildApp(string[] args, AppRestarter restarter)
     {
         app.Logger.LogWarning(
             "Naudit:Ai:AuthorSessions:Enabled ist obsolet und wird ignoriert — " +
-            "ersetzt durch Naudit:Ai:SessionRouting (Single|Author|RoundRobin).");
+            "ersetzt durch Naudit:Ai:SessionRouting (Single|Author).");
     }
 
     // WebUI-Endpoints: immer gemappt (die UI ist immer an — sie ist im Recovery-Modus das Reparaturwerkzeug).

@@ -20,7 +20,9 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
   const shown = 1 + (needsEndpoint ? 1 : 0) + (needsKey ? 1 : 0); // Model + Extras
   const meta = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
   const routing = ctx.get("Naudit:Ai:SessionRouting") || "Single";
-  const sessionsOn = routing === "Author" || routing === "RoundRobin";
+  // "RoundRobin" ist ein Alt-Wert (Pool entfernt) — das Backend behandelt ihn wie Author.
+  const legacyRoundRobin = routing === "RoundRobin";
+  const sessionsOn = routing === "Author" || legacyRoundRobin;
 
   return (
     <>
@@ -78,20 +80,18 @@ export function AiCategory({ ctx }: { ctx: SettingsCtx }) {
 
       <Panel title="Session routing" extra="who pays for each review">
         <div className="flex flex-col gap-4 px-5 py-4">
-          <Field label="Routing mode" hint="Single = the provider above. Author = the PR author's own Claude subscription. Round-robin = rotate opted-in subscriptions across reviews.">
+          <Field label="Routing mode" hint="Single = the provider above. Author = the PR author's own Claude subscription (never used for anyone else's PR).">
             <select className={inputCls} value={routing} disabled={ctx.locked("Naudit:Ai:SessionRouting")}
               onChange={(e) => ctx.set("Naudit:Ai:SessionRouting", e.target.value)}>
               <option value="Single">Single — global provider</option>
               <option value="Author">Author — bring your own subscription</option>
-              <option value="RoundRobin">Round-robin — rotate the opt-in pool</option>
+              {legacyRoundRobin && <option value="RoundRobin" disabled>Round-robin — removed, runs as Author</option>}
             </select>
           </Field>
-          {routing === "RoundRobin" && (
+          {legacyRoundRobin && (
             <div className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-[12.5px] leading-relaxed text-ink2">
-              <b className="text-ink">Terms-of-service warning.</b> Round-robin uses one user&apos;s Claude
-              subscription to review another user&apos;s PR — that is account sharing under Anthropic&apos;s
-              consumer terms and can get the pooled accounts suspended. Only accounts that explicitly opt in on
-              their profile take part.
+              <b className="text-ink">Round-robin was removed.</b> Sessions are no longer pooled across users;
+              this legacy value now behaves like Author. Pick Single or Author and save to clear it.
             </div>
           )}
           {sessionsOn && (

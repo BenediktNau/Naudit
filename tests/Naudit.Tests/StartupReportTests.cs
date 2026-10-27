@@ -268,6 +268,27 @@ public class StartupReportTests
     }
 
     [Fact]
+    public void BuildWarnings_legacyRoundRobinRouting_warnsAndFallsBackToAuthor()
+    {
+        var config = Config(("Naudit:Ai:SessionRouting", "RoundRobin"));
+
+        var warnings = StartupReport.BuildWarnings(config);
+
+        Assert.Contains(warnings, w => w.Contains("RoundRobin") && w.Contains("Author"));
+        // Report baut trotz Alt-Wert (kein Enum-Bindungsfehler) und zeigt das effektive Routing.
+        Assert.Contains(StartupReport.BuildLines(config, Ready, null),
+            l => l.Contains("Routing: Author"));
+    }
+
+    [Fact]
+    public void BuildWarnings_authorRouting_hasNoLegacyWarning()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(("Naudit:Ai:SessionRouting", "Author")));
+
+        Assert.DoesNotContain(warnings, w => w.Contains("RoundRobin"));
+    }
+
+    [Fact]
     public void BuildWarnings_roundtripLimitOff_warns()
     {
         var warnings = StartupReport.BuildWarnings(Config(("Naudit:Review:MaxRoundtrips", "0")));

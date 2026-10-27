@@ -15,7 +15,7 @@ public class AiClientRouterWiringTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDataProtection();
-        services.AddNauditDatabase(config);       // ClaudeSessionService (Scoped) für Author-/RoundRobin-Router
+        services.AddNauditDatabase(config);       // ClaudeSessionService (Scoped) für den Author-Router
         services.AddNauditInfrastructure(config);
         using var sp = services.BuildServiceProvider();
         using var scope = sp.CreateScope();
@@ -35,11 +35,27 @@ public class AiClientRouterWiringTests
     [Theory]
     [InlineData("Single", typeof(SingleClientRouter))]
     [InlineData("Author", typeof(AuthorSessionRouter))]
-    [InlineData("RoundRobin", typeof(RoundRobinSessionRouter))]
+    // Alt-Wert des entfernten Pool-Modus: bindet als Author (kein Recovery-Modus, kein Fremd-Abo).
+    [InlineData("RoundRobin", typeof(AuthorSessionRouter))]
+    [InlineData("roundrobin", typeof(AuthorSessionRouter))]
     public void SessionRouting_selectsMatchingRouter(string mode, Type expected)
     {
         var settings = BaseSettings();
         settings["Naudit:Ai:SessionRouting"] = mode;
         AssertRouterType(settings, expected);
+    }
+
+    [Theory]
+    [InlineData("RoundRobin", true)]
+    [InlineData(" roundrobin ", true)]
+    [InlineData("Author", false)]
+    [InlineData(null, false)]
+    public void IsLegacyRoundRobin_isSharedByConverterAndWarnings(string? value, bool expected)
+    {
+        Assert.Equal(expected, Naudit.Infrastructure.Ai.SessionRoutingConverter.IsLegacyRoundRobin(value));
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Naudit:Ai:SessionRouting"] = value })
+            .Build();
+        Assert.Equal(expected, Naudit.Infrastructure.Ai.AiOptions.LegacyWarnings(config).Count == 1);
     }
 }

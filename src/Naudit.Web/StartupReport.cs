@@ -118,7 +118,7 @@ public static class StartupReport
         var sast = config.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
         var review = config.GetSection("Naudit:Review").Get<ReviewOptions>() ?? new ReviewOptions();
 
-        var warnings = new List<string>();
+        var warnings = new List<string>(AiOptions.LegacyWarnings(config));
 
         if (sast.Enabled && sast.Analyzers.Count == 0)
             warnings.Add("Naudit:Sast:Analyzers ist leer — es greift der Default "
@@ -132,7 +132,7 @@ public static class StartupReport
 
         if (ai.SessionSandbox == SessionSandbox.Docker && ai.SessionRouting == SessionRouting.Single)
             warnings.Add("Naudit:Ai:SessionSandbox=Docker bleibt ohne Wirkung — die Sandbox greift "
-                + "nur bei SessionRouting Author/RoundRobin.");
+                + "nur bei SessionRouting=Author.");
 
         if (review.MaxRoundtrips <= 0)
             warnings.Add("Naudit:Review:MaxRoundtrips ist deaktiviert — jeder Push löst ein "

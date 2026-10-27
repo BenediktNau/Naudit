@@ -119,46 +119,18 @@ public class ClaudeSessionEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
-    public async Task Put_shareInPool_isPersisted_andReturnedByGet()
+    public async Task Get_hasNoPoolField_andLegacyShareInPoolIsIgnored()
     {
+        // Pool-Opt-in entfernt: GET liefert kein shareInPool mehr; ein Alt-Client, der es noch
+        // mitsendet, setzt nichts — ohne Token bleibt es beim „token required".
         var client = await LoggedInApp();
-        await client.PutAsJsonAsync("/api/me/claude-session", new { token = "tok", gitAuthorLogin = "alice" });
 
         var put = await client.PutAsJsonAsync("/api/me/claude-session", new { shareInPool = true });
-        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
 
         var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
-        Assert.True(after.GetProperty("shareInPool").GetBoolean());
-    }
-
-    [Fact]
-    public async Task Put_shareInPoolOnly_noStoredToken_returns204()
-    {
-        var client = await LoggedInApp();
-
-        // Reines Opt-in-Toggle auf frischem Account (kein Token, kein Login) ⇒ 204, KEIN „token required".
-        var put = await client.PutAsJsonAsync("/api/me/claude-session", new { shareInPool = true });
-        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
-
-        var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
-        Assert.True(after.GetProperty("shareInPool").GetBoolean());
-        Assert.False(after.GetProperty("configured").GetBoolean());   // Opt-in gesetzt, aber weiterhin kein Token
-    }
-
-    [Fact]
-    public async Task Put_shareInPoolWithLogin_noStoredToken_returns204()
-    {
-        var client = await LoggedInApp();
-
-        // Opt-in + Login (z. B. GitHub-Login vorausgefüllt), aber noch kein Token ⇒ trotzdem 204,
-        // KEIN „token required" (Regression: der Login-Wert darf den Opt-in-Erfolg nicht verdecken).
-        var put = await client.PutAsJsonAsync("/api/me/claude-session", new { shareInPool = true, gitAuthorLogin = "someone" });
-        Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
-
-        var after = await client.GetFromJsonAsync<JsonElement>("/api/me/claude-session");
-        Assert.True(after.GetProperty("shareInPool").GetBoolean());
-        Assert.False(after.GetProperty("configured").GetBoolean());   // Opt-in gesetzt, aber weiterhin kein Token
-        Assert.Equal("someone", after.GetProperty("gitAuthorLogin").GetString());   // Login geht nicht verloren
+        Assert.False(after.TryGetProperty("shareInPool", out _));
+        Assert.False(after.GetProperty("configured").GetBoolean());
     }
 
     [Fact]

@@ -121,9 +121,8 @@ public static class DependencyInjection
         var authorSessions = configuration.GetSection("Naudit:Ai:AuthorSessions").Get<AuthorSessionsOptions>() ?? new AuthorSessionsOptions();
         services.AddSingleton(authorSessions);
         services.AddSingleton<SessionHealthRegistry>();
-        services.AddSingleton<RoundRobinCursor>();
 
-        // Session-Sandbox (containerisierte Author/RoundRobin-Sessions): Default None = heutiger
+        // Session-Sandbox (containerisierte Author-Sessions): Default None = heutiger
         // In-Process-Runner. Docker ⇒ account-gebundene Runner über den Host-Docker-Socket; jeder
         // Fehlerpfad fällt auf den In-Process-Runner zurück (ein Review scheitert nie an der Sandbox).
         var sandboxOptions = configuration.GetSection("Naudit:Ai:Sandbox").Get<SessionSandboxOptions>()
@@ -148,15 +147,12 @@ public static class DependencyInjection
 
         services.AddSingleton<SessionSelectionFactory>();
 
-        // Router-Naht: 3 Modi. Single = globaler Client (heutiges Verhalten); Author/RoundRobin
-        // sind scoped (brauchen ClaudeSessionService/DbContext).
+        // Router-Naht: 2 Modi. Single = globaler Client (heutiges Verhalten); Author ist
+        // scoped (braucht ClaudeSessionService/DbContext). Alt-Wert RoundRobin bindet als Author.
         switch (aiOptions.SessionRouting)
         {
             case SessionRouting.Author:
                 services.AddScoped<IAiClientRouter, AuthorSessionRouter>();
-                break;
-            case SessionRouting.RoundRobin:
-                services.AddScoped<IAiClientRouter, RoundRobinSessionRouter>();
                 break;
             default:
                 services.AddSingleton<IAiClientRouter>(sp => new SingleClientRouter(sp.GetRequiredService<IChatClient>()));

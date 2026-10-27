@@ -8,8 +8,8 @@ using Naudit.Infrastructure.Ai.Sandbox;
 namespace Naudit.Infrastructure.Ai.ClaudeCode;
 
 /// <summary>Baut die AiClientSelection für einen Session-Lauf: per-Review-ClaudeCodeChatClient
-/// (Autor-/Pool-Token) im FallbackChatClient-Gespann. Von AuthorSessionRouter und
-/// RoundRobinSessionRouter geteilt — eine Stelle für Client-/Fallback-/Attribution-Verdrahtung.</summary>
+/// (Autor-Token) im FallbackChatClient-Gespann. Vom AuthorSessionRouter genutzt — eine Stelle für
+/// Client-/Fallback-/Attribution-Verdrahtung.</summary>
 public sealed class SessionSelectionFactory(
     AuthorSessionsOptions options,
     AiOptions aiOptions,
@@ -34,7 +34,7 @@ public sealed class SessionSelectionFactory(
             TimeoutSeconds = aiOptions.TimeoutSeconds,
         }, runnerFactory.ForAccount(accountId));
 
-        // Prompt-Logging um den SESSION-Client (nicht um den Fallback): so wird der Autor-/Pool-Aufruf
+        // Prompt-Logging um den SESSION-Client (nicht um den Fallback): so wird der Autor-Aufruf
         // genau einmal protokolliert — schlägt er fehl, protokolliert der (bereits umhüllte) globale
         // Fallback-Client seinen Aufruf separat. Kein Doppel-Log desselben Ergebnisses.
         if (logging.Enabled)
