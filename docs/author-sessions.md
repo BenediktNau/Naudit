@@ -25,8 +25,8 @@ promise is part of the profile UI and of this document.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `Naudit:Ai:SessionRouting` | `Single` | Set to `Author` to enable author-session routing, or `RoundRobin` for the pool mode. |
-| `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author/round-robin runs — independent of `Naudit:Ai:Model`. |
+| `Naudit:Ai:SessionRouting` | `Single` | Set to `Author` to enable author-session routing (`Single` \| `Author`; a legacy `RoundRobin` is treated as `Author`). |
+| `Naudit:Ai:AuthorSessions:Model` | `sonnet` | CLI model (alias or full id) for author-session runs — independent of `Naudit:Ai:Model`. |
 | `Naudit:Ai:AuthorSessions:CooldownMinutes` | `30` | How long a failing session is skipped before it is tried again. |
 
 ## Behaviour
@@ -65,28 +65,29 @@ The `claude` CLI ships in the container image since this feature (pinned native 
 checksum-verified). For bare-metal hosts, install it as described in
 `docs/claudecode-provider.md`.
 
-## Round-robin routing (shared pool)
+## Routing modes
 
 `Naudit:Ai:SessionRouting` selects how the chat client is chosen per review:
 
 - `Single` (default) — the global provider (`Naudit:Ai:*`), today's behaviour.
 - `Author` — the PR author's own subscription (the author-session flow above).
-- `RoundRobin` — rotate the **opt-in pool** of subscriptions across reviews, ignoring
-  authorship. Reviews are processed sequentially, so this spreads usage over successive
-  reviews (it does **not** run reviews in parallel).
 
-**⚠️ Terms-of-service risk.** Round-robin uses one user's Claude subscription to review
-another user's PR. Under Anthropic's consumer (Pro/Max) terms this is **account sharing**
-and can get the pooled accounts suspended. It is opt-in on two levels: the operator sets
-`SessionRouting=RoundRobin`, and each user must explicitly enable **"Add my session to the
-round-robin pool"** on their profile (a token set for author-mode is *not* pooled without
-that consent). Only active accounts with a token **and** that opt-in are rotated; accounts
-on cooldown are skipped, and an empty pool falls back to the global provider. Failures fall
-back to the global client with one retry, exactly as in author mode.
+### Round-robin pooling was removed
+
+Earlier versions had a third mode, `RoundRobin`, that rotated an opt-in pool of
+subscriptions across *all* reviews, regardless of authorship. It has been removed: no
+user's session is ever used for someone else's review. The profile's pool opt-in is gone
+and the `Accounts.ShareSessionInPool` column is dropped by the `RemoveSharePoolFlag`
+migration.
+
+A leftover `Naudit:Ai:SessionRouting=RoundRobin` (env var or Settings DB row) does **not**
+crash the host or put it into recovery mode: it is treated as `Author` and a startup
+warning (log + Settings page) asks you to switch to `Author` or `Single`. The Settings API
+no longer accepts `RoundRobin` as a new value.
 
 ## Runtime isolation
 
-By default, both `Author` and `RoundRobin` runs execute the `claude` CLI as an
+By default, `Author` runs execute the `claude` CLI as an
 in-process subprocess with a fresh, empty `CLAUDE_CONFIG_DIR` per review — a cold
 re-auth every time. With `Naudit:Ai:SessionSandbox=Docker` each account's CLI instead
 runs in its own long-lived sibling container over the host's Docker socket, keeping

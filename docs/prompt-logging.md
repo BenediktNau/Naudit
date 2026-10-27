@@ -3,7 +3,7 @@
 Macht **jeden LLM-Aufruf** eines Reviews nachvollziehbar — System-Prompt, zusammengebauter
 User-Prompt (Diff + Kontext + Memory + Guidelines), die rohe Antwort, Token-Usage, Latenz und
 Modell. Gedacht, um beim Prompt-Tuning zu sehen, **wo** man ansetzen kann (z. B. wenn man
-Autor-/Pool-Sessions einschaltet und vergleichen will, was die eigene Subscription wie beantwortet).
+Autor-Sessions einschaltet und vergleichen will, was die eigene Subscription wie beantwortet).
 
 Aus per Default: kein Overhead, keine gespeicherten Prompts, solange niemand es einschaltet.
 
@@ -24,7 +24,7 @@ ReviewService (Core)
 ```
 
 - `MediatorChatClient` (`Ai/Logging/`) umhüllt den globalen Client (Single-Modus + Session-Fallback)
-  und den Autor-/Pool-Session-Client (`SessionSelectionFactory`), sodass auch der „fast"-Pfad
+  und den Autor-Session-Client (`SessionSelectionFactory`), sodass auch der „fast"-Pfad
   (eigene Subscription) protokolliert wird.
 - `PromptLoggingBehavior` loggt strukturiert (ILogger) und persistiert best-effort ein
   `ChatTranscriptEntity`. **Fail-open:** ein Fehler beim Loggen/Persistieren kippt nie das Review;

@@ -207,7 +207,7 @@ available as an escape hatch with `--build-arg CLAUDE_CODE_VERSION=stable
 ## Session sandbox (optional)
 
 With `Naudit:Ai:SessionSandbox=Docker`, [author-session](author-sessions.md) subscription
-runs (`Author`/`RoundRobin` routing) move into long-lived sibling containers over the
+runs (`Author` routing) move into long-lived sibling containers over the
 **host's own Docker socket** instead of running in-process — warm CLI auth per account,
 isolated per account. It is off by default (`None`) and purely opt-in; see
 [Session sandbox](session-sandbox.md) for the full picture (config keys, lifecycle,

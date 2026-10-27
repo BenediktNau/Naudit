@@ -262,18 +262,16 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   MRs to the author's own Claude subscription (token stored DP-encrypted per account, profile
   page/`/api/me/claude-session`), wrapped in `FallbackChatClient` (any author failure ⇒ in-memory
   cooldown + one retry on the global client). Mode `Naudit:Ai:SessionRouting` (`Single`
-  default = today's behaviour | `Author` | `RoundRobin`). `RoundRobinSessionRouter` (third impl)
-  rotates an **opt-in pool** (`AccountEntity.ShareSessionInPool`, active + token + opt-in) across
-  reviews via an in-memory `RoundRobinCursor`, skipping cooling-down and
-  undecryptable-token accounts, empty pool ⇒ global — sequential, not parallel; it is deliberate
-  account-sharing under Anthropic's consumer terms, gated behind per-user consent. See
-  `docs/author-sessions.md`.
+  default = today's behaviour | `Author`). A session is only ever used for its own account's
+  MRs/PRs — the former `RoundRobin` pool mode was removed; a leftover `RoundRobin` value binds
+  as `Author` (`SessionRoutingConverter`) and emits a startup warning (`AiOptions.LegacyWarnings`)
+  instead of forcing recovery mode. See `docs/author-sessions.md`.
 - **Prompt/communication logging (Mediator middleware):** every LLM call is made traceable —
   system prompt, assembled user prompt, raw response, token usage, latency, model. Carried by an
   **open-source Mediator** (`martinothamar/Mediator`, MIT source-generator — deliberately **not**
   MediatR, which went commercial 2025-07) that lives **entirely in Infrastructure** (Core rule
   intact — `ReviewService` unchanged). `MediatorChatClient` (`src/Naudit.Infrastructure/Ai/Logging/`)
-  decorates the global **and** the author/pool session `IChatClient`, routing `GetResponseAsync`
+  decorates the global **and** the author-session `IChatClient`, routing `GetResponseAsync`
   through `mediator.Send(ChatCompletionRequest)`; `PromptLoggingBehavior`
   (`IPipelineBehavior<ChatCompletionRequest, ChatResponse>`) is the middleware: structured ILogger
   + best-effort persistence of a `ChatTranscriptEntity` via `IChatTranscriptSink`/`EfChatTranscriptSink`.
@@ -286,7 +284,7 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   Kommunikation" panel in the review detail (`GET /api/reviews/{id}` returns `transcripts` only to
   admins — prompts carry redacted source). See `docs/prompt-logging.md`.
 - **Session sandbox (containerized subscription sessions):** `Naudit:Ai:SessionSandbox = None | Docker`
-  (default `None` = in-process CLI runs, today's behaviour). `Docker` moves Author/RoundRobin session
+  (default `None` = in-process CLI runs, today's behaviour). `Docker` moves Author session
   runs into long-lived sibling containers per account (host Docker socket, same Naudit image,
   `sleep infinity` + `docker exec`; named volume `naudit-session-<accountId>` at `/home/app` keeps
   CLI auth warm). Seam: `ISessionRunnerFactory` (`src/Naudit.Infrastructure/Ai/Sandbox/`) consumed by
@@ -297,7 +295,7 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   engine API, container lifecycle): those fall back to the in-process runner and drop the container's
   "recently used" mark, so a review never fails because of the sandbox — a review timeout and a
   non-zero `claude` exit are *not* covered, they behave exactly as they do in-process. Credential
-  teardown on token deletion / pool opt-out / suspension is bounded (`Sandbox:RemoveTimeout`, never
+  teardown on token deletion / suspension is bounded (`Sandbox:RemoveTimeout`, never
   blocks the request behind a running review) and made durable by a **reconciliation pass** in
   `SandboxSweeperService`: each tick removes container + volume for every `naudit-session-*` whose
   account is gone, not `Active`, or token-less. Opt-in integration test via `NAUDIT_TEST_DOCKER=1`.

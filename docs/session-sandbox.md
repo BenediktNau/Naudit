@@ -1,6 +1,6 @@
 # Session sandbox (containerised subscription sessions)
 
-The [author-sessions](author-sessions.md) `Author` and `RoundRobin` routing modes run
+The [author-sessions](author-sessions.md) `Author` routing mode runs
 each review's `claude` CLI as a fresh, short-lived subprocess: every review gets a
 brand-new empty `CLAUDE_CONFIG_DIR`, so the CLI re-authenticates from the stored token
 on every single run. That works, but it is a cold start every time and gives every
@@ -18,16 +18,13 @@ socket. Two effects:
 
 This is **purely additive**. The default is `None`, which is exactly today's
 in-process behaviour — nothing changes unless you opt in. It only applies to the
-`Author`/`RoundRobin` session-routing modes ([`Naudit:Ai:SessionRouting`](author-sessions.md));
+`Author` session-routing mode ([`Naudit:Ai:SessionRouting`](author-sessions.md));
 in `Single` mode (the global provider) it has no effect at all.
 
-**Scope note.** This feature is about isolation and warm-session performance, **not**
-about hiding round-robin pooling from Anthropic. It changes nothing about the
-terms-of-service position of the `RoundRobin` mode described in
-[Author sessions › Round-robin routing](author-sessions.md#round-robin-routing-shared-pool):
-pooling one user's subscription across other users' reviews is still account sharing
-under Anthropic's consumer terms, opt-in, and the operator's call to make. The sandbox
-does not build any mechanism intended to evade detection of that.
+**Scope note.** This feature is about isolation and warm-session performance only. A
+session container only ever runs reviews of its own account's MRs/PRs — the former
+round-robin pool that shared subscriptions across users has been removed (see
+[Author sessions › Round-robin pooling was removed](author-sessions.md#round-robin-pooling-was-removed)).
 
 ## Config keys
 
@@ -41,7 +38,7 @@ requires a restart via the "restart required" banner, same as other config chang
 | `Naudit:Ai:Sandbox:IdleTimeout` | `2.00:00:00` (2 days) | How long a running account container may sit unused before the sweeper stops it (stop, not remove). |
 | `Naudit:Ai:Sandbox:MaxLiveContainers` | `5` | Cap on simultaneously *running* session containers; the manager stops the least-recently-used one before starting one more (a floor of 1 is enforced). |
 | `Naudit:Ai:Sandbox:DockerSocketPath` | `/var/run/docker.sock` | Path to the Docker engine socket. |
-| `Naudit:Ai:Sandbox:RemoveTimeout` | `00:00:05` | How long a teardown (token deletion, pool opt-out, suspension) waits for the account lock before giving up. It runs on an HTTP request and must not block behind a running review; whatever it skips is cleaned up by the reconciliation pass (see Lifecycle). |
+| `Naudit:Ai:Sandbox:RemoveTimeout` | `00:00:05` | How long a teardown (token deletion, suspension) waits for the account lock before giving up. It runs on an HTTP request and must not block behind a running review; whatever it skips is cleaned up by the reconciliation pass (see Lifecycle). |
 | `Naudit:Ai:Sandbox:Image` | *(empty)* | Optional image override. Empty means self-inspection: Naudit resolves its own image via `docker inspect $HOSTNAME`, so the `claude` CLI baked into the Naudit image is always used and never drifts from the running version. Deployments that override the container hostname (e.g. `--hostname`, or Compose's `hostname:`) break self-inspection, since `$HOSTNAME` then no longer matches the running container's actual name — set this key explicitly in that case. |
 | `Naudit:Ai:Sandbox:MemoryLimitBytes` | `2147483648` (2 GiB) | Memory limit per session container in bytes (`HostConfig.Memory`). `0` = unlimited (engine default). |
 | `Naudit:Ai:Sandbox:PidsLimit` | `512` | Process/thread limit per session container (`HostConfig.PidsLimit`), a guard against fork bombs. `0` = unlimited (engine default). |
@@ -94,7 +91,7 @@ them the warm CLI logins — survive, and the next review recreates the containe
   `HOME` (the volume) wins and the warm session is actually used.
 - **Per-account lock.** A `SemaphoreSlim` per account serializes execs into the same
   container — two concurrent reviews for one account never race on the CLI's credential
-  cache. This matches round-robin's sequential processing model.
+  cache. This matches the sequential review processing model.
 - **LRU cap.** Before starting a container that would exceed `MaxLiveContainers`, the
   manager stops the running account container with the oldest `LastUsed` timestamp.
   Stopping, not removing — the warm session lives in the volume and comes back on the
@@ -105,9 +102,8 @@ them the warm CLI logins — survive, and the next review recreates the containe
   `naudit-session-*` containers and adopts them as "just used" — Naudit's own
   config-change restart loop does not touch these sibling containers, so a restart
   never orphans a warm session.
-- **Removal on token deletion / pool opt-out / account suspension.** Deleting an
-  account's stored Claude session token, turning off "share my session in the
-  round-robin pool", or an admin suspending/deactivating the account (any status
+- **Removal on token deletion / account suspension.** Deleting an
+  account's stored Claude session token, or an admin suspending/deactivating the account (any status
   transition away from Active), removes that account's container **and** its volume.
   This is deliberate: the volume holds live CLI credentials and must not outlive the
   account's consent — or authorization — to use them. The immediate attempt is
@@ -121,8 +117,7 @@ them the warm CLI logins — survive, and the next review recreates the containe
   containers and removes container **and** volume for any whose account is gone, is not
   `Active`, or no longer has a stored token. So the guarantee is "immediately if
   possible, otherwise within one sweep interval (5 minutes)" rather than best-effort
-  alone. Pool opt-out is not part of that rule: in `Author` mode a user legitimately
-  keeps a warm session without being in the round-robin pool.
+  alone.
 - **A running exec is never stopped out from under itself.** Both the idle sweeper and
   the LRU cap use a non-blocking lock attempt before stopping a container; if an exec
   is in flight for that account, the container is skipped that round rather than being
@@ -161,7 +156,7 @@ Two consequences of the fallback worth knowing:
 - **`MaxLiveContainers` is the resource bound you tune for capacity**; the idle sweeper
   is the safety net for stale accounts, not the primary control.
 - Volumes persisting across stops **and** restarts is intentional, not a leak — that is
-  what makes sessions warm. They are only removed on token deletion, pool opt-out, or
+  what makes sessions warm. They are only removed on token deletion or
   account suspension/deactivation (see above).
 - **Resetting one account's session** (e.g. after a bad CLI state): either remove the
   container and volume directly —
@@ -196,8 +191,8 @@ access alone:
 - **Credentials gain a resting place.** In-process runs authenticate into a throwaway
   `CLAUDE_CONFIG_DIR` that dies with the process. Here the CLI's authenticated state
   lives in the account's named volume and **intentionally survives** container stops and
-  Naudit restarts — that persistence *is* the feature. It is removed on token deletion,
-  pool opt-out, or suspension/deactivation, immediately where possible and otherwise by
+  Naudit restarts — that persistence *is* the feature. It is removed on token deletion
+  or suspension/deactivation, immediately where possible and otherwise by
   the reconciliation pass (see Lifecycle) — but a volume that Docker refuses to delete
   and that reconciliation never sees again (e.g. Naudit is switched back to
   `SessionSandbox=None` with containers still around) stays on the host until someone
