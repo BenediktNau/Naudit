@@ -53,6 +53,8 @@ public static class SettingsCatalog
         new("Naudit:Ai:Sandbox:DockerSocketPath", false),
         new("Naudit:Ai:Sandbox:RemoveTimeout", false),
         new("Naudit:Ai:Sandbox:Image", false),
+        new("Naudit:Ai:Sandbox:MemoryLimitBytes", false),
+        new("Naudit:Ai:Sandbox:PidsLimit", false),
         new("Naudit:Sast:Enabled", false),
         new("Naudit:Sast:Analyzers", false, IsList: true,
             AllowedValues: ["opengrep", "betterleaks", "osv-scanner", "trivy", "dotnet-sca"]),

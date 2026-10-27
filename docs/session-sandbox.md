@@ -43,11 +43,31 @@ requires a restart via the "restart required" banner, same as other config chang
 | `Naudit:Ai:Sandbox:DockerSocketPath` | `/var/run/docker.sock` | Path to the Docker engine socket. |
 | `Naudit:Ai:Sandbox:RemoveTimeout` | `00:00:05` | How long a teardown (token deletion, pool opt-out, suspension) waits for the account lock before giving up. It runs on an HTTP request and must not block behind a running review; whatever it skips is cleaned up by the reconciliation pass (see Lifecycle). |
 | `Naudit:Ai:Sandbox:Image` | *(empty)* | Optional image override. Empty means self-inspection: Naudit resolves its own image via `docker inspect $HOSTNAME`, so the `claude` CLI baked into the Naudit image is always used and never drifts from the running version. Deployments that override the container hostname (e.g. `--hostname`, or Compose's `hostname:`) break self-inspection, since `$HOSTNAME` then no longer matches the running container's actual name — set this key explicitly in that case. |
+| `Naudit:Ai:Sandbox:MemoryLimitBytes` | `2147483648` (2 GiB) | Memory limit per session container in bytes (`HostConfig.Memory`). `0` = unlimited (engine default). |
+| `Naudit:Ai:Sandbox:PidsLimit` | `512` | Process/thread limit per session container (`HostConfig.PidsLimit`), a guard against fork bombs. `0` = unlimited (engine default). |
 
 `IdleTimeout` is deliberately long: in day-to-day operation `MaxLiveContainers`
 (LRU-stop before every new start) is the real resource bound, not the sweeper. The
 sweeper is the safety net for "this account has been quiet for a couple of days"
 (weekend, vacation), not for routine capacity control.
+
+## Container hardening
+
+Every session container is created with a hardened `HostConfig`, independent of
+configuration:
+
+- `CapDrop: ["ALL"]` — no Linux capabilities. The `claude` CLI runs as the image's
+  non-root `app` user and needs none (verified: `claude --version` and writes to the
+  `/home/app` volume work with all capabilities dropped).
+- `SecurityOpt: ["no-new-privileges"]` — setuid/setgid binaries cannot raise
+  privileges inside the container.
+- `Memory` and `PidsLimit` from `MemoryLimitBytes` / `PidsLimit` above (omitted when
+  set to `0`).
+
+Already-running containers keep the `HostConfig` they were created with. To apply the
+hardening to containers created by an older Naudit version, remove them once
+(`docker rm -f $(docker ps -aq --filter name=naudit-session-)`); the volumes — and with
+them the warm CLI logins — survive, and the next review recreates the container.
 
 ## Lifecycle
 

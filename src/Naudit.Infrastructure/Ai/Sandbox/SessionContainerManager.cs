@@ -55,7 +55,13 @@ public sealed class SessionContainerManager(
                 // image-eigene CMD anhaengen).
                 await docker.RunDetachedAsync(
                     new ContainerRunSpec(name, image, VolumeName: name, VolumeTarget, [])
-                    { Entrypoint = ["sleep", "infinity"] }, ct);
+                    {
+                        Entrypoint = ["sleep", "infinity"],
+                        // Ressourcen-Grenzen pro Account (Härtung; CapDrop/no-new-privileges setzt
+                        // SocketDockerClient immer).
+                        MemoryBytes = options.MemoryLimitBytes,
+                        PidsLimit = options.PidsLimit,
+                    }, ct);
             }
             else if (!info.Running)
             {

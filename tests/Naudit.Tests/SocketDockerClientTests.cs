@@ -27,7 +27,9 @@ public class SocketDockerClientTests
         {
             Assert.Null(await docker.InspectContainerAsync(name));
 
-            await docker.RunDetachedAsync(new ContainerRunSpec(name, Image, name, "/data", ["sleep", "300"]));
+            // Mit Limits: die Engine muss den gehärteten Body (CapDrop/no-new-privileges/Memory/Pids) annehmen.
+            await docker.RunDetachedAsync(new ContainerRunSpec(name, Image, name, "/data", ["sleep", "300"])
+            { MemoryBytes = 256L * 1024 * 1024, PidsLimit = 64 });
             Assert.True((await docker.InspectContainerAsync(name))!.Running);
 
             await docker.WriteFileAsync(name, "/tmp", "stdin-test", "hello sandbox");

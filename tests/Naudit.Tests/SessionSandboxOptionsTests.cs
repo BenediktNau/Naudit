@@ -18,6 +18,8 @@ public class SessionSandboxOptionsTests
             ["Naudit:Ai:Sandbox:MaxLiveContainers"] = "3",
             ["Naudit:Ai:Sandbox:DockerSocketPath"] = "/run/user/1000/docker.sock",
             ["Naudit:Ai:Sandbox:Image"] = "ghcr.io/benediktnau/naudit:v1.2.3",
+            ["Naudit:Ai:Sandbox:MemoryLimitBytes"] = "4294967296",
+            ["Naudit:Ai:Sandbox:PidsLimit"] = "256",
         }).Build();
 
         var ai = config.GetSection("Naudit:Ai").Get<AiOptions>()!;
@@ -28,6 +30,8 @@ public class SessionSandboxOptionsTests
         Assert.Equal(3, sandbox.MaxLiveContainers);
         Assert.Equal("/run/user/1000/docker.sock", sandbox.DockerSocketPath);
         Assert.Equal("ghcr.io/benediktnau/naudit:v1.2.3", sandbox.Image);
+        Assert.Equal(4294967296L, sandbox.MemoryLimitBytes);
+        Assert.Equal(256, sandbox.PidsLimit);
     }
 
     [Fact]
@@ -53,5 +57,7 @@ public class SessionSandboxOptionsTests
         Assert.True(SettingsCatalog.TryGet("Naudit:Ai:Sandbox:MaxLiveContainers", out _));
         Assert.True(SettingsCatalog.TryGet("Naudit:Ai:Sandbox:DockerSocketPath", out _));
         Assert.True(SettingsCatalog.TryGet("Naudit:Ai:Sandbox:Image", out _));
+        Assert.True(SettingsCatalog.TryGet("Naudit:Ai:Sandbox:MemoryLimitBytes", out _));
+        Assert.True(SettingsCatalog.TryGet("Naudit:Ai:Sandbox:PidsLimit", out _));
     }
 }
