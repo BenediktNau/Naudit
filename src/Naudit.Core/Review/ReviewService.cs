@@ -114,8 +114,7 @@ public sealed class ReviewService(
         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
         // Fail-closed bleibt nur für "gar keine parsebare Antwort": das Verdict wird unten aus den
         // Findings abgeleitet, nicht mehr vom LLM behauptet.
-        var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
-            ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
+        var parsed = ParseResponse(response.Text);
 
         // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
         // Gate auswerten: blockt nur ein BESTÄTIGTER High/Critical-Fund (≥ konfigurierter Schwelle).
@@ -416,6 +415,26 @@ public sealed class ReviewService(
             _ => "⚪",
         };
         return $"**{icon} {severity}** · confidence {confidence.ToString().ToLowerInvariant()}";
+    }
+
+    // Fail-closed: kaputtes JSON, ein Nicht-Objekt oder ein inhaltsloses Objekt (weder Summary noch
+    // "comments") ist KEIN "Review ohne Findings" — sonst würde eine leere bzw. per Prompt-Injection
+    // erzwungene Antwort über das Gate zu approve (mit PostVerdict=true eine echte Freigabe). Der Wurf
+    // bricht das Review ab, bevor irgendetwas gepostet wird (CI: Fehler statt approve).
+    private static LlmReviewResponse ParseResponse(string text)
+    {
+        LlmReviewResponse? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(text), JsonOpts);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.", ex);
+        }
+        if (parsed is null || (string.IsNullOrWhiteSpace(parsed.Summary) && parsed.Comments is null))
+            throw new InvalidOperationException("LLM lieferte eine leere Review-Antwort (weder summary noch comments).");
+        return parsed;
     }
 
     // Robustheit gegen Modelle, die das JSON trotz ResponseFormat=Json in einen Markdown-Fence

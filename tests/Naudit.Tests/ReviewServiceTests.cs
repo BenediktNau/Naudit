@@ -200,6 +200,40 @@ public class ReviewServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReviewAsync(Request));
     }
 
+    // Eine leere/inhaltslose oder kaputte Antwort (z. B. per Prompt-Injection erzwungen) darf NIE als
+    // "keine Findings" ⇒ approve gelesen werden — mit PostVerdict=true wäre das eine echte Freigabe.
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("{}")]
+    [InlineData("""{"summary":"  "}""")]
+    [InlineData("""{"summary":null,"comments":null}""")]
+    [InlineData("not json at all")]
+    [InlineData("[]")]
+    [InlineData("```json\n```")]
+    public async Task ReviewAsync_emptyOrUnparseableResponse_neverApproves(string llmText)
+    {
+        var chat = new FakeChatClient(llmText);
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReviewAsync(Request));
+        Assert.Null(git.PostedMarkdown);   // nichts gepostet, insbesondere kein Approve-Verdict
+    }
+
+    [Fact]
+    public async Task ReviewAsync_summaryOnly_withoutComments_stillApproves()
+    {
+        // Normale Null-Findings-Semantik bleibt: eine echte Summary ohne "comments" ist ein gültiges Review.
+        var chat = new FakeChatClient("""{"summary":"Keine Auffälligkeiten."}""");
+        var git = new FakeGitPlatform([new CodeChange("a.cs", "@@ +1 @@")]);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" });
+
+        var result = await service.ReviewAsync(Request);
+
+        Assert.Equal(ReviewVerdict.Approve, result.Verdict);
+    }
+
     [Fact]
     public async Task ReviewAsync_doesNotBlock_onHighSeverity_butLowConfidence()
     {
