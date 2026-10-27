@@ -50,4 +50,29 @@ public class TrivyAnalyzerTests
 
         Assert.Empty(await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []));
     }
+
+    [Fact]
+    public async Task AnalyzeAsync_ignoresRepoTrivyConfig_andIgnoreFile()
+    {
+        // Eine repo-eigene trivy.yaml im CWD (= Checkout) könnte z. B. "output: /beliebiger/pfad"
+        // setzen; .trivyignore könnte Funde unterdrücken. Beides zeigt auf leere Dateien unter
+        // Naudits Kontrolle, außerhalb des Checkouts.
+        var runner = new StubProcessRunner(_ => new ProcessResult(0, """{ "Results": [] }""", ""));
+        var analyzer = new TrivyAnalyzer(runner, NullLogger<TrivyAnalyzer>.Instance, TimeSpan.FromMinutes(5));
+
+        await analyzer.AnalyzeAsync(new Ws("/tmp/x"), []);
+
+        var args = runner.LastSpec!.Arguments.ToList();
+        Assert.Equal("fs", args[0]);
+        Assert.Equal(".", args[^1]);
+        foreach (var flag in new[] { "--config", "--ignorefile" })
+        {
+            var path = args[args.IndexOf(flag) + 1];
+            Assert.False(path.StartsWith("/tmp/x"));
+            Assert.True(File.Exists(path), flag);
+            Assert.Equal("", File.ReadAllText(path));
+        }
+        AnalyzerAssertions.MinimalEnvironment(runner.LastSpec!);
+        Assert.Contains("TRIVY_*", runner.LastSpec!.InheritedEnvironment!);   // Betreiber-Cache/DB-Mirror
+    }
 }

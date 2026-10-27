@@ -124,6 +124,12 @@ public static class StartupReport
             warnings.Add("Naudit:Sast:Analyzers ist leer — es greift der Default "
                 + $"'{string.Join(", ", SastOptions.DefaultAnalyzers)}'.");
 
+        var removed = SastOptions.FindRemovedAnalyzers(sast.Analyzers);
+        if (removed.Count > 0)
+            warnings.Add($"Naudit:Sast:Analyzers enthält den entfernten Analyzer '{string.Join(", ", removed)}' — "
+                + "er wird übersprungen (führte `dotnet restore` auf Fremd-Code aus). Für NuGet-SCA "
+                + "osv-scanner oder trivy verwenden und den Eintrag aus der Konfiguration entfernen.");
+
         if (ai.SessionSandbox == SessionSandbox.Docker && ai.SessionRouting == SessionRouting.Single)
             warnings.Add("Naudit:Ai:SessionSandbox=Docker bleibt ohne Wirkung — die Sandbox greift "
                 + "nur bei SessionRouting Author/RoundRobin.");

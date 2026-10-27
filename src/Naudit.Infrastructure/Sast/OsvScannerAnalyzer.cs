@@ -9,7 +9,7 @@ using Naudit.Infrastructure.Process;
 namespace Naudit.Infrastructure.Sast;
 
 /// <summary>SCA über OSV-Scanner (Google): `osv-scanner scan source --format json -r .` im
-/// Workspace-Root. Sprach-agnostisch über Lockfiles/Manifeste (ergänzt trivy/dotnet-sca). Rein
+/// Workspace-Root. Sprach-agnostisch über Lockfiles/Manifeste (ergänzt trivy). Rein
 /// statisch (kein Build). Ein Fund je OSV-„group" (zusammengefasste Aliase einer Schwachstelle).
 /// Fehler ⇒ leere Liste (geloggt); 128 = keine scannbaren Quellen (kein Fehler).</summary>
 public sealed class OsvScannerAnalyzer(
@@ -22,9 +22,12 @@ public sealed class OsvScannerAnalyzer(
     public async Task<IReadOnlyList<ScanFinding>> AnalyzeAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct = default)
     {
+        // --config explizit (leer): überschreibt die Suche nach repo-eigenen osv-scanner.toml, deren
+        // IgnoredVulns sonst Funde unterdrücken könnten. Env minimal (keine Naudit-Secrets).
         var spec = new ProcessSpec(
-            "osv-scanner", ["scan", "source", "--format", "json", "-r", "."],
-            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout);
+            "osv-scanner", ["scan", "source", "--config", AnalyzerConfigFiles.OsvScannerConfig, "--format", "json", "-r", "."],
+            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout,
+            InheritedEnvironment: ProcessEnvironment.Minimal);
 
         ProcessResult result;
         try { result = await runner.RunAsync(spec, ct); }

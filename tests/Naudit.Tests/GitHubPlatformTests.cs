@@ -133,19 +133,22 @@ public class GitHubPlatformTests
     }
 
     [Fact]
-    public async Task GetCheckoutAsync_buildsCloneUrlWithToken_andPrRef()
+    public async Task GetCheckoutAsync_keepsTokenOutOfCloneUrl_andPassesItAsBasicAuthHeader()
     {
         const string json = """{ "clone_url": "https://github.com/owner/repo.git" }""";
         var platform = new GitHubPlatform(ClientReturning(HttpStatusCode.OK, json), Tokens(), Opts());
 
         var info = await platform.GetCheckoutAsync(Request);
 
-        Assert.Equal("https://x-access-token:tok@github.com/owner/repo.git", info.CloneUrl);
+        // Token NIE in der URL (landete sonst in argv und .git/config), sondern als Header für git.
+        Assert.Equal("https://github.com/owner/repo.git", info.CloneUrl);
+        Assert.Equal("Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("x-access-token:tok")),
+            info.AuthorizationHeader);
         Assert.Equal("refs/pull/42/head", info.HeadRef);
     }
 
     [Fact]
-    public async Task GetCheckoutAsync_usesPerProjectToken_inCloneUrl()
+    public async Task GetCheckoutAsync_usesPerProjectToken_inAuthHeader()
     {
         const string json = """{ "clone_url": "https://github.com/owner/repo.git" }""";
         var platform = new GitHubPlatform(
@@ -155,7 +158,8 @@ public class GitHubPlatformTests
 
         var info = await platform.GetCheckoutAsync(Request);
 
-        Assert.Equal("https://x-access-token:proj-tok@github.com/owner/repo.git", info.CloneUrl);
+        Assert.Equal("Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("x-access-token:proj-tok")),
+            info.AuthorizationHeader);
     }
 
     [Fact]

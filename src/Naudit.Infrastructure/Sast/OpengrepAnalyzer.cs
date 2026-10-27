@@ -43,7 +43,8 @@ public sealed class OpengrepAnalyzer(
 
         var spec = new ProcessSpec(
             "opengrep", args,
-            StdIn: null, Environment: env, WorkingDirectory: workspace.RootPath, Timeout: timeout);
+            StdIn: null, Environment: env, WorkingDirectory: workspace.RootPath, Timeout: timeout,
+            InheritedEnvironment: ProcessEnvironment.Minimal);   // keine Naudit-Secrets an Fremd-Code-Scanner
 
         ProcessResult result;
         try { result = await runner.RunAsync(spec, ct); }

@@ -86,14 +86,14 @@ public sealed class DbSettingsLoaderTests : IDisposable
     public void Load_listenKey_bindetAufSastOptions()
     {
         DbSettingsLoader.Load(Options);
-        WriteViaService(svc => svc.SetAsync("Naudit:Sast:Analyzers", "trivy,dotnet-sca").GetAwaiter().GetResult());
+        WriteViaService(svc => svc.SetAsync("Naudit:Sast:Analyzers", "trivy,osv-scanner").GetAwaiter().GetResult());
 
         var config = new ConfigurationBuilder()
             .Add(new MemoryConfigurationSource { InitialData = DbSettingsLoader.Load(Options).Settings })
             .Build();
         var options = config.GetSection("Naudit:Sast").Get<Naudit.Infrastructure.Sast.SastOptions>()!;
 
-        Assert.Equal(["trivy", "dotnet-sca"], options.Analyzers);
+        Assert.Equal(["trivy", "osv-scanner"], options.Analyzers);
     }
 
     private NauditDbContext OpenContext()

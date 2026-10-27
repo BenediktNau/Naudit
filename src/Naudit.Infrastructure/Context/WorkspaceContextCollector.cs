@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Models;
 using Naudit.Core.Review;
+using Naudit.Infrastructure.Workspace;
 
 namespace Naudit.Infrastructure.Context;
 
@@ -41,9 +42,9 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
 
         foreach (var change in changes)
         {
-            var abs = SafeResolve(root, change.FilePath);
-            if (abs is null || !File.Exists(abs))
-                continue;                       // gelöschte/außerhalb liegende Datei -> überspringen
+            var abs = WorkspacePaths.Resolve(root, change.FilePath);
+            if (abs is null)
+                continue;                       // gelöschte/außerhalb liegende/verlinkte Datei -> überspringen
 
             string[] lines;
             try { lines = File.ReadAllLines(abs); }
@@ -173,7 +174,7 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
         var declaringFiles = new HashSet<string>(StringComparer.Ordinal);
         foreach (var c in changes)
         {
-            var abs = SafeResolve(root, c.FilePath);
+            var abs = WorkspacePaths.Resolve(root, c.FilePath);
             if (abs is not null) declaringFiles.Add(abs);
         }
 
@@ -236,22 +237,22 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
         return names.OrderBy(n => n, StringComparer.Ordinal).ToList();
     }
 
-    // Rekursiver, deterministisch sortierter Datei-Walk unter Auslassung von Vendor-/Build-Dirs
-    // und zu großer/binärer Dateien.
+    // Rekursiver, deterministisch sortierter Datei-Walk unter Auslassung von Vendor-/Build-Dirs,
+    // Symlinks (Datei wie Ordner — Ausbruch aus dem Checkout) und zu großer/binärer Dateien.
     private static IEnumerable<string> EnumerateSourceFiles(string root)
     {
         var stack = new Stack<string>();
-        stack.Push(root);
+        stack.Push(Path.GetFullPath(root));
         while (stack.Count > 0)
         {
             var dir = stack.Pop();
             List<string> subdirs, files;
             try
             {
-                subdirs = Directory.EnumerateDirectories(dir)
+                subdirs = WorkspacePaths.EnumerateDirectories(dir)
                     .Where(d => !ExcludedDirs.Contains(Path.GetFileName(d)))
                     .OrderByDescending(Path.GetFileName, StringComparer.Ordinal).ToList();  // Stack ⇒ absteigend rein = aufsteigend raus
-                files = Directory.EnumerateFiles(dir)
+                files = WorkspacePaths.EnumerateFiles(dir)
                     .OrderBy(Path.GetFileName, StringComparer.Ordinal).ToList();
             }
             catch { continue; }
@@ -313,10 +314,11 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
         List<string> subdirs, files;
         try
         {
-            subdirs = Directory.EnumerateDirectories(dir)
+            // Verlinkte Ordner/Dateien weder anzeigen noch betreten (Ausbruch aus dem Checkout).
+            subdirs = WorkspacePaths.EnumerateDirectories(dir)
                 .Where(d => !ExcludedDirs.Contains(Path.GetFileName(d)))
                 .OrderBy(Path.GetFileName, StringComparer.Ordinal).Take(MaxTreeEntriesPerDir).ToList();
-            files = Directory.EnumerateFiles(dir)
+            files = WorkspacePaths.EnumerateFiles(dir)
                 .OrderBy(Path.GetFileName, StringComparer.Ordinal).Take(MaxTreeEntriesPerDir).ToList();
         }
         catch { return; }
@@ -334,8 +336,10 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
     {
         try
         {
-            return Directory.EnumerateFiles(root)
+            // Verlinkte README (z. B. → /proc/self/environ) wird nie gewählt.
+            return WorkspacePaths.EnumerateFiles(root)
                 .Where(f => Path.GetFileName(f).StartsWith("README", StringComparison.OrdinalIgnoreCase))
+                .Where(f => WorkspacePaths.IsSafeFile(root, f))
                 .OrderBy(Path.GetFileName, StringComparer.Ordinal)
                 .FirstOrDefault();
         }
@@ -385,20 +389,5 @@ public sealed class WorkspaceContextCollector(ReviewContextOptions options) : IC
         return (text[..keep] + BudgetMarker, budget, true);
     }
 
-    // ---- Pfad-Sicherheit --------------------------------------------------
-    // Verhindert Ausbruch aus dem Checkout (z. B. "../../etc/passwd" im Diff-Pfad).
-    private static string? SafeResolve(string root, string relPath)
-    {
-        var rootFull = Path.GetFullPath(root);
-        var full = Path.GetFullPath(Path.Combine(rootFull, relPath));
-        // Separator-Grenze erzwingen: sonst würde ein Geschwister-Verzeichnis mit gleichem Präfix
-        // (z. B. "…/ws" vs. "…/ws-evil") den Prefix-Check bestehen und aus dem Checkout ausbrechen.
-        var rootWithSep = rootFull.EndsWith(Path.DirectorySeparatorChar)
-            ? rootFull
-            : rootFull + Path.DirectorySeparatorChar;
-        return full.Equals(rootFull, StringComparison.Ordinal)
-               || full.StartsWith(rootWithSep, StringComparison.Ordinal)
-            ? full
-            : null;
-    }
+    // Pfad-Sicherheit ("../"-Ausbruch, Symlinks) liegt zentral in WorkspacePaths.
 }

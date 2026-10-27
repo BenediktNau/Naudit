@@ -58,7 +58,7 @@ public sealed class NauditConfigTests : IDisposable
         var env = NauditConfig.InsertDbSettings(builder, new Dictionary<string, string?>
         {
             ["Naudit:Sast:Analyzers:0"] = "trivy",
-            ["Naudit:Sast:Analyzers:1"] = "dotnet-sca",   // wuerde sonst als Index 1 dazugemischt
+            ["Naudit:Sast:Analyzers:1"] = "osv-scanner",   // wuerde sonst als Index 1 dazugemischt
             ["Naudit:GitHub:ProjectTokens:0"] = "acme/web=tok", // andere Liste: bleibt unangetastet
         });
         var config = builder.Build();

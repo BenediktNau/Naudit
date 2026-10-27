@@ -389,4 +389,53 @@ public class DistillingReviewGuidelinesTests : IDisposable
         Assert.Equal(cap - 1, result.Length);
         Assert.False(char.IsHighSurrogate(result[^1]));
     }
+
+    // ---- Symlink-Ausbruch (nur POSIX: echte Symlinks) ---------------------
+    [Fact]
+    public async Task SymlinkedSources_areNeverRead()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+        using var db = NewDb();
+        await SeedProjectAsync(db);
+        var outside = Directory.CreateTempSubdirectory("naudit-outside-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(outside, "environ"), "Naudit__Ai__ApiKey=SUPERSECRET");
+            File.WriteAllText(Path.Combine(outside, "leak.md"), "SUPERSECRET-DIR");
+            File.WriteAllText(Path.Combine(_dir, "README.md"), "Real rule.");
+            // Datei-Link, Link in docs/ und verlinkter Unterordner in docs/.
+            File.CreateSymbolicLink(Path.Combine(_dir, "CLAUDE.md"), Path.Combine(outside, "environ"));
+            Directory.CreateDirectory(Path.Combine(_dir, "docs"));
+            File.CreateSymbolicLink(Path.Combine(_dir, "docs", "x.md"), Path.Combine(outside, "environ"));
+            Directory.CreateSymbolicLink(Path.Combine(_dir, "docs", "evil"), outside);
+            var chat = new RecordingChatClient("- Real rule.");
+
+            await Sut(db, chat).GetAsync("acme/widgets", _dir);
+
+            Assert.Contains("Real rule.", chat.LastPrompt);
+            Assert.DoesNotContain("SUPERSECRET", chat.LastPrompt);
+        }
+        finally { Directory.Delete(outside, recursive: true); }
+    }
+
+    [Fact]
+    public async Task SymlinkedDocsDirectory_isNotTraversed()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
+        using var db = NewDb();
+        await SeedProjectAsync(db);
+        var outside = Directory.CreateTempSubdirectory("naudit-outside-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(outside, "leak.md"), "SUPERSECRET-DIR");
+            File.WriteAllText(Path.Combine(_dir, "README.md"), "Real rule.");
+            Directory.CreateSymbolicLink(Path.Combine(_dir, "docs"), outside);
+            var chat = new RecordingChatClient("- Real rule.");
+
+            await Sut(db, chat).GetAsync("acme/widgets", _dir);
+
+            Assert.DoesNotContain("SUPERSECRET", chat.LastPrompt);
+        }
+        finally { Directory.Delete(outside, recursive: true); }
+    }
 }

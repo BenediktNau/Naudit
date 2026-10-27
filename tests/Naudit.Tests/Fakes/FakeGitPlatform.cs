@@ -12,6 +12,9 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
     public IReadOnlyList<PostedComment> PostedIds { get; set; } = [];
     public List<string> PostedNotes { get; } = [];
 
+    /// <summary>Gesetzt ⇒ GetCheckoutAsync liefert diese Koordinaten statt des Dummys.</summary>
+    public RepoCheckoutInfo? CheckoutInfo { get; set; }
+
     /// <summary>Gesetzt ⇒ PostNoteAsync wirft diese Ausnahme — damit lässt sich prüfen, dass ein
     /// Fehler am Zusatzkommentar (Altlasten-Bericht) das bereits gepostete Review nicht mehr kippen kann.</summary>
     public Exception? NoteError { get; set; }
@@ -41,5 +44,5 @@ internal sealed class FakeGitPlatform(IReadOnlyList<CodeChange> changes) : IGitP
     }
 
     public Task<RepoCheckoutInfo> GetCheckoutAsync(ReviewRequest request, CancellationToken ct = default)
-        => Task.FromResult(new RepoCheckoutInfo("https://token@host/repo.git", "refs/test/head"));
+        => Task.FromResult(CheckoutInfo ?? new RepoCheckoutInfo("https://host/repo.git", "refs/test/head", "Basic dG9rZW4tc2VjcmV0"));
 }

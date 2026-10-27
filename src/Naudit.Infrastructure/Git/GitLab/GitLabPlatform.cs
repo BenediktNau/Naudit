@@ -138,10 +138,10 @@ public sealed class GitLabPlatform(HttpClient http, IGitTokenProvider tokens, IO
         if (string.IsNullOrEmpty(project.HttpUrlToRepo))
             throw new InvalidOperationException("GitLab lieferte keine http_url_to_repo.");
 
-        // Token in die Klon-URL einbetten (oauth2:<token>@host) — projekt-aufgelöst.
+        // Token NICHT in die URL (argv/.git/config), sondern als Basic-Header (oauth2:<token>) für git.
         var token = await tokens.ResolveTokenAsync(request.ProjectId, ct);
-        var cloneUrl = project.HttpUrlToRepo.Replace("://", $"://oauth2:{token}@");
-        return new RepoCheckoutInfo(cloneUrl, $"refs/merge-requests/{request.MergeRequestIid}/head");
+        var basic = "Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"oauth2:{token}"));
+        return new RepoCheckoutInfo(project.HttpUrlToRepo, $"refs/merge-requests/{request.MergeRequestIid}/head", basic);
     }
 
     // Auth pro Request: GitLab nutzt den PRIVATE-TOKEN-Header mit dem projekt-aufgelösten Token.

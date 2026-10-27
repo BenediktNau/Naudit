@@ -65,6 +65,7 @@ public class OpengrepAnalyzerTests
             new[] { "scan", "--config", "/opt/opengrep-rules", "--config", "/opt/naudit-rules", "--json", "." },
             spec.Arguments);
         Assert.DoesNotContain("auto", spec.Arguments);   // niemals die lizenzbelastete Registry
+        AnalyzerAssertions.MinimalEnvironment(spec);
     }
 
     [Fact]

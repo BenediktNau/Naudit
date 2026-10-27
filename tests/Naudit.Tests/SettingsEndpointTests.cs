@@ -123,12 +123,24 @@ public class SettingsEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_entfernterAnalyzerDotnetSca_wirdAbgelehnt()
+    {
+        // dotnet-sca ist entfernt (dotnet restore auf Fremd-Code) — neu speichern geht nicht mehr.
+        var (client, _) = CreateLoggedInAdmin();
+        var res = await client.PutAsJsonAsync("/api/settings", new
+        {
+            changes = new[] { new { key = "Naudit:Sast:Analyzers", value = (string?)"trivy,dotnet-sca" } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
     public async Task Put_gueltigeAnalyzerListe_wirdGespeichert()
     {
         var (client, restarter) = CreateLoggedInAdmin();
         var res = await client.PutAsJsonAsync("/api/settings", new
         {
-            changes = new[] { new { key = "Naudit:Sast:Analyzers", value = (string?)"trivy, dotnet-sca" } },
+            changes = new[] { new { key = "Naudit:Sast:Analyzers", value = (string?)"trivy, osv-scanner" } },
         });
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.True(restarter.RestartPending);

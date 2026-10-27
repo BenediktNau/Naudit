@@ -162,10 +162,11 @@ public sealed class GitHubPlatform(
         if (string.IsNullOrEmpty(repo.CloneUrl))
             throw new InvalidOperationException("GitHub lieferte keine clone_url.");
 
-        // Token in die Klon-URL einbetten (x-access-token:<token>@host) — projekt-aufgelöst.
+        // Token NICHT in die URL (argv/.git/config), sondern als Basic-Header für git-over-https:
+        // GitHub akzeptiert dort x-access-token:<token> für PATs wie für App-Installation-Tokens.
         var token = await tokens.ResolveTokenAsync(request.ProjectId, ct);
-        var cloneUrl = repo.CloneUrl.Replace("://", $"://x-access-token:{token}@");
-        return new RepoCheckoutInfo(cloneUrl, $"refs/pull/{request.MergeRequestIid}/head");
+        var basic = "Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"x-access-token:{token}"));
+        return new RepoCheckoutInfo(repo.CloneUrl, $"refs/pull/{request.MergeRequestIid}/head", basic);
     }
 
     // Auth pro Request aus dem projekt-aufgelösten Token — nicht als Default-Header (Per-Projekt-fähig, thread-safe).

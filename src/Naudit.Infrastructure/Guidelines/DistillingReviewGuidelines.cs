@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Naudit.Core.Abstractions;
 using Naudit.Core.Review;
 using Naudit.Infrastructure.Data;
+using Naudit.Infrastructure.Workspace;
 
 namespace Naudit.Infrastructure.Guidelines;
 
@@ -180,6 +181,10 @@ public sealed class DistillingReviewGuidelines(
                 // externen Contributors) — eine absichtlich riesige .md-Datei darf den Prozess nicht
                 // erst voll in den Speicher zwingen. UTF-8 → UTF-16: 1 char belegt höchstens 3 Bytes
                 // (4-Byte-Sequenzen ergeben 2 chars), d. h. > budget*3 Bytes ⇒ sicher > budget chars.
+                // Symlink-Schutz: eine verlinkte CLAUDE.md/docs-Datei (→ /proc/self/environ, Naudit-DB …)
+                // würde sonst ihren Ziel-Inhalt in den Destillat-Prompt tragen.
+                if (!WorkspacePaths.IsSafeFile(root, file))
+                    continue;
                 var info = new FileInfo(file);
                 if (!info.Exists || info.Length > (long)budget * 3)
                     continue;
@@ -198,13 +203,13 @@ public sealed class DistillingReviewGuidelines(
         const string recursiveMd = "/**/*.md";
         if (pattern.EndsWith(recursiveMd, StringComparison.Ordinal))
         {
-            var dir = Path.Combine(root, pattern[..^recursiveMd.Length]);
+            var dir = Path.GetFullPath(Path.Combine(root, pattern[..^recursiveMd.Length]));
             if (!Directory.Exists(dir))
                 return [];
-            return Directory.EnumerateFiles(dir, "*.md", SearchOption.AllDirectories)
-                .OrderBy(p => p, StringComparer.Ordinal);
+            // Eigener Walk statt SearchOption.AllDirectories: steigt nie in verlinkte Ordner ab.
+            return WorkspacePaths.EnumerateFilesRecursive(dir, "*.md");
         }
-        return [Path.Combine(root, pattern)];
+        return [Path.GetFullPath(Path.Combine(root, pattern))];
     }
 
     private static string ComputeHash(IReadOnlyList<(string Path, string Content)> sources)

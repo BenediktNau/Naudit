@@ -55,6 +55,7 @@ public class SettingsValuesTests
         Assert.True(SettingsCatalog.TryGet("Naudit:Sast:Analyzers", out var analyzers));
         Assert.True(analyzers.IsList);
         Assert.Contains("opengrep", analyzers.AllowedValues!);
-        Assert.Contains("dotnet-sca", analyzers.AllowedValues!);
+        Assert.Contains("osv-scanner", analyzers.AllowedValues!);
+        Assert.DoesNotContain("dotnet-sca", analyzers.AllowedValues!);   // entfernt (RCE via dotnet restore)
     }
 }

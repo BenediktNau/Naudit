@@ -236,6 +236,18 @@ public class StartupReportTests
     }
 
     [Fact]
+    public void BuildWarnings_removedDotnetScaAnalyzer_warns()
+    {
+        var warnings = StartupReport.BuildWarnings(Config(
+            ("Naudit:Sast:Enabled", "true"),
+            ("Naudit:Sast:Analyzers:0", "trivy"),
+            ("Naudit:Sast:Analyzers:1", "dotnet-sca")));
+
+        var w = Assert.Single(warnings, w => w.Contains("dotnet-sca"));
+        Assert.Contains("osv-scanner", w);   // Hinweis auf den Ersatz für NuGet-SCA
+    }
+
+    [Fact]
     public void BuildWarnings_sandboxDockerWithSingleRouting_warns()
     {
         var warnings = StartupReport.BuildWarnings(Config(

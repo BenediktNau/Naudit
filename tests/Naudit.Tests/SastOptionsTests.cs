@@ -44,4 +44,18 @@ public class SastOptionsTests
         // (anders als ResolveOpengrepRules, wo das Overlay immer mitlaufen MUSS).
         Assert.Equal(new[] { "trivy", "osv-scanner" }, analyzers);
     }
+
+    [Fact]
+    public void ResolveAnalyzers_dropsRemovedDotnetSca()
+    {
+        // dotnet-sca (dotnet restore auf Fremd-Code = RCE) ist entfernt; alte Configs laufen weiter.
+        Assert.Equal(new[] { "trivy" }, SastOptions.ResolveAnalyzers(["trivy", "dotnet-sca"]));
+        Assert.Equal(new[] { "trivy" }, SastOptions.ResolveAnalyzers(["trivy", "DOTNET-SCA"]));
+    }
+
+    [Fact]
+    public void ResolveAnalyzers_onlyRemovedAnalyzer_fallsBackToDefault()
+    {
+        Assert.Equal(new[] { "opengrep", "trivy" }, SastOptions.ResolveAnalyzers(["dotnet-sca"]));
+    }
 }
