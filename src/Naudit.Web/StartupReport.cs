@@ -48,7 +48,7 @@ public static class StartupReport
             $"  Naudit {Version()}",
             $"  Modus:      {mode}",
             git.Platform == GitPlatformKind.GitHub
-                ? $"  Plattform:  GitHub · Auth: {gitHub.Auth} · PostVerdict: {OnOff(gitHub.PostVerdict)}"
+                ? $"  Plattform:  GitHub · Auth: {(gitHub.UsesAppWithPatFallback() ? "App + PAT fallback" : gitHub.Auth.ToString())}{(gitHub.GlobalPatFallbackIgnored() ? " (global PAT ignored: fixed InstallationId)" : "")} ·PostVerdict: {OnOff(gitHub.PostVerdict)}"
                 : $"  Plattform:  GitLab · PostVerdict: {OnOff(gitLab.PostVerdict)}",
             $"  AI:         {ai.Provider} · {Model(ai.Model)} · Routing: {ai.SessionRouting}"
                 + $" · Sandbox: {ai.SessionSandbox} · MCP: {OnOff(mcp.Enabled)} · Logging: {OnOff(aiLogging.Enabled)}",

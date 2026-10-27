@@ -81,8 +81,7 @@ public sealed class GitHubAppTokenProvider(
 
         using var resp = await SendWithJwtAsync(HttpMethod.Get, $"repos/{projectId}/installation", ct);
         if (resp.StatusCode == HttpStatusCode.NotFound)
-            throw new InvalidOperationException(
-                $"Die GitHub App (AppId {options.AppId}) ist im Repo '{projectId}' nicht installiert — erst \"Install app\" ausführen.");
+            throw new GitHubAppNotInstalledException(projectId, options.AppId);
         resp.EnsureSuccessStatusCode();
         var dto = await resp.Content.ReadFromJsonAsync<InstallationDto>(ct)
             ?? throw new InvalidOperationException("GitHub lieferte keine Installation.");

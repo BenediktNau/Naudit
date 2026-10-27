@@ -246,6 +246,11 @@ global token) — set on each `HttpRequestMessage`, not as a static default head
   cached until ~5 min before expiry. Selected config-only via `Naudit:GitHub:Auth = Pat | App`
   (default `Pat` = `ConfiguredGitTokenProvider`, today's behaviour) in the `AddNauditInfrastructure`
   GitHub branch, which fails fast at startup if `Auth=App` is set without `App:AppId`/`App:PrivateKey`.
+  Opt-in **PAT fallback**: with `Auth=App` plus a `Token`/`ProjectTokens`, the composite
+  `GitHubAppWithPatFallbackTokenProvider` resolves per-project PAT → App token → global PAT (the last
+  **only** on `GitHubAppNotInstalledException`, 5-min negative cache; other App errors propagate).
+  With a fixed `App:InstallationId` there is no per-repo lookup, so the global-PAT part is ignored
+  (`GitHubOptions.GlobalPatFallbackIgnored()`, startup warning); explicit `ProjectTokens` still apply.
   Same seam as the per-project provider above — a further secret-store-backed `IGitTokenProvider`
   (Vault/Key Vault/DB) is just another impl + registration. See `docs/github-app.md`.
   On WebUI deployments (`Naudit:Ui:Enabled=true`) the App mode also drives an **install-onboarding

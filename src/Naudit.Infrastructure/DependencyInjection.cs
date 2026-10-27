@@ -184,10 +184,25 @@ public static class DependencyInjection
                     // Eigener named Client fürs Token-Minting (JWT-Auth pro Request; gleiche Basis-Header wie die API).
                     // Bewusst Singleton-Provider mit einmal erzeugtem Client: Minting ist selten (~1×/h), Ziel-Host fix.
                     services.AddHttpClient("github-app", http => ConfigureGitHubClient(http, gitHubOptions.BaseUrl));
-                    services.AddSingleton<IGitTokenProvider>(sp => new GitHubAppTokenProvider(
-                        sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
-                        gitHubOptions.App,
-                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>()));
+                    services.AddSingleton<IGitTokenProvider>(sp =>
+                    {
+                        var app = new GitHubAppTokenProvider(
+                            sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
+                            gitHubOptions.App,
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>());
+                        var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                        // Fester InstallationId ⇒ kein Per-Repo-Lookup ⇒ globaler PAT-Fallback nicht unterstützt.
+                        if (gitHubOptions.GlobalPatFallbackIgnored())
+                            loggerFactory.CreateLogger<GitHubAppWithPatFallbackTokenProvider>().LogWarning(
+                                "Naudit:GitHub:Token wird als PAT-Fallback ignoriert: mit festem Naudit:GitHub:App:InstallationId "
+                                + "ist \"App nicht installiert\" nicht erkennbar. Per-Projekt-ProjectTokens wirken weiter.");
+                        // Opt-in: mit konfiguriertem PAT fallen Repos ohne App-Installation darauf zurück.
+                        return gitHubOptions.UsesAppWithPatFallback()
+                            ? new GitHubAppWithPatFallbackTokenProvider(app,
+                                gitHubOptions.GlobalPatFallbackIgnored() ? "" : gitHubOptions.Token, gitHubOptions.ProjectTokens,
+                                loggerFactory.CreateLogger<GitHubAppWithPatFallbackTokenProvider>())
+                            : app;
+                    });
 
                     // Installations-Checker fürs WebUI-Onboarding: eigener App-JWT (gleiche Basis wie
                     // der Token-Provider), gleicher named Client. Singleton, weil Slug/Ergebnisse gecached werden.

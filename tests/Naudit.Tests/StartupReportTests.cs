@@ -37,6 +37,34 @@ public class StartupReportTests
     }
 
     [Fact]
+    public void BuildLines_gitHubAppWithFixedInstallation_marksGlobalPatIgnored()
+    {
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:Git:Platform", "GitHub"),
+            ("Naudit:GitHub:Auth", "App"),
+            ("Naudit:GitHub:App:InstallationId", "42"),
+            ("Naudit:GitHub:Token", "secret-pat")), Ready, null);
+
+        var platform = Line(lines, "Plattform:");
+        Assert.DoesNotContain("App + PAT fallback", platform);
+        Assert.Contains("global PAT ignored", platform);
+        Assert.DoesNotContain(lines, l => l.Contains("secret-pat"));
+    }
+
+    [Fact]
+    public void BuildLines_gitHubAppWithPat_showsPatFallback()
+    {
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:Git:Platform", "GitHub"),
+            ("Naudit:GitHub:Auth", "App"),
+            ("Naudit:GitHub:Token", "secret-pat")), Ready, null);
+
+        var platform = Line(lines, "Plattform:");
+        Assert.Contains("Auth: App + PAT fallback", platform);
+        Assert.DoesNotContain(lines, l => l.Contains("secret-pat"));
+    }
+
+    [Fact]
     public void BuildLines_gitLab_omitsGitHubOnlyFields()
     {
         var lines = StartupReport.BuildLines(Config(("Naudit:Git:Platform", "GitLab")), Ready, null);

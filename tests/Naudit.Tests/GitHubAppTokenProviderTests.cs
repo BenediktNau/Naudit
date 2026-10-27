@@ -139,9 +139,24 @@ public class GitHubAppTokenProviderTests
         var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         var provider = Provider(rsa, stub, new FakeTime(T0));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        // Eigener Typ, damit der PAT-Fallback gezielt NUR diesen Fall abfängt (andere Fehler propagieren).
+        var ex = await Assert.ThrowsAsync<GitHubAppNotInstalledException>(
             () => provider.ResolveTokenAsync("octo/hello-world").AsTask());
         Assert.Contains("octo/hello-world", ex.Message);
+        Assert.Contains("nicht installiert", ex.Message);
+        Assert.Contains("Naudit:GitHub:Token", ex.Message); // Hinweis auf den PAT-Fallback
+        Assert.Equal("octo/hello-world", ex.ProjectId);
+    }
+
+    [Fact]
+    public async Task ResolveTokenAsync_serverError_isNotNotInstalled()
+    {
+        using var rsa = RSA.Create(2048);
+        var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var provider = Provider(rsa, stub, new FakeTime(T0));
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => provider.ResolveTokenAsync("octo/hello-world").AsTask());
+        Assert.IsNotType<GitHubAppNotInstalledException>(ex);
     }
 
     [Fact]
@@ -183,6 +198,36 @@ public class GitHubAppTokenProviderTests
         // Reihenfolge: Lookup(123), Mint(123), Mint(123)=404, Lookup(456), Mint(456).
         Assert.Equal(5, stub.Calls.Count);
         Assert.EndsWith("/app/installations/456/access_tokens", stub.Calls[4].Uri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task ResolveTokenAsync_cachedInstallation_appUninstalled_throwsNotInstalled()
+    {
+        // Gecachte Installation-Id, App danach aus dem Repo entfernt: Mint 404 ⇒ Cache verwerfen,
+        // frischer Lookup 404 ⇒ GitHubAppNotInstalledException (damit der PAT-Fallback greifen kann).
+        using var rsa = RSA.Create(2048);
+        var time = new FakeTime(T0);
+        var uninstalled = false;
+        var stub = new StubHttpMessageHandler(req =>
+        {
+            if (uninstalled)
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            var json = req.RequestUri!.AbsolutePath.EndsWith("/installation")
+                ? """{"id":123}"""
+                : $$"""{"token":"ghs_old","expires_at":"{{T0.AddHours(1):O}}"}""";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+        });
+        var provider = Provider(rsa, stub, time);
+
+        Assert.Equal("ghs_old", await provider.ResolveTokenAsync("octo/hello-world"));
+
+        uninstalled = true;
+        time.Now = T0.AddHours(2);
+        await Assert.ThrowsAsync<GitHubAppNotInstalledException>(
+            () => provider.ResolveTokenAsync("octo/hello-world").AsTask());
     }
 
     [Fact]
