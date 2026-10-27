@@ -50,6 +50,12 @@ public sealed record ContainerRunSpec(string Name, string Image, string? VolumeN
     /// <summary>Überschreibt den ENTRYPOINT des Images (z. B. ["sleep","infinity"] für einen
     /// passiven Container, der nur per docker exec benutzt wird). null = ENTRYPOINT des Images gilt.</summary>
     public IReadOnlyList<string>? Entrypoint { get; init; }
+
+    /// <summary>Speicher-Obergrenze in Bytes; null/0 = Engine-Default (unbegrenzt).</summary>
+    public long? MemoryBytes { get; init; }
+
+    /// <summary>Prozess-Obergrenze; null/0 = Engine-Default (unbegrenzt).</summary>
+    public long? PidsLimit { get; init; }
 }
 
 public sealed record DockerExecResult(int ExitCode, string StdOut, string StdErr);

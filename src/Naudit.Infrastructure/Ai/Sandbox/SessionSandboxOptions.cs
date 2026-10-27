@@ -25,4 +25,13 @@ public sealed class SessionSandboxOptions
     /// Review-Exec warten; wird das Zeitfenster überschritten, übernimmt die Reconciliation
     /// im Sweeper (docs/session-sandbox.md).</summary>
     public TimeSpan RemoveTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Speicher-Obergrenze pro Session-Container in Bytes (HostConfig.Memory);
+    /// 0 = unbegrenzt. Default 2 GiB — die claude-CLI (Node) braucht im Review deutlich weniger,
+    /// die Grenze fängt Ausreißer/Missbrauch ab, bevor sie den Host treffen.</summary>
+    public long MemoryLimitBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>Prozess-/Thread-Obergrenze pro Session-Container (HostConfig.PidsLimit);
+    /// 0 = unbegrenzt. Default 512 — Schutz gegen Fork-Bomben aus einem Review heraus.</summary>
+    public long PidsLimit { get; set; } = 512;
 }

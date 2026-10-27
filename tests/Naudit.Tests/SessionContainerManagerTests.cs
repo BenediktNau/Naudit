@@ -46,6 +46,30 @@ public class SessionContainerManagerTests
     }
 
     [Fact]
+    public async Task EnsureRunning_appliesDefaultResourceLimits()
+    {
+        var docker = new FakeDockerClient();
+        var manager = Create(docker);
+
+        await manager.EnsureRunningAsync(7);
+
+        Assert.Equal(2L * 1024 * 1024 * 1024, docker.LastRunSpec!.MemoryBytes);   // 2 GiB
+        Assert.Equal(512, docker.LastRunSpec.PidsLimit);
+    }
+
+    [Fact]
+    public async Task EnsureRunning_passesConfiguredResourceLimits()
+    {
+        var docker = new FakeDockerClient();
+        var manager = Create(docker, options: new SessionSandboxOptions { MemoryLimitBytes = 1024, PidsLimit = 0 });
+
+        await manager.EnsureRunningAsync(7);
+
+        Assert.Equal(1024, docker.LastRunSpec!.MemoryBytes);
+        Assert.Equal(0, docker.LastRunSpec.PidsLimit);   // 0 = unbegrenzt, SocketDockerClient lässt es weg
+    }
+
+    [Fact]
     public async Task EnsureRunning_imageOverride_skipsSelfInspection()
     {
         var docker = new FakeDockerClient { SelfImage = null };

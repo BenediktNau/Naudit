@@ -172,20 +172,31 @@ derived image or extra build step needed, just the env vars below.
    CLAUDE_CODE_OAUTH_TOKEN=<token from step 1>    # 🔒 secret
    ```
 
-**Updating the CLI:** rebuild the main image — each build resolves the newest `stable`
-release, downloads the binary, and verifies its SHA256 against the checksum in that version's
-`manifest.json` (the build fails on a mismatch). BuildKit only re-downloads when the
-version actually changed. To **pin or roll back** (e.g. a bad Claude Code release), build
-with `--build-arg CLAUDE_CODE_VERSION=<version>` instead of the empty default.
+**CLI version is pinned.** The `Dockerfile` pins both the CLI version
+(`ARG CLAUDE_CODE_VERSION`) and the SHA256 of the `linux-x64` binary
+(`ARG CLAUDE_CODE_SHA256`) in the repository. The build downloads exactly that version,
+fails if the release's `manifest.json` checksum differs from the pin, and verifies the
+downloaded binary against the **pinned** checksum — so neither a moved `stable` pointer
+nor a swapped binary + manifest on the download origin changes what goes into the image.
+
+**Updating the CLI:** bump the two ARGs in one reviewed change — the new version number and
+the checksum from
+`https://downloads.claude.ai/claude-code-releases/<version>/manifest.json`
+(`.platforms."linux-x64".checksum`). Dependabot does not track this pin (it is not a
+package-manager dependency), so this is a manual step. To build with a different version
+ad hoc, pass both build args (`--build-arg CLAUDE_CODE_VERSION=<version>
+--build-arg CLAUDE_CODE_SHA256=<sha256>`); the previous "always latest" behaviour is still
+available as an escape hatch with `--build-arg CLAUDE_CODE_VERSION=stable
+--build-arg CLAUDE_CODE_SHA256=` (resolve the `stable` pointer, verify against the manifest only).
 
 **Caveats:**
 
 - The token expires after **1 year** with no auto-refresh — regenerate it then.
-- "Always latest" means a broken Claude Code release lands on the next image build — use the
-  `CLAUDE_CODE_VERSION` build-arg to pin back if that happens.
-- Integrity is **checksum-only**: the binary is checked against the SHA256 in `manifest.json`.
-  Anthropic GPG-signs that manifest (`manifest.json.sig`), but this build does not verify the
-  signature — it guards against a corrupt download, not a compromised upstream.
+- The pinned CLI does not update itself (`DISABLE_AUTOUPDATER=1`); new CLI releases only
+  arrive with a bumped pin.
+- Integrity is **checksum-only**: Anthropic GPG-signs the manifest (`manifest.json.sig`), but
+  this build does not verify the signature. The in-repo pin guards against a compromised or
+  moved upstream *after* the pin was reviewed; it cannot vouch for the release that was pinned.
 
 ## Session sandbox (optional)
 
@@ -265,6 +276,45 @@ Notes:
 - **Dependabot** (`.github/dependabot.yml`) keeps the pins current for three ecosystems —
   `github-actions`, `nuget`, `docker` — with a **cooldown** grace period (7 days; 14 for major)
   to dampen churn and give time to spot yanked/compromised releases, grouped into a single PR.
+- **Claude Code CLI pinned** by version and SHA256 in the `Dockerfile` (see
+  [Claude Code CLI provider](#claude-code-cli-provider-subscription)); bumped manually.
+- **Least-privilege `GITHUB_TOKEN`**: the PR gate (`ci.yml`) runs with `contents: read`;
+  only `release.yml` gets `contents: write` (tag + release) and `packages: write` (ghcr.io).
+
+## Security notes
+
+### Data-Protection keys live next to the data they protect
+
+Secret settings (`IsSecret` rows in the `Settings` table — API keys, git tokens, webhook
+secrets, the GitHub App private key), the setup draft, stored Claude session tokens, and the
+WebUI session cookies are encrypted with ASP.NET Core Data Protection. The Data-Protection
+**key ring is persisted in the same database** (`DataProtectionKeys` table), and it is stored
+**unencrypted** there — ASP.NET does not encrypt keys at rest unless a key-encryption
+mechanism is configured, and Naudit does not configure one.
+
+Consequence: anyone who obtains a copy of the database (a SQLite file from the `/data`
+volume, a Postgres dump or backup) holds both the ciphertext and the keys, and can decrypt
+every stored secret. The encryption protects against casual inspection of single rows, not
+against loss of the database as a whole. Treat the database and **all of its backups** as
+secret material, with the same access controls as the secrets themselves.
+
+Mitigations, from least to most effort:
+
+- **Encrypt the storage at rest** — an encrypted volume/disk for `/data` (LUKS, cloud-provider
+  disk encryption) or Postgres storage/backup encryption. This protects against stolen disks
+  and leaked backups, not against someone with live database access.
+- **Restrict database access** — network-isolate Postgres, use a dedicated role for Naudit,
+  and keep backups in an access-controlled location.
+- **Prefer env vars for the most sensitive secrets** — values set via environment variables
+  (or user-secrets) are never written to the `Settings` table, so a database copy does not
+  contain them. The Settings page shows such keys as "set via env, locked".
+- **Encrypt the key ring itself** — ASP.NET Core supports protecting the keys with an X.509
+  certificate (`ProtectKeysWithCertificate`) or a cloud KMS (Azure Key Vault, AWS KMS via
+  community packages). This separates the key-encryption key from the database, but it needs
+  key-material management (certificate distribution, rotation, and keeping old certificates
+  available to decrypt existing keys); Naudit does not ship this. If you add it, configure it
+  identically for the host **and** for the pre-host `DbSettingsLoader` (both use the
+  application name `Naudit`), or the loader can no longer decrypt DB-stored settings.
 
 ## Startup-Report
 

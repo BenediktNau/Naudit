@@ -311,6 +311,156 @@ public class PatternRedactorTests
         Assert.DoesNotContain(secret, outp);
     }
 
+    // ---- Token-Präfixe der gängigen Plattformen (Security-Härtung) ----
+    // Fixtures werden aus Fragmenten zusammengesetzt, damit der Quelltext selbst keine
+    // vollständigen Token-Literale trägt (Secret-Scanner/Push-Protection schlagen sonst an).
+
+    public static TheoryData<string> PrefixedTokens() => new()
+    {
+        "gh" + "p_" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",       // GitHub PAT classic
+        "gh" + "o_" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",       // GitHub OAuth
+        "gh" + "u_" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",       // GitHub user-to-server
+        "gh" + "s_" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",       // GitHub server-to-server (App)
+        "gh" + "r_" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",       // GitHub refresh
+        "github" + "_pat_" + "11ABCDEFG0aB3dEf9HjKl2_MnP4qRs7tUv8wXy0zA1bC2dE",
+        "gl" + "pat-" + "aB3dEf9HjKl2MnP4qRs7",                     // GitLab PAT
+        "gl" + "dt-" + "aB3dEf9HjKl2MnP4qRs7",                      // GitLab deploy token
+        "gl" + "rt-" + "aB3dEf9HjKl2MnP4qRs7",                      // GitLab runner token
+        "gl" + "ptt-" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0",             // GitLab pipeline trigger
+        "sk-" + "ant-api03-" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",  // Anthropic
+        "sk-" + "proj-" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",       // OpenAI project key
+        "sk-" + "aB3dEf9HjKl2MnP4qRs7tUv8wXy0zA1bC2dE",                 // OpenAI legacy key
+        "xo" + "xb-" + "1234567890-abcdefghij",                     // Slack bot
+        "AK" + "IA" + "IOSFODNN7EXAMPLE",                           // AWS access key id
+        "AS" + "IA" + "IOSFODNN7EXAMPLE",                           // AWS temporary key id
+    };
+
+    [Theory]
+    [MemberData(nameof(PrefixedTokens))]
+    public async Task PrefixedPlatformToken_isRedacted_evenWithoutKeywordContext(string token)
+    {
+        // Ohne Schlüsselwort davor (kein "token="), damit wirklich die Präfix-Regel greifen muss.
+        var outp = await Redact($"curl -H \"X-Foo: {token}\" https://example.invalid");
+        Assert.DoesNotContain(token, outp);
+        Assert.Contains("«redacted:", outp);
+    }
+
+    [Fact]
+    public async Task PrefixRules_doNotHitOrdinaryHyphenatedWords()
+    {
+        // Precision: "sk-"/"gl…-" mitten in normalen Bezeichnern (CSS-Klassen, Task-Namen) ist kein Token.
+        const string code = "<div class=\"desk-layout task-runner glow-effect\"></div>";
+        Assert.Equal(code, await Redact(code));
+    }
+
+    [Fact]
+    public async Task PemBlock_multiLineBody_isFullyRedacted_evenWithLowEntropyLines()
+    {
+        // Der Entropie-Fallback allein reicht nicht: eine Body-Zeile ohne Ziffern (oder eine kurze
+        // Schlusszeile) rutschte durch. Die Block-Erkennung maskiert alles zwischen BEGIN und END.
+        var body1 = "MIIEowIBAAKCAQEA7Yn5cVq8K3pLmN9rT2vWxYz0aB4cDeFgHiJkLmNoPqRsTuVw";
+        var body2 = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl"; // keine Ziffer
+        var body3 = "q8K3pLmN==";                                                         // kurz
+        var pem = string.Join('\n', new[]
+        {
+            "+-----BEGIN PRIVATE " + "KEY-----",
+            "+" + body1,
+            "+" + body2,
+            "+" + body3,
+            "+-----END PRIVATE " + "KEY-----",
+            "+var next = 1;",
+        });
+        var outp = await Redact(pem);
+        var lines = outp.Split('\n');
+
+        Assert.Equal(6, lines.Length);                 // line-preserving
+        Assert.DoesNotContain(body1, outp);
+        Assert.DoesNotContain(body2, outp);
+        Assert.DoesNotContain(body3, outp);
+        Assert.All(lines, l => Assert.StartsWith("+", l));   // Diff-Marker bleibt stehen
+        Assert.Equal("+var next = 1;", lines[5]);       // Block endet am END
+    }
+
+    [Fact]
+    public async Task PemBlock_onOneLine_withEscapedNewlines_isRedacted()
+    {
+        // JSON/.env-Schreibweise: der ganze Schlüssel steht mit "\n"-Escapes in EINER Zeile.
+        var key = "MIIEowIBAAKCAQEA7Yn5cVq8K3pLmN9rT2vWxYz0aB4cDeFgHiJkLmNoPqRsTuVw";
+        var line = "\"privateKey\": \"-----BEGIN RSA PRIVATE " + "KEY-----\\n" + key
+                   + "\\nabcdefghijkl\\n-----END RSA PRIVATE " + "KEY-----\\n\",";
+        var outp = await Redact(line);
+
+        Assert.DoesNotContain(key, outp);
+        Assert.DoesNotContain("abcdefghijkl", outp);
+        Assert.Contains("«redacted:private-key»", outp);
+    }
+
+    [Fact]
+    public async Task PemHeaderAsCodeConstant_doesNotSwallowFollowingCode()
+    {
+        // Gegenprobe: ein Parser, der den Header als Konstante kennt, darf nicht den Rest der
+        // Datei verschlucken — der Block endet an der ersten Zeile, die kein PEM-Body ist.
+        var code = string.Join('\n', new[]
+        {
+            "+const string Header = \"-----BEGIN PRIVATE " + "KEY-----\";",
+            "+var parsed = Parse(input);",
+            "+return parsed;",
+        });
+        var outp = await Redact(code);
+        var lines = outp.Split('\n');
+
+        Assert.EndsWith("\";", lines[0]);              // String-Literal bleibt geschlossen
+        Assert.Equal("+var parsed = Parse(input);", lines[1]);
+        Assert.Equal("+return parsed;", lines[2]);
+    }
+
+    // ---- Suffix-Schlüssel (WebhookSecret=, ClientSecret=, ApiKey:) ----
+
+    [Theory]
+    [InlineData("WebhookSecret=hunter2", "WebhookSecret=", "hunter2")]
+    [InlineData("Naudit__GitHub__WebhookSecret=s3cr3tv", "Naudit__GitHub__WebhookSecret=", "s3cr3tv")]
+    [InlineData("ClientSecret = \"abcDEF\"", "ClientSecret = ", "abcDEF")]
+    [InlineData("  ApiKey: q7Wm2Zp", "ApiKey: ", "q7Wm2Zp")]
+    [InlineData("\"OpenAiApiKey\": \"short1\",", "\"OpenAiApiKey\": ", "short1")]
+    [InlineData("gitlabAccessToken: \"xyz\"", "gitlabAccessToken: ", "xyz")]
+    [InlineData("ADMIN_PASSWORD=plain", "ADMIN_PASSWORD=", "plain")]
+    [InlineData("dbPassword=plain", "dbPassword=", "plain")]
+    public async Task SuffixStyleSecretKey_redactsOnlyTheValue(string line, string keyPart, string value)
+    {
+        var outp = await Redact(line);
+        Assert.DoesNotContain(value, outp);
+        Assert.Contains(keyPart, outp);                 // Schlüsselname bleibt vollständig lesbar
+        Assert.Contains("«redacted:secret»", outp);
+    }
+
+    [Theory]
+    [InlineData("var secret = GetSecret();")]
+    [InlineData("var secret = await vault.GetSecretAsync(name, ct);")]
+    [InlineData("string? WebhookSecret { get; set; }")]
+    [InlineData("public string WebhookSecret { get; set; } = \"\";")]
+    [InlineData("options.WebhookSecret = request.WebhookSecret;")]
+    [InlineData("var clientSecret = options.ClientSecret;")]
+    [InlineData("await client.SendAsync(msg, cancellationToken: ct);")]
+    [InlineData("const { accessToken: token } = session;")]
+    [InlineData("var authToken = lookupValue;")]
+    [InlineData("if (apiKey == null) return;")]
+    [InlineData("WebhookSecret: null")]
+    [InlineData("var hasToken = true;")]
+    [InlineData("The webhook secret is validated in constant time.")]
+    [InlineData("var token = context.Request.Headers[\"X-Gitlab-Token\"].ToString();")]
+    [InlineData("<StepAi hasAiApiKey={hasAiApiKey} update={update} />")]
+    [InlineData("-e Naudit__GitHub__WebhookSecret=<random-secret> \\")]
+    [InlineData("NAUDIT_TOKEN: ${{ secrets.NAUDIT_TOKEN }}")]
+    [InlineData("var token = await tokens.ResolveTokenAsync(request.ProjectId, ct);")]
+    [InlineData("Set `WebhookSecret` in the settings text field.")]
+    public async Task CodeMentioningSecretKeys_isNotRedacted(string code)
+    {
+        // Regression (Dogfooding PR #50): maskiert wurde u. a. der Wert von `secret = GetSecret()` —
+        // die Review sah dann «redacted:secret» im Code und meldete ein hart codiertes Secret.
+        // Code-Ausdrücke (Aufrufe, Member-Zugriffe, Literale wie null/true) sind nie Secrets.
+        Assert.Equal(code, await Redact(code));
+    }
+
     [Fact]
     public async Task Disabled_viaNullRedactor_returnsTextUnchanged()
     {

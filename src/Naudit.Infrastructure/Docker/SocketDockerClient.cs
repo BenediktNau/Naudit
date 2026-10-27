@@ -86,9 +86,32 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
 
     public async Task RunDetachedAsync(ContainerRunSpec spec, CancellationToken ct = default)
     {
-        var hostConfig = new Dictionary<string, object?>();
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
+            $"/containers/create?name={Uri.EscapeDataString(spec.Name)}")
+        { Content = new StringContent(BuildCreateBody(spec), Encoding.UTF8, "application/json") }, ct);
+        // 409 = Name existiert bereits (Race zweier EnsureRunning) — dann genügt der Start.
+        await EnsureAsync(resp, ct, HttpStatusCode.Conflict);
+        await StartAsync(spec.Name, ct);
+    }
+
+    /// <summary>JSON-Body für POST /containers/create (für Unit-Tests sichtbar). Härtung ist hier
+    /// fest verdrahtet, nicht konfigurierbar: alle Linux-Capabilities weg und kein Rechte-Gewinn
+    /// über setuid-Binaries (no-new-privileges). Die claude-CLI läuft als Non-Root-User "app" und
+    /// braucht keine Capability — `sleep`/`docker exec`/Dateizugriffe im eigenen HOME funktionieren
+    /// ohne. Memory/PidsLimit kommen aus der Spec (0/null ⇒ Feld weglassen = Engine-Default).</summary>
+    public static string BuildCreateBody(ContainerRunSpec spec)
+    {
+        var hostConfig = new Dictionary<string, object?>
+        {
+            ["CapDrop"] = new[] { "ALL" },
+            ["SecurityOpt"] = new[] { "no-new-privileges" },
+        };
         if (spec.VolumeName is not null && spec.VolumeTarget is not null)
             hostConfig["Binds"] = new[] { $"{spec.VolumeName}:{spec.VolumeTarget}" };
+        if (spec.MemoryBytes is > 0)
+            hostConfig["Memory"] = spec.MemoryBytes.Value;
+        if (spec.PidsLimit is > 0)
+            hostConfig["PidsLimit"] = spec.PidsLimit.Value;
 
         var create = new Dictionary<string, object?> { ["Image"] = spec.Image, ["HostConfig"] = hostConfig };
         if (spec.Command.Count > 0)
@@ -105,12 +128,7 @@ public sealed class SocketDockerClient(string socketPath) : IDockerClient, IDisp
         if (spec.Environment is { Count: > 0 })
             create["Env"] = spec.Environment.Select(kv => $"{kv.Key}={kv.Value}").ToArray();
 
-        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Post,
-            $"/containers/create?name={Uri.EscapeDataString(spec.Name)}")
-        { Content = JsonContent.Create(create, options: OutJsonOpts) }, ct);
-        // 409 = Name existiert bereits (Race zweier EnsureRunning) — dann genügt der Start.
-        await EnsureAsync(resp, ct, HttpStatusCode.Conflict);
-        await StartAsync(spec.Name, ct);
+        return JsonSerializer.Serialize(create, OutJsonOpts);
     }
 
     public async Task StartAsync(string name, CancellationToken ct = default)
