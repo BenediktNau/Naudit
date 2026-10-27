@@ -7,11 +7,14 @@ internal sealed class FakeReviewGuidelines(string? profile) : IReviewGuidelines
 {
     public string? LastProjectId { get; private set; }
     public string? LastWorkspaceDir { get; private set; }
+    public IReadOnlyCollection<string>? LastChangedFiles { get; private set; }
 
-    public Task<string?> GetAsync(string projectId, string? workspaceDir, CancellationToken ct = default)
+    public Task<string?> GetAsync(string projectId, string? workspaceDir,
+        IReadOnlyCollection<string>? changedFiles = null, CancellationToken ct = default)
     {
         LastProjectId = projectId;
         LastWorkspaceDir = workspaceDir;
+        LastChangedFiles = changedFiles;
         return Task.FromResult(profile);
     }
 }

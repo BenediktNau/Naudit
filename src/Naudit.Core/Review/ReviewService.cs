@@ -212,7 +212,7 @@ public sealed class ReviewService(
     {
         var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
         if (!needCheckout)
-            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ChangedPaths(changes), ct));
 
         IReviewWorkspace workspace;
         try
@@ -222,7 +222,7 @@ public sealed class ReviewService(
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             // Checkout fehlgeschlagen → diff-only
-            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ChangedPaths(changes), ct));
         }
 
         await using (workspace)
@@ -235,11 +235,16 @@ public sealed class ReviewService(
                 ? await SafeCollectContextAsync(workspace, changes, ct)
                 : ReviewContext.Empty;
 
-            var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ct);
+            var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ChangedPaths(changes), ct);
 
             return (reduction, context, guidelines);
         }
     }
+
+    // Geänderte Pfade für das Architektur-Profil: ändert der MR selbst die Doku-Quellen, wird nicht
+    // aus seinem Head destilliert (Guidelines-Poisoning, siehe IReviewGuidelines).
+    private static IReadOnlyCollection<string> ChangedPaths(IReadOnlyList<CodeChange> changes)
+        => changes.Select(c => c.FilePath).ToList();
 
     private async Task<FindingReduction> RunAnalyzersAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes,

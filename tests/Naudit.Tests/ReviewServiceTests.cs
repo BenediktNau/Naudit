@@ -586,6 +586,20 @@ public class ReviewServiceTests
     }
 
     [Fact]
+    public async Task ReviewAsync_passesChangedFilePaths_toGuidelines()
+    {
+        // Guidelines-Poisoning-Schutz: die Implementierung muss wissen, ob der MR die Doku-Quellen ändert.
+        var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
+        var git = new FakeGitPlatform([new CodeChange("CLAUDE.md", "@@ -0,0 +1,1 @@\n+x"), new CodeChange("a.cs", "@@ -0,0 +1,1 @@\n+y")]);
+        var guidelines = new FakeReviewGuidelines(null);
+        var service = CreateService(chat, git, new ReviewOptions { SystemPrompt = "SYS" }, guidelines: guidelines);
+
+        await service.ReviewAsync(Request);
+
+        Assert.Equal(new[] { "CLAUDE.md", "a.cs" }, guidelines.LastChangedFiles);
+    }
+
+    [Fact]
     public async Task ReviewAsync_passesMemoryEntries_intoPrompt()
     {
         var chat = new FakeChatClient("""{"summary":"ok","comments":[]}""");
