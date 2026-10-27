@@ -37,6 +37,19 @@ public class StartupReportTests
     }
 
     [Fact]
+    public void BuildLines_gitHubAppWithPat_showsPatFallback()
+    {
+        var lines = StartupReport.BuildLines(Config(
+            ("Naudit:Git:Platform", "GitHub"),
+            ("Naudit:GitHub:Auth", "App"),
+            ("Naudit:GitHub:Token", "secret-pat")), Ready, null);
+
+        var platform = Line(lines, "Plattform:");
+        Assert.Contains("Auth: App + PAT fallback", platform);
+        Assert.DoesNotContain(lines, l => l.Contains("secret-pat"));
+    }
+
+    [Fact]
     public void BuildLines_gitLab_omitsGitHubOnlyFields()
     {
         var lines = StartupReport.BuildLines(Config(("Naudit:Git:Platform", "GitLab")), Ready, null);

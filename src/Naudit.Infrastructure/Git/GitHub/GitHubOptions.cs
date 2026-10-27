@@ -17,6 +17,14 @@ public sealed class GitHubOptions
     // Verhalten (event=COMMENT). Achtung: GitHub lehnt APPROVE/REQUEST_CHANGES vom PR-Autor mit 422 ab
     // — nur mit App-/Service-Account-Identität aktivieren.
     public bool PostVerdict { get; set; }
+
+    /// <summary>Opt-in PAT-Fallback: Auth=App UND ein PAT konfiguriert (globaler Token oder ein gültiger
+    /// ProjectTokens-Eintrag). Sonst bleibt Auth=App exakt beim reinen App-Provider. Bewusst Methode statt
+    /// Property, damit der Config-Binder sie nicht anfasst.</summary>
+    public bool UsesAppWithPatFallback()
+        => Auth == GitHubAuthKind.App
+           && (!string.IsNullOrWhiteSpace(Token)
+               || ProjectTokens.Any(e => !string.IsNullOrWhiteSpace(e.Project) && !string.IsNullOrWhiteSpace(e.Token)));
 }
 
 /// <summary>Wählt die <see cref="Git.IGitTokenProvider"/>-Implementierung für GitHub (config-only, s. CLAUDE.md).</summary>

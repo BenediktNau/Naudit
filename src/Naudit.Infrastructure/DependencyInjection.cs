@@ -184,10 +184,18 @@ public static class DependencyInjection
                     // Eigener named Client fürs Token-Minting (JWT-Auth pro Request; gleiche Basis-Header wie die API).
                     // Bewusst Singleton-Provider mit einmal erzeugtem Client: Minting ist selten (~1×/h), Ziel-Host fix.
                     services.AddHttpClient("github-app", http => ConfigureGitHubClient(http, gitHubOptions.BaseUrl));
-                    services.AddSingleton<IGitTokenProvider>(sp => new GitHubAppTokenProvider(
-                        sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
-                        gitHubOptions.App,
-                        sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>()));
+                    services.AddSingleton<IGitTokenProvider>(sp =>
+                    {
+                        var app = new GitHubAppTokenProvider(
+                            sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app"),
+                            gitHubOptions.App,
+                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppTokenProvider>());
+                        // Opt-in: mit konfiguriertem PAT fallen Repos ohne App-Installation darauf zurück.
+                        return gitHubOptions.UsesAppWithPatFallback()
+                            ? new GitHubAppWithPatFallbackTokenProvider(app, gitHubOptions.Token, gitHubOptions.ProjectTokens,
+                                sp.GetRequiredService<ILoggerFactory>().CreateLogger<GitHubAppWithPatFallbackTokenProvider>())
+                            : app;
+                    });
 
                     // Installations-Checker fürs WebUI-Onboarding: eigener App-JWT (gleiche Basis wie
                     // der Token-Provider), gleicher named Client. Singleton, weil Slug/Ergebnisse gecached werden.

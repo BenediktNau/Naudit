@@ -139,9 +139,24 @@ public class GitHubAppTokenProviderTests
         var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         var provider = Provider(rsa, stub, new FakeTime(T0));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+        // Eigener Typ, damit der PAT-Fallback gezielt NUR diesen Fall abfängt (andere Fehler propagieren).
+        var ex = await Assert.ThrowsAsync<GitHubAppNotInstalledException>(
             () => provider.ResolveTokenAsync("octo/hello-world").AsTask());
         Assert.Contains("octo/hello-world", ex.Message);
+        Assert.Contains("nicht installiert", ex.Message);
+        Assert.Contains("Naudit:GitHub:Token", ex.Message); // Hinweis auf den PAT-Fallback
+        Assert.Equal("octo/hello-world", ex.ProjectId);
+    }
+
+    [Fact]
+    public async Task ResolveTokenAsync_serverError_isNotNotInstalled()
+    {
+        using var rsa = RSA.Create(2048);
+        var stub = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var provider = Provider(rsa, stub, new FakeTime(T0));
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => provider.ResolveTokenAsync("octo/hello-world").AsTask());
+        Assert.IsNotType<GitHubAppNotInstalledException>(ex);
     }
 
     [Fact]
