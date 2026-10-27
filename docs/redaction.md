@@ -62,7 +62,9 @@ comment positions stay correct.
 - **Code is not a secret.** The keyword rule never masks the key name, and it
   leaves an *unquoted* value alone when that value is clearly code: a call
   (`var secret = GetSecret();`), a literal (`null`, `true`, `default`), a
-  comparison/lambda (`apiKey == null`, `token => …`), or — with a spaced
+  comparison/lambda (`apiKey == null`, `token => …`), a JSX/template expression
+  or reference (`hasToken={hasToken}`, `${{ secrets.X }}`), a placeholder
+  (`<random-secret>`), or — with a spaced
   separator (`x = y`, `x: y`) — a member access (`options.ClientSecret`).
   For suffix keys a spaced, digit-free identifier value is treated as a
   variable too (`authToken = lookupValue`, `cancellationToken: ct`), because
