@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace Naudit.Infrastructure.Ai.Logging;
 
 /// <summary>Die Prompt-/Kommunikations-Middleware: ein Mediator-Pipeline-Behavior, das sich um
-/// JEDEN LLM-Aufruf legt (global wie Autor-/Pool-Session). Davor: strukturiertes Log inkl.
+/// JEDEN LLM-Aufruf legt (global wie Autor-Session). Davor: strukturiertes Log inkl.
 /// System-/User-Prompt; danach: Latenz, Token-Usage, rohe Antwort — plus (opt-in) Persistenz fürs
 /// WebUI-Review-Detail. Fail-open: ein Fehler im Logging/Persistieren kippt nie das Review, nur
 /// eine echte Aufruf-Exception (LLM/Cancel) wird — nach Erfassung — weitergereicht.</summary>

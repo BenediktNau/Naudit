@@ -39,7 +39,7 @@ public static class SettingsCatalog
         new("Naudit:Ai:Model", false),
         new("Naudit:Ai:Endpoint", false),
         new("Naudit:Ai:ApiKey", true),
-        new("Naudit:Ai:SessionRouting", false),
+        new("Naudit:Ai:SessionRouting", false, AllowedValues: ["Single", "Author"]),
         new("Naudit:Ai:Logging:Enabled", false),
         new("Naudit:Ai:Logging:IncludePrompts", false),
         new("Naudit:Ai:Logging:IncludeResponse", false),

@@ -110,6 +110,19 @@ public class SettingsEndpointTests : IClassFixture<TestAppFactory>
     }
 
     [Fact]
+    public async Task Put_sessionRoutingRoundRobin_wirdAbgelehnt()
+    {
+        // Pool-Modus entfernt: der Alt-Wert ist nicht mehr neu setzbar (nur noch tolerant gebunden).
+        var (client, restarter) = CreateLoggedInAdmin();
+        var res = await client.PutAsJsonAsync("/api/settings", new
+        {
+            changes = new[] { new { key = "Naudit:Ai:SessionRouting", value = (string?)"RoundRobin" } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.False(restarter.RestartPending);
+    }
+
+    [Fact]
     public async Task Put_unbekannterAnalyzer_wirdAbgelehnt()
     {
         var (client, restarter) = CreateLoggedInAdmin();

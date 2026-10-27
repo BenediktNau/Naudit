@@ -21,7 +21,7 @@ public sealed class SessionSandboxOptions
     public string? Image { get; set; }
 
     /// <summary>Wie lange RemoveAsync höchstens auf den Account-Lock wartet. Der Abbau hängt am
-    /// HTTP-Request (Token löschen/Pool-Austritt/Suspend) und darf nicht auf einen laufenden
+    /// HTTP-Request (Token löschen/Suspend) und darf nicht auf einen laufenden
     /// Review-Exec warten; wird das Zeitfenster überschritten, übernimmt die Reconciliation
     /// im Sweeper (docs/session-sandbox.md).</summary>
     public TimeSpan RemoveTimeout { get; set; } = TimeSpan.FromSeconds(5);

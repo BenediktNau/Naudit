@@ -13,7 +13,7 @@ const ENUMS: Record<string, string[]> = {
   "Naudit:Review:Gate:MinConfidence": ["Low", "Medium", "High"],
   "Naudit:Ui:Auth:GitHub:Enabled": ["false", "true"],
   "Naudit:Ui:Auth:Oidc:Enabled": ["false", "true"],
-  "Naudit:Ai:SessionRouting": ["Single", "Author", "RoundRobin"],
+  "Naudit:Ai:SessionRouting": ["Single", "Author"],
 };
 
 function RawRow({ item, ctx }: { item: SettingItem; ctx: SettingsCtx }) {

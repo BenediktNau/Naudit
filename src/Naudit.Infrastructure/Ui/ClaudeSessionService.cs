@@ -93,24 +93,6 @@ public sealed class ClaudeSessionService(
         return matches.SingleOrDefault();
     }
 
-    /// <summary>Pool-Kandidaten fürs Round-Robin: aktive Konten mit Token UND Opt-in, Id-sortiert
-    /// (deterministische Rotationsreihenfolge). Token wird erst im Router entschlüsselt.</summary>
-    public Task<List<AccountEntity>> GetPoolCandidatesAsync(CancellationToken ct = default)
-        => db.Accounts
-            .Where(a => a.Status == AccountStatus.Active && a.ClaudeSessionToken != null && a.ShareSessionInPool)
-            .OrderBy(a => a.Id)
-            .ToListAsync(ct);
-
-    /// <summary>Setzt das Pool-Opt-in (Token bleibt unangetastet).</summary>
-    public async Task SetShareInPoolAsync(int accountId, bool share, CancellationToken ct = default)
-    {
-        var account = await db.Accounts.SingleAsync(a => a.Id == accountId, ct);
-        account.ShareSessionInPool = share;
-        await db.SaveChangesAsync(ct);
-        if (!share)
-            await RemoveSandboxAsync(accountId, ct);
-    }
-
     /// <summary>Nicht entschlüsselbar (Keyring weg, fremder Ciphertext, kaputtes Base64url) ⇒ null
     /// statt Crash — gleiche Semantik wie DbSettingsLoader bei Settings-Secrets.</summary>
     public string? DecryptToken(AccountEntity account)
@@ -120,9 +102,8 @@ public sealed class ClaudeSessionService(
         catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or FormatException) { return null; }
     }
 
-    // Sandbox-Lifecycle: ohne Token/Pool-Opt-in soll der Account-Container samt Volume (enthält
+    // Sandbox-Lifecycle: ohne Token soll der Account-Container samt Volume (enthält
     // CLI-Credentials!) verschwinden. Best-effort — ein Docker-Fehler kippt nie die DB-Operation.
-    // Im Author-Modus kostet ein Pool-Austritt so schlimmstenfalls einen Kaltstart beim nächsten Review.
     private async Task RemoveSandboxAsync(int accountId, CancellationToken ct)
     {
         if (sandbox is null)

@@ -173,7 +173,7 @@ public sealed class SessionContainerManager(
             logger.LogInformation("Session-Sandbox: {Count} bestehende Container adoptiert.", adopted);
     }
 
-    /// <summary>Pool-Austritt/Token-Löschung/Suspend: Container UND Volume entfernen — das Volume
+    /// <summary>Token-Löschung/Suspend: Container UND Volume entfernen — das Volume
     /// enthält die CLI-Credentials des Accounts und darf ihn nicht überleben. Wartet höchstens
     /// RemoveTimeout auf den Account-Lock (der Aufruf hängt am HTTP-Request); false = ein Exec war
     /// in Flight, der Abbau bleibt der Reconciliation im Sweeper überlassen.</summary>

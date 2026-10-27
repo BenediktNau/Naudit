@@ -68,9 +68,6 @@ namespace Naudit.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("ShareSessionInPool")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("TEXT");

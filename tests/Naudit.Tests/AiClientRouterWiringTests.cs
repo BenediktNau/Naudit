@@ -15,7 +15,7 @@ public class AiClientRouterWiringTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDataProtection();
-        services.AddNauditDatabase(config);       // ClaudeSessionService (Scoped) für Author-/RoundRobin-Router
+        services.AddNauditDatabase(config);       // ClaudeSessionService (Scoped) für den Author-Router
         services.AddNauditInfrastructure(config);
         using var sp = services.BuildServiceProvider();
         using var scope = sp.CreateScope();
@@ -35,7 +35,9 @@ public class AiClientRouterWiringTests
     [Theory]
     [InlineData("Single", typeof(SingleClientRouter))]
     [InlineData("Author", typeof(AuthorSessionRouter))]
-    [InlineData("RoundRobin", typeof(RoundRobinSessionRouter))]
+    // Alt-Wert des entfernten Pool-Modus: bindet als Author (kein Recovery-Modus, kein Fremd-Abo).
+    [InlineData("RoundRobin", typeof(AuthorSessionRouter))]
+    [InlineData("roundrobin", typeof(AuthorSessionRouter))]
     public void SessionRouting_selectsMatchingRouter(string mode, Type expected)
     {
         var settings = BaseSettings();

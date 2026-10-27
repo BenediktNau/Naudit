@@ -73,7 +73,7 @@ public class PromptLoggingWiringTests
 
     /// <summary>Session-Routing baut den Session-Client über die SessionSelectionFactory — sie nimmt
     /// AiLoggingOptions + IMediator im Ctor, muss also im echten Graph auflösbar sein (sonst
-    /// scheitert Autor-/Pool-Routing erst zur Laufzeit beim ersten Review).</summary>
+    /// scheitert Autor-Routing erst zur Laufzeit beim ersten Review).</summary>
     [Fact]
     public void SessionRouting_mitLogging_factoryIstAuflösbar()
     {

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Naudit.Infrastructure.Data;
 using Xunit;
 
@@ -80,18 +81,49 @@ public class NauditDbContextTests
         Assert.Equal("{}", (await db.SetupDrafts.SingleAsync(d => d.Id == 1)).Json);
     }
 
-    [Fact]
-    public async Task ShareSessionInPool_defaultsFalse_andRoundtrips()
+    private static List<string> AccountColumns(NauditDbContext db)
     {
-        await using var db = CreateDb();
-        var a = new AccountEntity { Username = "u", Provider = AccountProvider.Local, Status = AccountStatus.Active, CreatedAt = DateTime.UtcNow };
-        db.Accounts.Add(a);
-        await db.SaveChangesAsync();
-        Assert.False((await db.Accounts.SingleAsync()).ShareSessionInPool); // Default false
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM pragma_table_info('Accounts')";
+        using var reader = cmd.ExecuteReader();
+        var cols = new List<string>();
+        while (reader.Read()) cols.Add(reader.GetString(0));
+        return cols;
+    }
 
-        a.ShareSessionInPool = true;
-        await db.SaveChangesAsync();
-        db.ChangeTracker.Clear();
-        Assert.True((await db.Accounts.AsNoTracking().SingleAsync()).ShareSessionInPool);
+    [Fact]
+    public void Migrate_fromScratch_hasNoPoolColumn()
+    {
+        // RoundRobin-Pool entfernt: das frische Schema kennt ShareSessionInPool nicht mehr.
+        using var db = CreateDb();
+        var cols = AccountColumns(db);
+        Assert.Contains("GitAuthorLogin", cols);
+        Assert.DoesNotContain("ShareSessionInPool", cols);
+    }
+
+    [Fact]
+    public async Task Migrate_upgradeFromPoolSchema_dropsColumn_andKeepsAccounts()
+    {
+        // Bestands-DB mit Pool-Spalte (Stand vor RemoveSharePoolFlag) inkl. Opt-in-Zeile ⇒ Upgrade
+        // entfernt die Spalte (SQLite: Tabellen-Rebuild) und behält den Account samt Token.
+        var path = Path.Combine(Path.GetTempPath(), $"naudit-test-{Guid.NewGuid():N}.db");
+        var opts = new DbContextOptionsBuilder<NauditDbContext>().UseSqlite($"Data Source={path}").Options;
+        await using var db = new NauditDbContext(opts);
+        var migrator = db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+        migrator.Migrate("20260726120000_AddChatTranscripts");
+        Assert.Contains("ShareSessionInPool", AccountColumns(db));
+        await db.Database.ExecuteSqlRawAsync(
+            "INSERT INTO Accounts (Username, Provider, Status, IsAdmin, CreatedAt, ClaudeSessionToken, GitAuthorLogin, ShareSessionInPool) "
+            + "VALUES ('alice', 'GitHub', 'Active', 0, '2026-01-01 00:00:00', 'cipher', 'alice', 1)");
+
+        db.Database.Migrate();
+
+        Assert.DoesNotContain("ShareSessionInPool", AccountColumns(db));
+        var acct = await db.Accounts.AsNoTracking().SingleAsync();
+        Assert.Equal("alice", acct.Username);
+        Assert.Equal("cipher", acct.ClaudeSessionToken);
+        Assert.Equal("alice", acct.GitAuthorLogin);
     }
 }
