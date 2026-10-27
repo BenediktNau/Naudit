@@ -422,11 +422,13 @@ public class ClaudeCodeChatClientTests
 
             await client.GetResponseAsync(Messages());
 
-            var env = stub.LastSpec!.Environment!;
-            Assert.True(env.ContainsKey(secretVar));
-            Assert.Null(env[secretVar]);                                   // maskiert, nicht geerbt
-            Assert.Equal(Environment.GetEnvironmentVariable("PATH"), env["PATH"]);
-            Assert.Equal(Environment.GetEnvironmentVariable("HOME"), env["HOME"]);
+            var spec = stub.LastSpec!;
+            var env = spec.Environment!;
+            var inherited = spec.InheritedEnvironment!;                    // Minimal-Env-Allowlist des Runners
+            Assert.False(env.ContainsKey(secretVar));
+            Assert.False(ProcessEnvironment.IsAllowed(secretVar, inherited)); // nicht geerbt
+            Assert.True(ProcessEnvironment.IsAllowed("PATH", inherited));
+            Assert.True(ProcessEnvironment.IsAllowed("HOME", inherited));
             Assert.Equal("tok-1", env["CLAUDE_CODE_OAUTH_TOKEN"]);
             Assert.False(string.IsNullOrWhiteSpace(env["CLAUDE_CONFIG_DIR"]));
         }

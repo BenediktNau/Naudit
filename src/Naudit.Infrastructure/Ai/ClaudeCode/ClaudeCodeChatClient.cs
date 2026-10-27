@@ -13,7 +13,7 @@ namespace Naudit.Infrastructure.Ai.ClaudeCode;
 /// MCP optional (mcp): Server per --mcp-config registriert, --allowedTools NUR auf die
 /// MCP-Server beschränkt, alle eingebauten Tools per --disallowedTools entzogen, --max-turns auf
 /// McpOptions.MaxIterations erhöht. Jeder Lauf: eigenes leeres CWD und minimale Umgebung
-/// (geerbte Naudit-Secrets werden maskiert) — der Prompt trägt untrusted Diff-Inhalt.
+/// (geerbte Naudit-Secrets werden nicht vererbt) — der Prompt trägt untrusted Diff-Inhalt.
 /// </summary>
 public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
 {
@@ -30,26 +30,17 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         "WebFetch", "WebSearch", "TodoWrite", "ExitPlanMode", "Skill", "SlashCommand", "LSP",
     ];
 
-    // Minimale Umgebung für den CLI-Lauf: nur, was die CLI zum Starten, für Auth und für Netz
-    // (Proxy/CA) braucht. Alles andere (Naudit__*-Secrets, ConnectionStrings, Cloud-Keys …) wird
-    // maskiert. Spiegelt den Env-Filter des DockerSessionRunner für den In-Process-Pfad.
-    private static readonly HashSet<string> PassThroughEnv = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "PATH", "HOME", "USER", "LOGNAME", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR",
-        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
-        "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
-        // Windows-Grundausstattung (ohne die startet kein Node-Prozess sauber)
-        "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP",
-    };
-
-    // Auth/Endpoint der CLI selbst (z. B. ein auf dem Host gesetztes CLAUDE_CODE_OAUTH_TOKEN, wenn
-    // Naudit:Ai:ApiKey leer ist) — bisher geerbt, das bleibt so.
-    private static readonly string[] PassThroughPrefixes = ["ANTHROPIC_", "CLAUDE_CODE_"];
+    // Minimale Umgebung für den CLI-Lauf (ProcessSpec.InheritedEnvironment): nur, was die CLI zum
+    // Starten, für Auth und für Netz (Proxy/CA) braucht. Alles andere (Naudit__*-Secrets,
+    // ConnectionStrings, Cloud-Keys …) erbt der Kindprozess nicht. Spiegelt den Env-Filter des
+    // DockerSessionRunner für den In-Process-Pfad. ANTHROPIC_*/CLAUDE_CODE_*: Auth/Endpoint der CLI
+    // selbst (z. B. ein auf dem Host gesetztes CLAUDE_CODE_OAUTH_TOKEN, wenn Naudit:Ai:ApiKey leer ist).
+    internal static readonly IReadOnlyList<string> CliEnvironment =
+        ProcessEnvironment.MinimalPlus("NODE_EXTRA_CA_CERTS", "ANTHROPIC_*", "CLAUDE_CODE_*");
 
     /// <summary>Darf diese geerbte Umgebungsvariable den CLI-Prozess erreichen?</summary>
     public static bool IsPassThroughEnvironmentVariable(string name)
-        => PassThroughEnv.Contains(name)
-           || PassThroughPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        => ProcessEnvironment.IsAllowed(name, CliEnvironment);
 
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
@@ -157,7 +148,8 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             StdIn: user,
             Environment: env,
             WorkingDirectory: workDir, // leeres CWD: kein ambient CLAUDE.md, nichts zu lesen
-            Timeout: TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
+            Timeout: TimeSpan.FromSeconds(aiOptions.TimeoutSeconds),
+            InheritedEnvironment: CliEnvironment);
 
         try
         {
@@ -206,18 +198,11 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         }
     }
 
-    // ProcessSpec.Environment ist additiv zur geerbten Umgebung (SystemProcessRunner) — daher jede
-    // geerbte Variable außerhalb der Allowlist explizit auf null setzen (= maskiert: der Kindprozess
-    // sieht den Wert nicht). Danach die per-Lauf-Werte (Config-Dir, Session-Token) setzen.
+    // Per-Lauf-Werte (Config-Dir, Session-Token); die geerbte Umgebung filtert der Runner über
+    // ProcessSpec.InheritedEnvironment (CliEnvironment).
     private static Dictionary<string, string?> BuildEnvironment(string configDir, string? token)
     {
-        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
-        {
-            var key = (string)e.Key;
-            env[key] = IsPassThroughEnvironmentVariable(key) ? e.Value as string : null;
-        }
-        env["CLAUDE_CONFIG_DIR"] = configDir;
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { ["CLAUDE_CONFIG_DIR"] = configDir };
         if (!string.IsNullOrWhiteSpace(token))
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token;
         return env;

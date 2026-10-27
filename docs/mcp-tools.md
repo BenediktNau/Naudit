@@ -41,10 +41,11 @@ diff context.
 
 Every CLI run (both cases) also gets a **dedicated, empty working directory** (a per-run
 `naudit-claude/<guid>/work` next to its `CLAUDE_CONFIG_DIR`, instead of the shared temp dir where
-review checkouts live) and a **minimal environment**: only `PATH`, `HOME`, user/locale/`TZ`/`TMPDIR`,
-proxy (`HTTP(S)_PROXY`, `NO_PROXY`, `ALL_PROXY`), CA (`SSL_CERT_FILE`, `SSL_CERT_DIR`,
+review checkouts live) and a **minimal environment** (the same `ProcessEnvironment.Minimal`
+allowlist git and the SAST analyzers use): only `PATH`, `HOME`, user/locale/`TZ`/temp dirs,
+proxy (`HTTP(S)_PROXY`, `NO_PROXY`, `ALL_PROXY`), CA (`SSL_CERT_FILE`, `SSL_CERT_DIR`, plus
 `NODE_EXTRA_CA_CERTS`) and the CLI's own `ANTHROPIC_*`/`CLAUDE_CODE_*` variables are inherited;
-every other inherited variable (e.g. `Naudit__*` secrets, connection strings) is masked. The
+every other inherited variable (e.g. `Naudit__*` secrets, connection strings) is not passed on. The
 Docker session sandbox already passed only the session token. Each configured server
 `Name` is validated against `^[A-Za-z0-9_-]+$` before it's used to build the allowlist string, so
 a stray space or special character in the config can't smuggle extra tokens into it. When MCP is
