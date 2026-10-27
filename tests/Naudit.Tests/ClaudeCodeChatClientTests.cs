@@ -360,6 +360,124 @@ public class ClaudeCodeChatClientTests
         Assert.Equal(tempCountBefore, Directory.GetFiles(Path.GetTempPath(), "naudit-mcp-*.json").Length);
     }
 
+    // --- Härtung: keine eingebauten Tools, leeres CWD, minimale Umgebung ---
+
+    private static Naudit.Infrastructure.Mcp.McpOptions Context7() => new()
+    {
+        Enabled = true,
+        Servers = { new() { Name = "context7", Transport = "http", Url = "https://mcp.context7.com/mcp" } },
+    };
+
+    [Fact]
+    public async Task GetResponseAsync_mcpEnabled_disallowsAllBuiltInTools_andIgnoresAmbientMcpConfig()
+    {
+        // --allowedTools allein entfernt die eingebauten Tools NICHT (Read/Grep/Glob brauchen in -p keine
+        // Freigabe) — ein Diff mit Prompt-Injection könnte sonst Dateien neben dem CWD lesen.
+        var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+        var client = new ClaudeCodeChatClient(
+            new AiOptions { Provider = AiProvider.ClaudeCode, Model = "sonnet" }, stub, Context7());
+
+        await client.GetResponseAsync(Messages());
+
+        var args = stub.LastSpec!.Arguments.ToList();
+        Assert.Contains("--disallowedTools", args);
+        var deny = args[args.IndexOf("--disallowedTools") + 1].Split(' ');
+        foreach (var tool in new[] { "Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch", "NotebookEdit", "Task" })
+            Assert.Contains(tool, deny);
+        Assert.DoesNotContain(deny, t => t.StartsWith("mcp__", StringComparison.Ordinal));
+        Assert.Contains("--strict-mcp-config", args);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_runsInDedicatedEmptyWorkingDirectory_notTmp()
+    {
+        string? cwd = null;
+        var entries = -1;
+        var stub = new StubProcessRunner(spec =>
+        {
+            cwd = spec.WorkingDirectory;
+            entries = Directory.EnumerateFileSystemEntries(spec.WorkingDirectory!).Count();
+            return new ProcessResult(0, Envelope("OK"), "");
+        });
+        var client = new ClaudeCodeChatClient(new AiOptions { Provider = AiProvider.ClaudeCode }, stub);
+
+        await client.GetResponseAsync(Messages());
+
+        Assert.NotNull(cwd);
+        Assert.NotEqual(Path.GetFullPath(Path.GetTempPath()).TrimEnd('/'), Path.GetFullPath(cwd!).TrimEnd('/'));
+        Assert.Equal(0, entries);              // leer: nichts, was ein Tool lesen könnte
+        Assert.False(Directory.Exists(cwd));   // nach dem Lauf aufgeräumt
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_masksInheritedSecrets_butKeepsPathAndHome()
+    {
+        const string secretVar = "Naudit__GitHub__Token_CCTEST";
+        Environment.SetEnvironmentVariable(secretVar, "ghp-geheim");
+        try
+        {
+            var stub = new StubProcessRunner(_ => new ProcessResult(0, Envelope("OK"), ""));
+            var client = new ClaudeCodeChatClient(
+                new AiOptions { Provider = AiProvider.ClaudeCode, ApiKey = "tok-1" }, stub);
+
+            await client.GetResponseAsync(Messages());
+
+            var spec = stub.LastSpec!;
+            var env = spec.Environment!;
+            var inherited = spec.InheritedEnvironment!;                    // Minimal-Env-Allowlist des Runners
+            Assert.False(env.ContainsKey(secretVar));
+            Assert.False(ProcessEnvironment.IsAllowed(secretVar, inherited)); // nicht geerbt
+            Assert.True(ProcessEnvironment.IsAllowed("PATH", inherited));
+            Assert.True(ProcessEnvironment.IsAllowed("HOME", inherited));
+            Assert.Equal("tok-1", env["CLAUDE_CODE_OAUTH_TOKEN"]);
+            Assert.False(string.IsNullOrWhiteSpace(env["CLAUDE_CONFIG_DIR"]));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(secretVar, null);
+        }
+    }
+
+    [Theory]
+    [InlineData("PATH", true)]
+    [InlineData("HOME", true)]
+    [InlineData("HTTPS_PROXY", true)]
+    [InlineData("no_proxy", true)]
+    [InlineData("SSL_CERT_FILE", true)]
+    [InlineData("ANTHROPIC_API_KEY", true)]
+    [InlineData("CLAUDE_CODE_OAUTH_TOKEN", true)]
+    [InlineData("Naudit__GitHub__Token", false)]
+    [InlineData("Naudit__Ai__ApiKey", false)]
+    [InlineData("ConnectionStrings__Default", false)]
+    [InlineData("AWS_SECRET_ACCESS_KEY", false)]
+    [InlineData("CLAUDE_CONFIG_DIR", false)]   // setzt der Adapter pro Lauf selbst
+    public void IsPassThroughEnvironmentVariable_allowsOnlyCliEssentials(string name, bool expected)
+        => Assert.Equal(expected, ClaudeCodeChatClient.IsPassThroughEnvironmentVariable(name));
+
+    [Fact]
+    public async Task MaskedEnvironment_doesNotReachRealChildProcess()
+    {
+        // End-to-end über den echten SystemProcessRunner: ein maskierter (null) Eintrag darf den
+        // Kindprozess nicht mit seinem Wert erreichen. POSIX-only (/bin/sh).
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())) return;
+        const string secretVar = "NAUDIT_CCTEST_SECRET";
+        Environment.SetEnvironmentVariable(secretVar, "s3cret-wert");
+        try
+        {
+            var env = new Dictionary<string, string?> { [secretVar] = null };
+            var spec = new ProcessSpec("/bin/sh", ["-c", $"printf '%s' \"${secretVar}\""], null, env, null, TimeSpan.FromSeconds(10));
+
+            var result = await new SystemProcessRunner().RunAsync(spec);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.DoesNotContain("s3cret-wert", result.StdOut);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(secretVar, null);
+        }
+    }
+
     [Fact]
     public async Task GetResponseAsync_mcpMaxIterationsZeroOrNegative_clampsToOne_inMaxTurnsArg()
     {

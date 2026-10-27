@@ -27,7 +27,8 @@ public sealed class DistillingReviewGuidelines(
         "error-handling policies, security requirements, naming and testing conventions. " +
         "If the documentation contains no such rules, respond with an empty string.";
 
-    public async Task<string?> GetAsync(string projectId, string? workspaceDir, CancellationToken ct = default)
+    public async Task<string?> GetAsync(string projectId, string? workspaceDir,
+        IReadOnlyCollection<string>? changedFiles = null, CancellationToken ct = default)
     {
         try
         {
@@ -42,6 +43,18 @@ public sealed class DistillingReviewGuidelines(
             // Checkout heilt der Hash-Vergleich das von selbst (fremde Docs ⇒ Mismatch ⇒ frisch).
             if (workspaceDir is null)
                 return Emit(stored is { ManuallyEdited: true } ? stored.Markdown : null);
+
+            // Guidelines-Poisoning: ändert DIESER MR selbst eine Destillat-Quelle, stammt die Doku im
+            // Checkout vom (ungemergten, ggf. bösartigen) PR-Head. Dann weder destillieren noch den
+            // Cache anfassen, sondern das gespeicherte (gemergte) Profil nutzen — oder keins. Nach dem
+            // Merge sieht das nächste Review eines anderen MRs die neue Doku und frischt normal auf.
+            if (TouchesSources(changedFiles))
+            {
+                logger.LogInformation(
+                    "Guidelines für {Project}: MR ändert Doku-Quellen — kein Destillat aus dem PR-Head, nutze gespeichertes Profil.",
+                    projectId);
+                return Emit(stored?.Markdown);
+            }
 
             var sources = await CollectSourcesAsync(workspaceDir, ct);
             if (sources.Count == 0)
@@ -126,6 +139,32 @@ public sealed class DistillingReviewGuidelines(
             logger.LogWarning(ex, "Guidelines-Abruf für {Project} fehlgeschlagen — Review läuft ohne Profil weiter.", projectId);
             return null;
         }
+    }
+
+    // Trifft einer der geänderten Pfade ein Sources-Muster? Bewusst case-insensitiv (konservativ:
+    // im Zweifel lieber ein ausgelassenes Auto-Refresh als ein vergiftetes Profil).
+    private bool TouchesSources(IReadOnlyCollection<string>? changedFiles)
+    {
+        if (changedFiles is null || changedFiles.Count == 0)
+            return false;
+        const string recursiveMd = "/**/*.md";
+        foreach (var raw in changedFiles)
+        {
+            var path = raw.Replace('\\', '/').TrimStart('/');
+            foreach (var pattern in options.Guidelines.Sources)
+            {
+                if (pattern.EndsWith(recursiveMd, StringComparison.Ordinal))
+                {
+                    var dir = pattern[..^recursiveMd.Length].Trim('/') + "/";
+                    if (path.StartsWith(dir, StringComparison.OrdinalIgnoreCase)
+                        && path.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                else if (string.Equals(path, pattern.Replace('\\', '/').TrimStart('/'), StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
     }
 
     // Leeres/Whitespace-Profil ⇒ null (PromptBuilder lässt die Sektion dann weg).

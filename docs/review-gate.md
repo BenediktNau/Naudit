@@ -38,6 +38,30 @@ toward the gate — both carry severity/confidence.
 > drive the verdict by themselves; they are context for the LLM, which then rates its own
 > findings. See [SAST grounding](sast-grounding.md).
 
+## Empty or unparseable responses never approve
+
+Zero findings means `approve` — but only for a **real** review. The response must be a
+JSON object carrying a non-blank `summary` and/or a `comments` array. Anything else —
+an empty response, invalid JSON, a non-object (`[]`, `null`), or an empty object
+(`{}`, `{"summary":"  "}`) — aborts the review with an error **before anything is
+posted**: no summary, no inline comments, no verdict. `POST /review` then fails instead
+of returning `approve`, so a CI gate does not pass; a webhook review is logged as failed.
+
+## Residual risk: the verdict trusts the LLM
+
+The gate derives the verdict from what the model reports. Untrusted content (diff, title,
+repository docs) is fenced and the system prompt tells the model to treat it as data and
+to report injection attempts as findings (see [Prompt redaction](redaction.md) for the
+other prompt-side defenses), but a sufficiently effective prompt injection can still make
+the model return a *well-formed* "no significant issues" review — which the gate turns
+into `approve`.
+
+With the default `Naudit:GitHub:PostVerdict` / `Naudit:GitLab:PostVerdict = false` this
+only affects the advisory comment and the `POST /review` result. With `PostVerdict = true`
+Naudit posts a **real approval** — so only enable it if a human review (e.g. required
+CODEOWNERS approval / branch protection) still stands between Naudit's approval and the
+merge. Treat Naudit's approval as one signal, never as the sole merge gate.
+
 ## Configuration
 
 ```jsonc

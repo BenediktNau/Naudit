@@ -114,8 +114,7 @@ public sealed class ReviewService(
         // ResponseFormat=Json in einen Markdown-Codeblock — vor dem Deserialisieren den Fence strippen.
         // Fail-closed bleibt nur für "gar keine parsebare Antwort": das Verdict wird unten aus den
         // Findings abgeleitet, nicht mehr vom LLM behauptet.
-        var parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(response.Text), JsonOpts)
-            ?? throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.");
+        var parsed = ParseResponse(response.Text);
 
         // Jeden Fund gegen die kommentierbaren Diff-Zeilen prüfen und dabei das severity-bewusste
         // Gate auswerten: blockt nur ein BESTÄTIGTER High/Critical-Fund (≥ konfigurierter Schwelle).
@@ -212,7 +211,7 @@ public sealed class ReviewService(
     {
         var needCheckout = _analyzers.Count > 0 || options.Context.Enabled;
         if (!needCheckout)
-            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ChangedPaths(changes), ct));
 
         IReviewWorkspace workspace;
         try
@@ -222,7 +221,7 @@ public sealed class ReviewService(
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             // Checkout fehlgeschlagen → diff-only
-            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ct));
+            return (FindingReduction.Empty, ReviewContext.Empty, await reviewGuidelines.GetAsync(request.ProjectId, null, ChangedPaths(changes), ct));
         }
 
         await using (workspace)
@@ -235,11 +234,16 @@ public sealed class ReviewService(
                 ? await SafeCollectContextAsync(workspace, changes, ct)
                 : ReviewContext.Empty;
 
-            var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ct);
+            var guidelines = await reviewGuidelines.GetAsync(request.ProjectId, workspace.RootPath, ChangedPaths(changes), ct);
 
             return (reduction, context, guidelines);
         }
     }
+
+    // Geänderte Pfade für das Architektur-Profil: ändert der MR selbst die Doku-Quellen, wird nicht
+    // aus seinem Head destilliert (Guidelines-Poisoning, siehe IReviewGuidelines).
+    private static IReadOnlyCollection<string> ChangedPaths(IReadOnlyList<CodeChange> changes)
+        => changes.Select(c => c.FilePath).ToList();
 
     private async Task<FindingReduction> RunAnalyzersAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes,
@@ -411,6 +415,26 @@ public sealed class ReviewService(
             _ => "⚪",
         };
         return $"**{icon} {severity}** · confidence {confidence.ToString().ToLowerInvariant()}";
+    }
+
+    // Fail-closed: kaputtes JSON, ein Nicht-Objekt oder ein inhaltsloses Objekt (weder Summary noch
+    // "comments") ist KEIN "Review ohne Findings" — sonst würde eine leere bzw. per Prompt-Injection
+    // erzwungene Antwort über das Gate zu approve (mit PostVerdict=true eine echte Freigabe). Der Wurf
+    // bricht das Review ab, bevor irgendetwas gepostet wird (CI: Fehler statt approve).
+    private static LlmReviewResponse ParseResponse(string text)
+    {
+        LlmReviewResponse? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<LlmReviewResponse>(ExtractJson(text), JsonOpts);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("LLM lieferte keine parsebare Review-Antwort.", ex);
+        }
+        if (parsed is null || (string.IsNullOrWhiteSpace(parsed.Summary) && parsed.Comments is null))
+            throw new InvalidOperationException("LLM lieferte eine leere Review-Antwort (weder summary noch comments).");
+        return parsed;
     }
 
     // Robustheit gegen Modelle, die das JSON trotz ResponseFormat=Json in einen Markdown-Fence
