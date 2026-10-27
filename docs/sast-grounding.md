@@ -41,10 +41,48 @@ env/appsettings-only.
   bundled `gitleaks` binary). Findings carry the rule, file and line only — the
   **raw secret value is never forwarded** into the prompt or logs. Reported under the
   `Secrets` category.
-- **dotnet-sca** — `.NET` SCA via `dotnet list package --vulnerable`. **Opt-in:**
-  it runs `dotnet restore`, which **executes the reviewed code's build logic**,
-  and it needs the .NET SDK in the image (the default runtime image only ships
-  opengrep + trivy). Enable only for trusted repos and an SDK-based image.
+- ~~**dotnet-sca**~~ — **removed.** It ran `dotnet restore` on the checked-out PR,
+  and MSBuild props/targets from the repo execute during restore, so a malicious PR
+  got remote code execution on the Naudit host. For NuGet dependency scanning use
+  **osv-scanner** or **trivy** (both read `packages.lock.json` / `*.csproj` without
+  building). A configuration that still lists `dotnet-sca` (env or DB) keeps
+  starting: the name is skipped with a startup warning (if nothing else is left,
+  the default `opengrep,trivy` applies). The Settings API no longer accepts it.
+
+### Hardening: analyzers run on untrusted code
+
+The checkout is attacker-controlled, so every analyzer is started defensively:
+
+- **Minimal environment.** Analyzer and `git` processes do **not** inherit the host
+  environment (which holds every `Naudit__*` secret). They only see `PATH`, `HOME`,
+  temp dirs, locale/timezone, `XDG_*`, proxy and CA variables (`HTTP(S)_PROXY`,
+  `NO_PROXY`, `SSL_CERT_FILE/DIR`) — trivy additionally `TRIVY_*` (cache dir, DB
+  mirror). `GitWorkspaceProvider` also passes `GIT_SSL_CAINFO`.
+- **No repo-local tool config.** Tools run with the checkout as working directory,
+  so without explicit flags they would pick up config files from the PR:
+  - trivy: `--config` and `--ignorefile` point at empty files Naudit controls. A
+    repo `trivy.yaml` could otherwise set e.g. `output:` to write the report to an
+    arbitrary path, and a `.trivyignore` could hide findings.
+  - betterleaks: `--config` (built-in default rules only) and `--gitleaks-ignore-path`
+    (an empty directory) — a repo `.gitleaks.toml` allowlist or `.gitleaksignore`
+    would otherwise suppress secret findings.
+  - osv-scanner: `--config` points at an empty file, overriding per-directory
+    `osv-scanner.toml` (`IgnoredVulns`).
+  - These files live in a private temp directory (`naudit-analyzer-config-*`, mode
+    `0700`), outside every checkout.
+- **Residual cases** (documented, not fixed): opengrep still honours a repo
+  `.semgrepignore` and inline `nosemgrep` comments; betterleaks still honours inline
+  `gitleaks:allow` / `betterleaks:allow` comments. Both can only **hide findings**
+  (no file writes, no code execution), and inline markers are visible in the diff.
+  opengrep's only switch to ignore `.semgrepignore` is an internal
+  `--x-ignore-semgrepignore-files` flag that is explicitly not part of its API, so
+  Naudit does not rely on it.
+- **Checkout itself.** The clone URL is token-free; the git token is handed to the
+  `git fetch` process only, as an `http.extraHeader` via `GIT_CONFIG_*` environment
+  variables — never in argv or `.git/config`. Checkout runs with
+  `core.symlinks=false`, so symlinks in the PR become plain text files, and every
+  Naudit reader of the checkout (repo context, architecture-profile distillation)
+  additionally refuses any path whose file or parent directory is a symlink.
 
 ### OpenGrep rules
 

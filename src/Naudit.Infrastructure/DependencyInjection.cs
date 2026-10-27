@@ -283,6 +283,7 @@ public static class DependencyInjection
         // SAST/SCA-Grounding: immer die Infrastruktur-Naht registrieren (harmlos wenn ungenutzt),
         // Analyzer nur bei Enabled. Ohne Analyzer verhält sich ReviewService exakt diff-only.
         var sastOptions = configuration.GetSection("Naudit:Sast").Get<SastOptions>() ?? new SastOptions();
+        // Entfernte Analyzer (dotnet-sca) fallen hier heraus — der Startup-Report warnt darüber.
         sastOptions.Analyzers = SastOptions.ResolveAnalyzers(sastOptions.Analyzers);
         // Voller gepinnter Regelbaum (alle Sprachen) + Overlay laufen IMMER; konfigurierte Pfade
         // kommen additiv dazu. So fällt das Overlay nie versehentlich weg, wenn jemand einen
@@ -325,12 +326,6 @@ public static class DependencyInjection
                         services.AddScoped<ISastAnalyzer>(sp => new TrivyAnalyzer(
                             sp.GetRequiredService<IProcessRunner>(),
                             sp.GetRequiredService<ILoggerFactory>().CreateLogger<TrivyAnalyzer>(),
-                            sastOptions.AnalyzerTimeout));
-                        break;
-                    case "dotnet-sca":
-                        services.AddScoped<ISastAnalyzer>(sp => new DotnetScaAnalyzer(
-                            sp.GetRequiredService<IProcessRunner>(),
-                            sp.GetRequiredService<ILoggerFactory>().CreateLogger<DotnetScaAnalyzer>(),
                             sastOptions.AnalyzerTimeout));
                         break;
                     default:

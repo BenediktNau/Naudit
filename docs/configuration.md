@@ -142,7 +142,7 @@ doesn't parse, e.g. a typo'd `Naudit:Git:Platform`) instead trips **recovery mod
 | `Naudit:Review:Mcp:MaxIterations` | Tool round-trip cap per review, both provider paths (default `4`) |
 | `Naudit:Review:Mcp:Servers:<n>:Name` / `:Transport` / `:Url` / `:Command` / `:Arguments` / `:ApiKey` | Configured MCP servers — list-shaped like `ProjectTokens`, env/appsettings-configurable; the per-server `ApiKey` is a **secret** and must not go in `appsettings.json` (user-secrets/env/secret-manager only, see [MCP tools](mcp-tools.md)) |
 | `Naudit:Sast:Enabled` | SAST/SCA grounding on/off — default `false`; off ⇒ exactly diff-only (see [SAST grounding](sast-grounding.md)) |
-| `Naudit:Sast:Analyzers` | Active analyzers — `opengrep` \| `betterleaks` \| `osv-scanner` \| `trivy` \| `dotnet-sca`; **list-shaped** (see [List-shaped settings](#list-shaped-settings)); empty ⇒ `opengrep,trivy` |
+| `Naudit:Sast:Analyzers` | Active analyzers — `opengrep` \| `betterleaks` \| `osv-scanner` \| `trivy` (the removed `dotnet-sca` is skipped with a startup warning); **list-shaped** (see [List-shaped settings](#list-shaped-settings)); empty ⇒ `opengrep,trivy` |
 | `Naudit:Sast:AnalyzerTimeout` | Timeout per analyzer run (default `00:05:00`) |
 | `Naudit:Sast:MaxFindingsPerGroup` | Cap per category for findings on a commentable diff line, when condensing findings (default `30`; findings beyond the cap are dropped without replacement — see [SAST grounding](sast-grounding.md#pre-existing-findings)) |
 | `Naudit:Sast:MaxPreExistingPerGroup` | Separate, smaller cap per category for findings in a changed file but outside the diff hunks (default `5`); see [Pre-existing findings](sast-grounding.md#pre-existing-findings) |

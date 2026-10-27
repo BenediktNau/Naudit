@@ -110,4 +110,21 @@ public class SastWiringTests
             ["Naudit:Sast:Analyzers:0"] = "bandit",
         }));
     }
+
+    [Fact]
+    public void Enabled_withRemovedDotnetSca_skipsIt_insteadOfFailingStartup()
+    {
+        // Alte Env-/DB-Config mit dotnet-sca darf weder werfen noch den Recovery-Modus auslösen.
+        using var sp = Build(new()
+        {
+            ["Naudit:Git:Platform"] = "GitLab",
+            ["Naudit:Sast:Enabled"] = "true",
+            ["Naudit:Sast:Analyzers:0"] = "trivy",
+            ["Naudit:Sast:Analyzers:1"] = "dotnet-sca",
+        });
+
+        using var scope = sp.CreateScope();
+        var analyzer = Assert.Single(scope.ServiceProvider.GetServices<ISastAnalyzer>());
+        Assert.Equal("trivy", analyzer.Name);
+    }
 }

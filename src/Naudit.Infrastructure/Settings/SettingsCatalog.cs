@@ -57,7 +57,7 @@ public static class SettingsCatalog
         new("Naudit:Ai:Sandbox:PidsLimit", false),
         new("Naudit:Sast:Enabled", false),
         new("Naudit:Sast:Analyzers", false, IsList: true,
-            AllowedValues: ["opengrep", "betterleaks", "osv-scanner", "trivy", "dotnet-sca"]),
+            AllowedValues: ["opengrep", "betterleaks", "osv-scanner", "trivy"]),
         new("Naudit:Sast:AnalyzerTimeout", false),
         new("Naudit:Sast:MaxFindingsPerGroup", false),
         new("Naudit:Sast:MaxPreExistingPerGroup", false),

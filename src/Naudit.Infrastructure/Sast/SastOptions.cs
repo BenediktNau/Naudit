@@ -5,7 +5,7 @@ public sealed class SastOptions
     /// <summary>SAST/SCA-Grounding global an/aus. Aus ⇒ exakt diff-only.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>Aktive Analyzer per Name: "opengrep", "trivy", "dotnet-sca".
+    /// <summary>Aktive Analyzer per Name: "opengrep", "betterleaks", "osv-scanner", "trivy".
     /// Leer im Objekt, damit Config-Binding eine Liste nicht verdoppelt; Standard-Fallback in DI.</summary>
     public List<string> Analyzers { get; set; } = new();
 
@@ -13,11 +13,24 @@ public sealed class SastOptions
     /// DI-Registrierung: der Startup-Report muss denselben Wert anzeigen, den DI registriert.</summary>
     public static readonly IReadOnlyList<string> DefaultAnalyzers = ["opengrep", "trivy"];
 
-    /// <summary>Effektive Analyzer-Liste: konfigurierte Namen, sonst <see cref="DefaultAnalyzers"/>.
-    /// Anders als bei den OpenGrep-Regeln NICHT additiv — wer Analyzer wählt, wählt sie abschließend.</summary>
+    /// <summary>Entfernte Analyzer, die in alten Env-/DB-Configs noch stehen können. Sie werden beim
+    /// Auflösen still übersprungen (der Startup-Report warnt), statt den Start in den Recovery-Modus
+    /// zu kippen. "dotnet-sca" lief `dotnet restore` auf dem PR-Checkout — MSBuild-Targets/Props aus
+    /// dem Repo ⇒ beliebige Codeausführung. Ersatz für NuGet-SCA: osv-scanner bzw. trivy.</summary>
+    public static readonly IReadOnlyList<string> RemovedAnalyzers = ["dotnet-sca"];
+
+    /// <summary>Konfigurierte Namen, die auf einen entfernten Analyzer zeigen.</summary>
+    public static List<string> FindRemovedAnalyzers(IEnumerable<string> configured)
+        => configured.Where(n => RemovedAnalyzers.Contains(n.Trim(), StringComparer.OrdinalIgnoreCase)).ToList();
+
+    /// <summary>Effektive Analyzer-Liste: konfigurierte Namen (ohne <see cref="RemovedAnalyzers"/>),
+    /// sonst <see cref="DefaultAnalyzers"/>. Anders als bei den OpenGrep-Regeln NICHT additiv — wer
+    /// Analyzer wählt, wählt sie abschließend.</summary>
     public static List<string> ResolveAnalyzers(IEnumerable<string> configured)
     {
-        var list = configured.ToList();
+        var list = configured
+            .Where(n => !RemovedAnalyzers.Contains(n.Trim(), StringComparer.OrdinalIgnoreCase))
+            .ToList();
         return list.Count > 0 ? list : DefaultAnalyzers.ToList();
     }
 
