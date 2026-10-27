@@ -21,7 +21,7 @@ the model:
 | --- | --- | --- |
 | Tool delivery | `ChatOptions.Tools`, built by `McpReviewToolProvider` (`src/Naudit.Infrastructure/Mcp/`) from the MCP SDK's `McpClientTool : AIFunction` | `--mcp-config <path>` — the server list as JSON, written to a **0600 temp file** (never argv, since it can carry the `ApiKey`) and deleted again after the CLI run |
 | Loop | `IChatClient.AsBuilder().UseFunctionInvocation()`, capped by `MaximumIterationsPerRequest` | `--max-turns N` (today's single-shot uses `1`) |
-| Tool allowance | implicit — whatever tools are in the request | `--allowedTools "mcp__<server>"` per configured server, **and nothing else** |
+| Tool allowance | implicit — whatever tools are in the request | `--allowedTools "mcp__<server>"` per configured server, every built-in tool removed via `--disallowedTools`, `--strict-mcp-config` |
 
 For the MEAI providers, `AiClientFactory`'s client is wrapped with the MEAI function-invocation
 middleware only when MCP is enabled; `Naudit.Core`'s `IReviewToolProvider` (the only new Core
@@ -31,9 +31,21 @@ abstraction — it returns MEAI `AITool`s, so Core stays MEAI-only) supplies the
 For the ClaudeCode CLI, the tools don't travel through `ChatOptions.Tools` at all — the CLI is
 its own `IChatClient` that ignores it. Instead `ClaudeCodeChatClient` is handed the same
 `McpOptions` directly and builds `--mcp-config` + `--allowedTools` itself. Critically, the
-allowlist names **only** the configured MCP servers (`mcp__<server>`) — the CLI's built-in
-file/shell tools (Bash, Edit, Read, Write) stay off in both the MCP-on and MCP-off case. A review
-bot must not gain host shell/file access from untrusted diff context. Each configured server
+allowlist names **only** the configured MCP servers (`mcp__<server>`). An allowlist alone does
+**not** remove the CLI's built-in tools — read-only tools like Read/Grep/Glob need no approval in
+`-p` mode — so the MCP-on case additionally passes `--disallowedTools` with every built-in tool
+(Bash, Read, Edit, Write, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task/Agent, …) and
+`--strict-mcp-config` (no ambient `.mcp.json`/user MCP servers); the MCP-off case keeps
+`--tools ""` (all built-ins off). A review bot must not gain host shell/file access from untrusted
+diff context.
+
+Every CLI run (both cases) also gets a **dedicated, empty working directory** (a per-run
+`naudit-claude/<guid>/work` next to its `CLAUDE_CONFIG_DIR`, instead of the shared temp dir where
+review checkouts live) and a **minimal environment**: only `PATH`, `HOME`, user/locale/`TZ`/`TMPDIR`,
+proxy (`HTTP(S)_PROXY`, `NO_PROXY`, `ALL_PROXY`), CA (`SSL_CERT_FILE`, `SSL_CERT_DIR`,
+`NODE_EXTRA_CA_CERTS`) and the CLI's own `ANTHROPIC_*`/`CLAUDE_CODE_*` variables are inherited;
+every other inherited variable (e.g. `Naudit__*` secrets, connection strings) is masked. The
+Docker session sandbox already passed only the session token. Each configured server
 `Name` is validated against `^[A-Za-z0-9_-]+$` before it's used to build the allowlist string, so
 a stray space or special character in the config can't smuggle extra tokens into it. When MCP is
 disabled, the CLI args are byte-identical to before this feature (`--tools ""`, `--max-turns 1`).

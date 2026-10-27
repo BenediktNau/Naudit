@@ -11,11 +11,45 @@ namespace Naudit.Infrastructure.Ai.ClaudeCode;
 /// IChatClient-Adapter, der die `claude` CLI headless aufruft (Abo-Auth statt API-Key).
 /// Reiner Single-Shot: System-Prompt überschrieben, Diff über stdin, Tools aus, ein Turn.
 /// MCP optional (mcp): Server per --mcp-config registriert, --allowedTools NUR auf die
-/// MCP-Server beschränkt (kein Bash/Edit/Read/Write), --max-turns auf McpOptions.MaxIterations erhöht.
+/// MCP-Server beschränkt, alle eingebauten Tools per --disallowedTools entzogen, --max-turns auf
+/// McpOptions.MaxIterations erhöht. Jeder Lauf: eigenes leeres CWD und minimale Umgebung
+/// (geerbte Naudit-Secrets werden maskiert) — der Prompt trägt untrusted Diff-Inhalt.
 /// </summary>
 public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner runner, McpOptions? mcp = null) : IChatClient
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    // Eingebaute CLI-Tools, die im MCP-Modus explizit entzogen werden. --allowedTools ist nur eine
+    // Freigabe-Liste: Read/Grep/Glob brauchen in -p keine Freigabe und blieben sonst nutzbar — ein
+    // per Prompt-Injection gesteuertes Modell könnte so Checkouts/Dateien des Hosts lesen.
+    // Unbekannte Namen (ältere/neuere CLI) sind für --disallowedTools harmlos.
+    private static readonly string[] BuiltInTools =
+    [
+        "Agent", "Task", "Bash", "BashOutput", "KillShell", "KillBash", "PowerShell", "Monitor",
+        "Read", "Edit", "MultiEdit", "Write", "Glob", "Grep", "LS", "NotebookRead", "NotebookEdit",
+        "WebFetch", "WebSearch", "TodoWrite", "ExitPlanMode", "Skill", "SlashCommand", "LSP",
+    ];
+
+    // Minimale Umgebung für den CLI-Lauf: nur, was die CLI zum Starten, für Auth und für Netz
+    // (Proxy/CA) braucht. Alles andere (Naudit__*-Secrets, ConnectionStrings, Cloud-Keys …) wird
+    // maskiert. Spiegelt den Env-Filter des DockerSessionRunner für den In-Process-Pfad.
+    private static readonly HashSet<string> PassThroughEnv = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PATH", "HOME", "USER", "LOGNAME", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+        // Windows-Grundausstattung (ohne die startet kein Node-Prozess sauber)
+        "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP",
+    };
+
+    // Auth/Endpoint der CLI selbst (z. B. ein auf dem Host gesetztes CLAUDE_CODE_OAUTH_TOKEN, wenn
+    // Naudit:Ai:ApiKey leer ist) — bisher geerbt, das bleibt so.
+    private static readonly string[] PassThroughPrefixes = ["ANTHROPIC_", "CLAUDE_CODE_"];
+
+    /// <summary>Darf diese geerbte Umgebungsvariable den CLI-Prozess erreichen?</summary>
+    public static bool IsPassThroughEnvironmentVariable(string name)
+        => PassThroughEnv.Contains(name)
+           || PassThroughPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
@@ -31,8 +65,9 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
         // ChatOptions (z. B. ResponseFormat=Json) hat in der CLI kein Äquivalent: JSON wird allein über
         // den System-Prompt erzwungen; --output-format json betrifft nur das Envelope, nicht den Modelltext.
         // MCP an ⇒ Loop erlauben (--max-turns N), Server registrieren (--mcp-config) und AUSSCHLIESSLICH
-        // die MCP-Tools freigeben (--allowedTools mcp__<server>) — die eingebauten Datei-/Shell-Tools
-        // (Bash/Edit/Read/Write) bleiben aus. MCP aus ⇒ exakt die heutigen Args (--tools "", --max-turns 1).
+        // die MCP-Tools freigeben (--allowedTools mcp__<server>); die eingebauten Tools werden zusätzlich
+        // per --disallowedTools entzogen (eine Allowlist allein entfernt sie NICHT). MCP aus ⇒ --tools ""
+        // (alle eingebauten Tools aus), --max-turns 1.
         var mcpEnabled = mcp is { Enabled: true, Servers.Count: > 0 };
         var args = new List<string> { "-p", "--output-format", "json" };
         string? mcpConfigPath = null;
@@ -81,8 +116,11 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             args.Add(maxTurns.ToString(System.Globalization.CultureInfo.InvariantCulture));
             args.Add("--mcp-config");
             args.Add(mcpConfigPath);
+            args.Add("--strict-mcp-config");   // nur die eigenen Server, keine ambient .mcp.json/User-Config
             args.Add("--allowedTools");
             args.Add(string.Join(" ", mcp.Servers.Select(s => $"mcp__{s.Name}")));   // nur die MCP-Server
+            args.Add("--disallowedTools");
+            args.Add(string.Join(" ", BuiltInTools));                                  // eingebaute Tools hart aus
         }
         else
         {
@@ -105,18 +143,20 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
 
         // Isolation pro Lauf: eigenes CLAUDE_CONFIG_DIR, damit parallele Läufe mit unterschiedlichen
         // Tokens (Autor-Sessions) nie CLI-State teilen. Token optional aus der Config.
-        var configDir = Path.Combine(Path.GetTempPath(), "naudit-claude", Guid.NewGuid().ToString("N"));
+        // Daneben ein eigenes, LEERES Arbeitsverzeichnis statt /tmp (dort liegen die Review-Checkouts).
+        var runDir = Path.Combine(Path.GetTempPath(), "naudit-claude", Guid.NewGuid().ToString("N"));
+        var configDir = Path.Combine(runDir, "config");
+        var workDir = Path.Combine(runDir, "work");
         Directory.CreateDirectory(configDir);
-        var env = new Dictionary<string, string?> { ["CLAUDE_CONFIG_DIR"] = configDir };
-        if (!string.IsNullOrWhiteSpace(aiOptions.ApiKey))
-            env["CLAUDE_CODE_OAUTH_TOKEN"] = aiOptions.ApiKey;
+        Directory.CreateDirectory(workDir);
+        var env = BuildEnvironment(configDir, aiOptions.ApiKey);
 
         var spec = new ProcessSpec(
             FileName: "claude",
             Arguments: args,
             StdIn: user,
             Environment: env,
-            WorkingDirectory: Path.GetTempPath(), // neutrales CWD: kein ambient CLAUDE.md
+            WorkingDirectory: workDir, // leeres CWD: kein ambient CLAUDE.md, nichts zu lesen
             Timeout: TimeSpan.FromSeconds(aiOptions.TimeoutSeconds));
 
         try
@@ -154,7 +194,7 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
             // Best-effort beide Scratch-Ressourcen aufräumen: das per-Lauf-CLAUDE_CONFIG_DIR
             // (Autor-Sessions) und die --mcp-config-Temp-Datei mit dem ApiKey (MCP). Löschfehler
             // (z. B. bereits weg) sind egal — Cancellation wird hier NICHT abgefangen.
-            try { Directory.Delete(configDir, recursive: true); }
+            try { Directory.Delete(runDir, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
             if (mcpConfigPath is not null)
@@ -164,6 +204,23 @@ public sealed class ClaudeCodeChatClient(AiOptions aiOptions, IProcessRunner run
                 catch (UnauthorizedAccessException) { }
             }
         }
+    }
+
+    // ProcessSpec.Environment ist additiv zur geerbten Umgebung (SystemProcessRunner) — daher jede
+    // geerbte Variable außerhalb der Allowlist explizit auf null setzen (= maskiert: der Kindprozess
+    // sieht den Wert nicht). Danach die per-Lauf-Werte (Config-Dir, Session-Token) setzen.
+    private static Dictionary<string, string?> BuildEnvironment(string configDir, string? token)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+        {
+            var key = (string)e.Key;
+            env[key] = IsPassThroughEnvironmentVariable(key) ? e.Value as string : null;
+        }
+        env["CLAUDE_CONFIG_DIR"] = configDir;
+        if (!string.IsNullOrWhiteSpace(token))
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = token;
+        return env;
     }
 
     // Nur [A-Za-z0-9_-] — der Name landet 1:1 (als "mcp__<name>") in der --allowedTools-Allowlist;
