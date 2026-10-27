@@ -7,8 +7,8 @@ using Naudit.Infrastructure.Process;
 
 namespace Naudit.Infrastructure.Sast;
 
-/// <summary>Secrets-Detection über Betterleaks: `betterleaks dir . --report-format json
-/// --report-path /dev/stdout --no-banner` im Workspace-Root (rein statisch, kein Build,
+/// <summary>Secrets-Detection über Betterleaks: `betterleaks dir . --config &lt;naudit&gt;
+/// --gitleaks-ignore-path &lt;leer&gt; --report-format json --report-path /dev/stdout --no-banner` im Workspace-Root (rein statisch, kein Build,
 /// keine git-History — nur der ausgecheckte Stand). Eingebaute Regeln, kein Regelset nötig.
 /// Betterleaks ist der vom ursprünglichen Gitleaks-Autor gepflegte Drop-in-Nachfolger
 /// (gleiche CLI/Config, aktuelle Dependencies) und ersetzt das gebündelte Gitleaks-Binary.
@@ -24,9 +24,16 @@ public sealed class BetterleaksAnalyzer(
     public async Task<IReadOnlyList<ScanFinding>> AnalyzeAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct = default)
     {
+        // --config/--gitleaks-ignore-path explizit: sonst zöge betterleaks die repo-eigene
+        // .gitleaks.toml (Allowlist auf ".*" ⇒ keine Funde) bzw. .gitleaksignore aus dem Checkout.
+        // Env minimal: auch BETTERLEAKS_CONFIG/GITLEAKS_CONFIG* aus der Host-Env greifen so nicht.
         var spec = new ProcessSpec(
-            "betterleaks", ["dir", ".", "--report-format", "json", "--report-path", "/dev/stdout", "--no-banner"],
-            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout);
+            "betterleaks",
+            ["dir", ".", "--config", AnalyzerConfigFiles.BetterleaksConfig,
+             "--gitleaks-ignore-path", AnalyzerConfigFiles.EmptyDirectory,
+             "--report-format", "json", "--report-path", "/dev/stdout", "--no-banner"],
+            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout,
+            InheritedEnvironment: ProcessEnvironment.Minimal);
 
         ProcessResult result;
         try { result = await runner.RunAsync(spec, ct); }

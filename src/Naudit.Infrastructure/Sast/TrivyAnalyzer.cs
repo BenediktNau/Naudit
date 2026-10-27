@@ -7,20 +7,29 @@ using Naudit.Infrastructure.Process;
 
 namespace Naudit.Infrastructure.Sast;
 
-/// <summary>SCA über Trivy: `trivy fs --scanners vuln --format json --quiet .` im Workspace-Root.
+/// <summary>SCA über Trivy: `trivy fs --config &lt;leer&gt; --ignorefile &lt;leer&gt; --scanners vuln
+/// --format json --quiet .` im Workspace-Root.
 /// Führt fremden Code NICHT aus. Fehler ⇒ leere Liste (geloggt).</summary>
 public sealed class TrivyAnalyzer(IProcessRunner runner, ILogger<TrivyAnalyzer> logger, TimeSpan timeout) : ISastAnalyzer
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    private static readonly IReadOnlyList<string> TrivyEnvironment = ProcessEnvironment.MinimalPlus("TRIVY_*");
 
     public string Name => "trivy";
 
     public async Task<IReadOnlyList<ScanFinding>> AnalyzeAsync(
         IReviewWorkspace workspace, IReadOnlyList<CodeChange> changes, CancellationToken ct = default)
     {
+        // --config/--ignorefile explizit: sonst zöge trivy die repo-eigene trivy.yaml (CWD = Checkout;
+        // kann z. B. output: an beliebige Pfade setzen) bzw. .trivyignore (unterdrückt Funde).
+        // Env minimal (keine Naudit-Secrets), TRIVY_* bleibt für Betreiber-Cache/DB-Mirror.
         var spec = new ProcessSpec(
-            "trivy", ["fs", "--scanners", "vuln", "--format", "json", "--quiet", "."],
-            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout);
+            "trivy",
+            ["fs", "--config", AnalyzerConfigFiles.TrivyConfig, "--ignorefile", AnalyzerConfigFiles.TrivyIgnore,
+             "--scanners", "vuln", "--format", "json", "--quiet", "."],
+            StdIn: null, Environment: null, WorkingDirectory: workspace.RootPath, Timeout: timeout,
+            InheritedEnvironment: TrivyEnvironment);
 
         ProcessResult result;
         try { result = await runner.RunAsync(spec, ct); }

@@ -58,7 +58,16 @@ public class OsvScannerAnalyzerTests
         var spec = runner.LastSpec!;
         Assert.Equal("osv-scanner", spec.FileName);
         Assert.Equal("/work", spec.WorkingDirectory);
-        Assert.Equal(new[] { "scan", "source", "--format", "json", "-r", "." }, spec.Arguments);
+        Assert.Equal("scan", spec.Arguments[0]);
+        Assert.Equal("source", spec.Arguments[1]);
+        Assert.Equal(new[] { "--format", "json", "-r", "." }, spec.Arguments.TakeLast(4));
+        // Repo-eigene osv-scanner.toml (IgnoredVulns) darf keine Funde unterdrücken:
+        // explizite, leere Config unter Naudits Kontrolle (außerhalb des Checkouts).
+        var cfg = spec.Arguments[spec.Arguments.ToList().IndexOf("--config") + 1];
+        Assert.False(cfg.StartsWith("/work"));
+        Assert.True(File.Exists(cfg));
+        Assert.Equal("", File.ReadAllText(cfg));
+        AnalyzerAssertions.MinimalEnvironment(spec);
     }
 
     [Fact]

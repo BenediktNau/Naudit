@@ -75,9 +75,21 @@ public class BetterleaksAnalyzerTests
         var spec = runner.LastSpec!;
         Assert.Equal("betterleaks", spec.FileName);
         Assert.Equal("/tmp/x", spec.WorkingDirectory);
+        Assert.Equal(new[] { "dir", "." }, spec.Arguments.Take(2));
         Assert.Equal(
-            new[] { "dir", ".", "--report-format", "json", "--report-path", "/dev/stdout", "--no-banner" },
-            spec.Arguments);
+            new[] { "--report-format", "json", "--report-path", "/dev/stdout", "--no-banner" },
+            spec.Arguments.TakeLast(5));
+        // Repo-eigene .gitleaks.toml / .gitleaksignore dürfen keine Funde unterdrücken:
+        // explizite Config (Default-Regeln) und Ignore-Pfad unter Naudits Kontrolle.
+        var args = spec.Arguments.ToList();
+        var cfg = args[args.IndexOf("--config") + 1];
+        Assert.True(File.Exists(cfg));
+        Assert.Contains("useDefault = true", File.ReadAllText(cfg));
+        var ignore = args[args.IndexOf("--gitleaks-ignore-path") + 1];
+        Assert.True(Directory.Exists(ignore));
+        Assert.False(ignore.StartsWith("/tmp/x"));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(ignore, "*ignore*"));
+        AnalyzerAssertions.MinimalEnvironment(spec);
     }
 
     [Fact]
