@@ -48,6 +48,12 @@ jobs:
         run: npm ci
         working-directory: src/frontend
 
+      # Bricht bei bekannten High/Critical-Luecken ab (auch transitiv/dev). Vorher gab es
+      # kein Gate, Funde wie brace-expansion/nanoid/zod blieben wochenlang liegen.
+      - name: Audit (npm, high+)
+        run: npm audit --audit-level=high
+        working-directory: src/frontend
+
       - name: Lint
         run: npm run lint
         working-directory: src/frontend
