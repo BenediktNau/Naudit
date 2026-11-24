@@ -48,3 +48,28 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+
+  # npm-Pakete des WebUI-Frontends (Vite/React/TS/Tailwind/ESLint) — fehlte bisher,
+  # dadurch liefen die Frontend-Abhaengigkeiten ohne Updates (Dependency-Report KW38).
+  - package-ecosystem: npm
+    directory: /src/frontend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    # Versions- UND Security-Updates jeweils in einem PR buendeln: ein Security-PR soll
+    # alle Funde zugleich beheben, sonst blockiert das npm-audit-Gate (ci.yml) jeden
+    # Einzel-Fix an den jeweils anderen Luecken (Lehre aus NauAssist, Report KW47).
+    groups:
+      npm:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
